@@ -1,0 +1,11 @@
+<%- include('partials/head') %>
+<section class="hero"><span class="eyebrow">只读诊断</span><h1>资料库健康</h1><p class="muted">Markdown 是源文件，SQLite 索引可以安全删除后重建。</p></section>
+<section class="card health-grid">
+  <h2>资料源与索引</h2>
+  <p>vault <strong><%= report.vault.exists ? '可用' : '不存在' %></strong>；notes/ <strong><%= report.vault.notesDirExists ? '可用' : '不存在' %></strong>。</p>
+  <p>Markdown <strong><%= report.vault.noteFiles %></strong> 篇，索引 <strong><%= report.vault.indexedNotes %></strong> 篇，差异 <strong><%= report.vault.indexLag %></strong>。</p>
+  <p>索引状态：<strong><%= report.index.phase %></strong>，失败 <strong><%= report.index.failureTotal %></strong> 项。</p>
+</section>
+<section class="card"><h2>恢复与同步</h2><p>本地历史/草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条；Git <strong><%= report.git.isRepository ? (report.git.dirty ? '有未提交改动' : '干净') : '不是仓库' %></strong>。</p><p>断链 <strong><%= report.links.brokenCount %></strong> 个；复习日志坏行 <strong><%= report.reviews.malformedLines %></strong>，重复事件 <strong><%= report.reviews.duplicateEventIds %></strong>。</p></section>
+<% if (report.index.failures.length) { %><section class="card"><h2>索引失败项</h2><ul><% report.index.failures.forEach(item => { %><li><code><%= item.path %></code>：<%= item.reason %></li><% }) %></ul></section><% } %>
+<%- include('partials/foot') %>

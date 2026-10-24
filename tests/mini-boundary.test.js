@@ -53,7 +53,6 @@ test('Mini 对已删除能力的页面入口返回 404', async () => {
       '/retro',
       '/briefing',
       '/graph',
-      '/health',
       '/pdf/search',
       '/ask',
       '/shadowing',
@@ -61,6 +60,9 @@ test('Mini 对已删除能力的页面入口返回 404', async () => {
       '/board/submission',
       '/board/chapter'
     ];
+    await request(ctx.app).get('/health').expect(200);
+    const health = await request(ctx.app).get('/api/health').expect(200);
+    assert.equal(health.body.vault.indexRebuildable, true);
     for (const route of removedPaths) {
       const response = await request(ctx.app).get(route);
       assert.equal(response.status, 404, route + ' 应被 Mini 移除');

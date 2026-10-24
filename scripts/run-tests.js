@@ -26,6 +26,7 @@ const miniCoreTests = [
   'desktop-vault-resolution.test.js',
   'draftsClient.test.js',
   'indexer.test.js',
+  'health.test.js',
   'mistakeHttp.test.js',
   'mistakes.test.js',
   'mini-boundary.test.js',

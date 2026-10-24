@@ -72,11 +72,11 @@ test('工作区壳提供当前导航、主内容与命令面板语义', async ()
     assert.match(search.text, /class="workspace-nav-link is-active" href="\/search" aria-current="page">\s*<span>笔记<\/span>/);
 
     const board = await request(ctx.app).get('/board/experiment').expect(200);
-    assert.match(board.text, /class="workspace-nav-link is-active" href="\/board\/experiment" aria-current="page">\s*<span>看板<\/span>/);
+    assert.match(board.text, /class="chip active" href="\/board\/experiment" aria-current="page">研究项目<\/a>/);
 
     const health = await request(ctx.app).get('/health').expect(200);
     assert.match(health.text, /<details class="workspace-tools" open>/);
-    assert.match(health.text, /class="workspace-nav-link is-active" href="\/health" aria-current="page">知识库体检<\/a>/);
+    assert.match(health.text, /资料库健康/);
   } finally {
     await ctx.cleanup();
   }

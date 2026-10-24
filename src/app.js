@@ -4,6 +4,7 @@ const express = require('express');
 
 const { createNoteRoutes } = require('./routes/noteRoutes');
 const { createHistoryRoutes } = require('./routes/historyRoutes');
+const { createHealthRoutes } = require('./routes/healthRoutes');
 const { createReviewRoutes } = require('./routes/reviewRoutes');
 const { createMistakeRoutes } = require('./routes/mistakeRoutes');
 const { createItemRoutes } = require('./routes/itemRoutes');
@@ -99,6 +100,7 @@ function createApp(config, deps) {
   app.use(createItemRoutes({ config, ...resolved }));
   app.use(createNoteRoutes({ config, ...resolved }));
   app.use(createHistoryRoutes({ config, ...resolved }));
+  app.use(createHealthRoutes({ config, ...resolved }));
 
   app.use((req, res) => {
     const message = `没有这个地址：${req.path}`;

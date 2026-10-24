@@ -17,7 +17,8 @@
   ];
   const toolItems = [
     { label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
-    { label: '截止日期', href: '/deadlines', active: matches('/deadlines') }
+    { label: '截止日期', href: '/deadlines', active: matches('/deadlines') },
+    { label: '资料库健康', href: '/health', active: matches('/health') }
   ];
   const toolsActive = toolItems.some(item => item.active);
   // isMac 由 src/app.js 注入。前端按 data-primary-modifier 决定认哪个修饰键，
