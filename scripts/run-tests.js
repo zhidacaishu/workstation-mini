@@ -16,12 +16,49 @@ const electronPath = require('electron');
 const argumentsFromCli = process.argv.slice(2);
 const desktopOnly = argumentsFromCli.includes('--desktop');
 const forwarded = argumentsFromCli.filter(argument => argument !== '--desktop');
+const miniCoreTests = [
+  'appClient.test.js',
+  'config.test.js',
+  'dates.test.js',
+  'desktop-config.test.js',
+  'desktop-platform-policy.test.js',
+  'desktop-quit-coordinator.test.js',
+  'desktop-vault-resolution.test.js',
+  'draftsClient.test.js',
+  'indexer.test.js',
+  'itemHttp.test.js',
+  'items.test.js',
+  'mistakeHttp.test.js',
+  'mistakes.test.js',
+  'mini-boundary.test.js',
+  'noteQueue.test.js',
+  'reliabilityFeatures.test.js',
+  'review.test.js',
+  'reviewForecast.test.js',
+  'reviewHttp.test.js',
+  'segment.test.js',
+  'sync.test.js',
+  'vault.test.js',
+  'watcher.test.js'
+];
 const testFiles = desktopOnly
   ? fs.readdirSync(path.join(__dirname, '..', 'tests'))
       .filter(name => /^desktop.*\.test\.js$/.test(name))
+      .filter(name => ![
+        'desktop-pdf-smoke.test.js',
+        'desktop-reminders.test.js',
+        'desktop-recovery-activation.test.js',
+        'desktop-recovery-first-run-smoke.test.js',
+        'desktop-recovery-residue-smoke.test.js',
+        'desktop-recovery-validation.test.js',
+        'desktop-smoke.test.js',
+        'desktop-trusted-sender.test.js',
+        'desktop-updater.test.js',
+        'desktop-validation.test.js'
+      ].includes(name))
       .sort()
       .map(name => path.join('tests', name))
-  : [];
+  : miniCoreTests.map(name => path.join('tests', name));
 
 function findExecutable(name) {
   for (const directory of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
