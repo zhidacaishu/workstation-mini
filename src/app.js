@@ -4,13 +4,10 @@ const express = require('express');
 
 const { createNoteRoutes } = require('./routes/noteRoutes');
 const { createHistoryRoutes } = require('./routes/historyRoutes');
-const { createCalendarRoutes } = require('./routes/calendarRoutes');
 const { createReviewRoutes } = require('./routes/reviewRoutes');
 const { createMistakeRoutes } = require('./routes/mistakeRoutes');
 const { createItemRoutes } = require('./routes/itemRoutes');
 const { createTodayRoutes } = require('./routes/todayRoutes');
-const { createAttachmentRoutes } = require('./routes/attachmentRoutes');
-const { createSimilarityService } = require('./similarityService');
 const { encodePath } = require('./vault/paths');
 
 function safeEqual(left, right) {
@@ -38,7 +35,6 @@ function createApp(config, deps) {
     },
     // 没显式传相似度服务就退回主线程内联计算：运行时会传一个带工作线程的进来，
     // 而直接构造 app 的调用方不该被迫去管线程生命周期。
-    ...(deps?.db ? { similarity: createSimilarityService({ db: deps.db, useWorker: false }) } : {}),
     ...deps
   };
 
@@ -98,11 +94,9 @@ function createApp(config, deps) {
   });
 
   app.use(createTodayRoutes({ config, ...resolved }));
-  app.use(createCalendarRoutes({ config, ...resolved }));
   app.use(createReviewRoutes({ config, ...resolved }));
   app.use(createMistakeRoutes({ config, ...resolved }));
   app.use(createItemRoutes({ config, ...resolved }));
-  app.use(createAttachmentRoutes({ config, ...resolved }));
   app.use(createNoteRoutes({ config, ...resolved }));
   app.use(createHistoryRoutes({ config, ...resolved }));
 
