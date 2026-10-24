@@ -7,17 +7,17 @@
     {
       label: '工作台',
       items: [
-        { label: '今天', href: '/', active: matches('/') },
-        { label: '知识', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
-        { label: '复习', href: '/review', active: matches('/review', '/decks') },
-        { label: '练习与错题', href: '/mistakes', active: matches('/mistakes') },
-        { label: '研究项目', href: '/board/experiment', active: matches('/board') }
+        { label: '今日', href: '/', active: matches('/') },
+        { label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
+        { label: '日历', href: '/calendar', active: matches('/calendar') },
+        { label: '卡片', href: '/decks', active: matches('/decks', '/review') },
+        { label: '待办', href: '/tasks', active: matches('/tasks') },
+        { label: '错题', href: '/mistakes', active: matches('/mistakes') }
       ]
     }
   ];
   const toolItems = [
     { label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
-    { label: '待办', href: '/tasks', active: matches('/tasks') },
     { label: '截止日期', href: '/deadlines', active: matches('/deadlines') }
   ];
   const toolsActive = toolItems.some(item => item.active);
@@ -26,7 +26,7 @@
   const onMac = typeof isMac !== 'undefined' && isMac;
   const primaryModifier = onMac ? 'meta' : 'control';
   const paletteHint = onMac ? '\u2318K' : 'Ctrl K';
-  const pageMode = matches('/board')
+  const pageMode = matches('/calendar')
     ? 'page-canvas'
     : matches('/review', '/edit', '/new')
       ? 'page-focus'
