@@ -7,39 +7,18 @@
     {
       label: '工作台',
       items: [
-        { label: '今日', href: '/', active: matches('/') },
-        { label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
-        { label: '日记', href: '/diary', active: matches('/diary') },
-        { label: '日历', href: '/calendar', active: matches('/calendar') },
-        { label: '卡片', href: '/decks', active: matches('/decks', '/review') },
-        { label: '待办', href: '/tasks', active: matches('/tasks') }
-      ]
-    },
-    {
-      label: '研究',
-      items: [
-        { label: '看板', href: '/board/experiment', active: matches('/board', '/submissions') },
-        { label: '文献', href: '/library', active: matches('/library') },
-        { label: '错题', href: '/mistakes', active: matches('/mistakes') }
-      ]
-    },
-    {
-      label: '知识',
-      items: [
-        { label: '图谱', href: '/graph', active: matches('/graph') },
-        { label: '问资料库', href: '/ask', active: matches('/ask') }
+        { label: '今天', href: '/', active: matches('/') },
+        { label: '知识', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
+        { label: '复习', href: '/review', active: matches('/review', '/decks') },
+        { label: '练习与错题', href: '/mistakes', active: matches('/mistakes') },
+        { label: '研究项目', href: '/board/experiment', active: matches('/board') }
       ]
     }
   ];
   const toolItems = [
     { label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
-    { label: '截止日期', href: '/deadlines', active: matches('/deadlines') },
-    { label: '周期回顾', href: '/retro', active: matches('/retro') },
-    { label: '每日简报', href: '/briefing', active: matches('/briefing') },
-    { label: '每日回顾', href: '/highlights', active: matches('/highlights') },
-    { label: '知识库体检', href: '/health', active: matches('/health') },
-    { label: '影子跟读', href: '/shadowing', active: matches('/shadowing') },
-    { label: '发表到博客', href: '/publish', active: matches('/publish') }
+    { label: '待办', href: '/tasks', active: matches('/tasks') },
+    { label: '截止日期', href: '/deadlines', active: matches('/deadlines') }
   ];
   const toolsActive = toolItems.some(item => item.active);
   // isMac 由 src/app.js 注入。前端按 data-primary-modifier 决定认哪个修饰键，
