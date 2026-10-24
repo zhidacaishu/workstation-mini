@@ -1,0 +1,136 @@
+{
+  "name": "workstation-mini",
+  "version": "0.1.0",
+  "private": true,
+  "description": "精简版本地知识复习与研究练习工作台",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node scripts/build-native-helper.js --optional && electron .",
+    "dev": "node scripts/build-native-helper.js --optional && electron .",
+    "test": "node scripts/run-tests.js",
+    "test:desktop": "node scripts/run-tests.js --desktop",
+    "desktop:dir": "electron-builder --dir --win --x64 --publish never",
+    "desktop:build": "electron-builder --win nsis --x64 --publish never",
+    "desktop:dir:mac": "node scripts/build-native-helper.js --arch arm64 && electron-builder --dir --mac --arm64 --publish never",
+    "desktop:build:mac": "node scripts/build-native-helper.js --arch arm64 && electron-builder --mac dmg --arm64 --publish never",
+    "verify-mac-package": "node scripts/verify-mac-package.js",
+    "postinstall": "electron-builder install-app-deps && node scripts/build-native-helper.js --optional"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "better-sqlite3": "^13.0.3",
+    "ejs": "^6.0.1",
+    "electron-updater": "^6.8.9",
+    "express": "^5.2.1",
+    "gray-matter": "^4.0.3",
+    "markdown-it": "^15.0.0",
+    "ts-fsrs": "^5.4.1",
+    "yauzl": "^3.4.0"
+  },
+  "devDependencies": {
+    "electron": "43.3.0",
+    "electron-builder": "26.15.3",
+    "playwright-core": "^1.55.0",
+    "supertest": "^7.1.1"
+  },
+  "build": {
+    "appId": "com.research.workstation-mini",
+    "productName": "Workstation Mini",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/**/*.node"
+    ],
+    "npmRebuild": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/tray.png",
+        "to": "tray.png"
+      },
+      {
+        "from": "build/trayTemplate.png",
+        "to": "trayTemplate.png"
+      },
+      {
+        "from": "build/trayTemplate@2x.png",
+        "to": "trayTemplate@2x.png"
+      }
+    ],
+    "mac": {
+      "publish": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "research-workstation-${version}-mac-arm64-experimental.${ext}",
+      "identity": "-",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "binaries": [
+        "Contents/Resources/rename-exclusive"
+      ],
+      "extraResources": [
+        {
+          "from": "build/native/darwin-${arch}/rename-exclusive",
+          "to": "rename-exclusive"
+        }
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "title": "科研工作台 ${version}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 180
+        },
+        {
+          "x": 430,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "research-workstation-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "科研工作台"
+    },
+    "artifactName": "workstation-mini-${version}-setup.${ext}"
+  },
+  "productName": "科研工作台 Mini"
+}

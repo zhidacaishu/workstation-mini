@@ -1,0 +1,67 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <h1>待办</h1>
+  <p class="muted">
+    从各篇笔记正文的 <code>- [ ]</code> 抽出来的，可直接完成与排期；更新写回原笔记，日期留空可取消排期。
+  </p>
+  <nav class="boardnav">
+    <a class="chip" href="/board/experiment">实验记录</a>
+    <a class="chip" href="/board/submission">投稿追踪</a>
+    <a class="chip" href="/board/chapter">教材进度</a>
+    <a class="chip active" href="/tasks" aria-current="page">待办</a>
+  </nav>
+</section>
+
+<div class="statrow">
+  <div class="stat">
+    <span class="stat-label">未完成</span>
+    <span class="stat-value"><%= summary.open %></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">已逾期</span>
+    <span class="stat-value <%= summary.overdue ? 'is-overdue' : '' %>"><%= summary.overdue %></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">今天到期</span>
+    <span class="stat-value"><%= summary.dueToday %></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">已完成</span>
+    <span class="stat-value muted"><%= summary.done %></span>
+  </div>
+</div>
+
+<div class="collection-toolbar">
+  <span class="eyebrow">显示范围</span>
+  <p class="muted">
+    <a href="/tasks<%= showDone ? '' : '?done=1' %>"><%= showDone ? '只看未完成' : '连已完成一起看' %></a>
+    · 在待办后面写 <code>@2026-08-10</code> 就是截止日期
+  </p>
+</div>
+
+<% if (tasks.length === 0) { %>
+  <section class="card empty">
+    <h2><%= showDone ? '还没有任何待办' : '没有未完成的待办' %></h2>
+    <p>在任意笔记里写 <code>- [ ] 要做的事</code> 就会出现在这里——
+      写日记时顺手记的待办也算，不用两头维护。</p>
+  </section>
+<% } else { %>
+  <ul class="tasklist">
+    <% tasks.forEach(task => { %>
+      <li class="<%= task.done ? 'is-done' : '' %>">
+        <span class="task-box"><%= task.done ? '☑' : '☐' %></span>
+        <span class="task-title"><%= task.title %></span>
+        <%- include('partials/task-actions', { task }) %>
+        <% if (task.due) { %>
+          <span class="chip <%= !task.done && task.due < today ? 'overdue' : (task.due === today ? 'due-today' : '') %>">
+            <%= task.due < today && !task.done ? '逾期 ' : '' %><%= task.due %>
+          </span>
+        <% } %>
+        <a class="task-source muted" href="/note/<%= encodePath(task.path) %>#L<%= task.line %>"><%= task.noteTitle %></a>
+      </li>
+    <% }) %>
+  </ul>
+<% } %>
+
+<%- include('partials/foot') %>

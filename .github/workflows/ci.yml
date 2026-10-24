@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      build_installer:
+        description: Build the NSIS installer
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# 连着推几次时，只有最后一次的结果有意义。旧的跑完也没人看，白占 runner。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 快速回归：几分钟内给出「逻辑有没有坏」的答案。
+  #
+  # 正式发布只出 Windows，macOS 是 ad-hoc 的个人本地版，但绝大多数测试是纯
+  # Node 的，跑在哪个平台上都一样；桌面 smoke test 也能在 Xvfb 下真的开出窗口来。
+  # 把它们放在 Linux 上先跑一遍，就不必为了知道「应用还能不能启动」去等下面
+  # 那两个打包 job。
+  #
+  # 注意 Linux 在 platform-policy 里既不是 win32 也不是 darwin：登录启动和自动
+  # 更新两个能力都没有，和 macOS 同侧。测试要按能力分支，不能写成「非 macOS
+  # 即 Windows」—— 那样这个 job 会稳定挂在只有 Windows 才有的菜单项上。
+  #
+  # Windows job 仍是发布门禁 —— 原生 ABI、路径语义和安装器只有那边能验。
+  regression:
+    name: Linux 回归测试
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Xvfb 提供无头显示服务器（scripts/run-tests.js 检测到没有 DISPLAY 会自动套上），
+      # install-deps 补齐 Electron 的那堆 GTK/NSS 运行库 —— 交给 Playwright 去列，
+      # 比在这里手写一串包名可靠：包名会随发行版改（libasound2 → libasound2t64）。
+      - name: Install desktop test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+          npx playwright-core install-deps chromium
+
+      - name: Run regression tests
+        run: npm test
+
+  verify:
+    name: Windows 打包与冒烟
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CI: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run regression tests
+        run: npm test
+
+      - name: Build unpacked Windows application
+        run: npm run desktop:dir
+
+      - name: Locate packaged executable
+        shell: pwsh
+        run: |
+          $executables = @(Get-ChildItem -Path 'dist/win-unpacked' -Filter '*.exe' -File)
+          if ($executables.Count -ne 1) {
+            throw "Expected exactly one application executable, found $($executables.Count)."
+          }
+          "WORKSTATION_EXECUTABLE=$($executables[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run packaged desktop smoke tests
+        run: npm run test:desktop
+
+      - name: Build NSIS installer
+        if: github.event_name == 'workflow_dispatch' && inputs.build_installer
+        run: npm run desktop:build
+
+  # macOS 个人本地版的守门人。
+  #
+  # 这条路径不进 Authenticode 发布链，也没有 notarization，但「构建得出来、
+  # 是纯 arm64、原生模块能从 ASAR 外加载、菜单栏 template 资源在、签名确实是
+  # ad-hoc」这几件事必须自动验，否则 macOS 侧坏掉不会有任何红灯。
+  #
+  # macos-14 是 Apple Silicon runner，正好是唯一支持的目标架构；x86 runner 上
+  # 这个 job 没有意义（verify-mac-package 会直接判定不是纯 arm64）。
+  # 只出 --dir 不出 DMG：要验的东西都在 .app 里，而 hdiutil 打包又慢又容易在
+  # CI 上因为磁盘镜像挂载失败而抖。
+  verify-mac:
+    name: macOS 打包与冒烟
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      CI: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run development desktop smoke tests
+        run: npm run test:desktop
+
+      - name: Build unpacked macOS application
+        run: npm run desktop:dir:mac
+
+      # verify-mac-package 把实际可执行文件路径打到 stdout，正好喂给下一步。
+      - name: Verify macOS package and locate executable
+        run: echo "WORKSTATION_EXECUTABLE=$(npm run --silent verify-mac-package)" >> "$GITHUB_ENV"
+
+      - name: Run packaged desktop smoke tests
+        run: npm run test:desktop
+
+      # README 承诺 macOS 不生成更新清单（build.mac.publish 为 null）。
+      # 这一条会在有人把它删掉时立刻炸，而不是等到某个用户拿到一份没人维护的清单。
+      - name: Assert no macOS update manifest was produced
+        run: |
+          if ls dist/latest-mac*.yml >/dev/null 2>&1; then
+            echo 'dist/ 里出现了 latest-mac*.yml。检查 package.json 的 build.mac.publish —— macOS 本地版不应参与更新分发。' >&2
+            exit 1
+          fi
+          if find dist -name app-update.yml -print -quit | grep -q .; then
+            echo '.app 里出现了 app-update.yml。检查 package.json 的 build.mac.publish。' >&2
+            exit 1
+          fi

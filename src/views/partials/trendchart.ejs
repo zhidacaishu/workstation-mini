@@ -1,0 +1,64 @@
+<%
+/* 单序列柱状趋势条。
+ *
+ * 为什么是柱不是线：日记是稀疏的，不是每天都写。折线会把没写的那几天连起来，
+ * 等于凭空编出一段没发生的数据。柱状图让空缺就是空缺。
+ *
+ * 参数：series / field / label / unit / max / hue（blue | orange）/ format
+ * 单序列不配图例 —— 只有一种颜色，标题已经说明画的是什么。
+ */
+const values = series.map(d => d[field]).filter(v => v !== null);
+const peak = values.length ? Math.max(...values) : 0;
+const scaleMax = max || (peak > 0 ? peak : 1);
+
+/* 选择性直接标注：只标最高点和最近一次有值的点，不是每根柱子都标数字。 */
+let peakIndex = -1;
+let latestIndex = -1;
+series.forEach((point, index) => {
+  if (point[field] === null) return;
+  if (peakIndex === -1 || point[field] > series[peakIndex][field]) peakIndex = index;
+  latestIndex = index;
+});
+%>
+
+<figure class="trend trend-<%= hue %>">
+  <figcaption>
+    <span class="trend-label"><%= label %></span>
+    <span class="trend-meta"><%= values.length %>/<%= series.length %> 天有记录</span>
+  </figcaption>
+
+  <% if (values.length === 0) { %>
+    <p class="muted trend-empty">这 <%= series.length %> 天还没有填过<%= label %>。在日记的 frontmatter 里写 <code><%= field === 'mood' ? 'mood: 4' : 'focus_minutes: 180' %></code> 就会出现在这里。</p>
+  <% } else { %>
+    <div class="plot" role="group" aria-label="<%= label %>近 <%= series.length %> 天趋势，最高 <%= format(peak) %><%= unit %>">
+      <div class="gridline" style="bottom:100%"></div>
+      <div class="gridline" style="bottom:50%"></div>
+
+      <div class="bars">
+        <% series.forEach((point, index) => {
+             const value = point[field];
+             const height = value === null ? 0 : Math.max((value / scaleMax) * 100, 2);
+             const showLabel = index === peakIndex || (index === latestIndex && latestIndex !== peakIndex);
+        %>
+          <div class="slot" tabindex="0"
+               aria-label="<%= point.date %> <%= point.weekday %>：<%= value === null ? '无记录' : format(value) + unit %>">
+            <% if (showLabel) { %>
+              <span class="tip" style="bottom:calc(<%= height %>% + 4px)"><%= format(value) %></span>
+            <% } %>
+            <% if (value !== null) { %>
+              <span class="bar" style="height:<%= height %>%"></span>
+            <% } else { %>
+              <span class="gap-mark" aria-hidden="true"></span>
+            <% } %>
+            <span class="hovertip"><%= point.date.slice(5) %> <%= point.weekday %> · <%= value === null ? '无记录' : format(value) + unit %></span>
+          </div>
+        <% }) %>
+      </div>
+    </div>
+
+    <div class="axis">
+      <span><%= series[0].date.slice(5) %></span>
+      <span><%= series[series.length - 1].date.slice(5) %></span>
+    </div>
+  <% } %>
+</figure>

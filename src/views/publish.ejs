@@ -1,0 +1,53 @@
+<%- include('partials/head') %>
+<section class="hero">
+  <span class="eyebrow">从私人笔记到公开文章</span>
+  <h1>发表到博客</h1>
+  <p class="muted">笔记 → MDX → 写进 myblog 仓库。
+    <strong>只写文件，不提交也不推送</strong>——发表是对外动作，该由你自己看过再提交。</p>
+  <% if (!blogReady) { %>
+    <p class="muted integration-status">尚未在应用设置中选择博客仓库，可以预览转换结果但不能写入。</p>
+  <% } %>
+</section>
+
+<div class="columns">
+  <section class="col-main">
+    <form class="editform" id="publish-form">
+      <label>笔记
+        <select name="path">
+          <% candidates.forEach(note => { %>
+            <option value="<%= note.path %>" <%= note.path === notePath ? 'selected' : '' %>><%= note.title %> — <%= note.path %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>摘要（留空自动取正文第一句）<input type="text" name="description"></label>
+      <div class="searchform">
+        <label>发表日期 <input type="text" name="pubDate" value="<%= today %>"></label>
+        <label>分类 <input type="text" name="category" value="notes"></label>
+        <label>kind
+          <select name="kind"><option value="reading">reading</option><option value="ml">ml</option>
+          <option value="project">project</option><option value="life">life</option></select>
+        </label>
+      </div>
+      <label class="inline-check"><input type="checkbox" name="draft" checked> 作为草稿发表</label>
+      <div class="actions"><button class="button" type="submit">预览 MDX</button></div>
+    </form>
+    <p class="check-status" id="publish-status" hidden></p>
+    <pre class="briefing" id="publish-preview" hidden></pre>
+    <div class="actions" id="publish-actions" hidden>
+      <button class="button primary" id="publish-write" <%= blogReady && !readOnly ? '' : 'disabled' %>>写进博客仓库</button>
+    </div>
+  </section>
+
+  <aside class="col-side">
+    <h2>转换时做了什么</h2>
+    <ul class="notelist">
+      <li>正文里的 H1 降成 H2——布局已经渲染标题了</li>
+      <li>行内 <code>$$</code> 拆到独立行——remark-math 的要求</li>
+      <li>标签转小写 kebab-case</li>
+      <li><code>[[双链]]</code> 剥成纯文字——目标笔记没发表，留着就是死链</li>
+    </ul>
+    <p class="muted">写入前会先按 myblog 的 schema 校验；不合格就不写，免得到博客那边构建失败才发现。</p>
+  </aside>
+</div>
+<script src="/static/publish.js" defer></script>
+<%- include('partials/foot') %>

@@ -1,0 +1,52 @@
+<%- include('partials/head') %>
+
+<div class="note-layout pdf-preview-layout">
+  <article class="note pdf-preview">
+    <header class="note-header">
+      <span class="eyebrow">PDF 解析正文</span>
+      <h1><%= preview.document.title %></h1>
+      <p class="muted path"><%= preview.document.fileName %></p>
+      <div class="pdf-page-heading">
+        <span class="chip">第 <%= preview.pageNumber %> 页</span>
+        <% if (preview.document.pageCount) { %><span class="muted">共 <%= preview.document.pageCount %> 页</span><% } %>
+      </div>
+      <nav class="pdf-page-nav" aria-label="PDF 页面导航">
+        <% if (preview.previousChunk !== null) { %>
+          <a class="button small" href="/library/pdfs/<%= preview.document.documentId %>?chunk=<%= preview.previousChunk %>">上一页</a>
+        <% } else { %>
+          <span class="button small" aria-disabled="true">上一页</span>
+        <% } %>
+        <% if (preview.nextChunk !== null) { %>
+          <a class="button small" href="/library/pdfs/<%= preview.document.documentId %>?chunk=<%= preview.nextChunk %>">下一页</a>
+        <% } else { %>
+          <span class="button small" aria-disabled="true">下一页</span>
+        <% } %>
+      </nav>
+    </header>
+
+    <div class="pdf-page-content">
+      <% preview.chunks.forEach(chunk => { %>
+        <section id="chunk-<%= chunk.chunkIndex %>" class="prose pdf-chunk<%= chunk.chunkIndex === preview.selectedChunk ? ' is-selected' : '' %>" data-pdf-chunk="<%= chunk.chunkIndex %>">
+          <%- chunk.html %>
+        </section>
+      <% }) %>
+    </div>
+  </article>
+
+  <aside class="panel">
+    <section>
+      <h2>正文位置</h2>
+      <p>第 <strong><%= preview.pageNumber %></strong> 页</p>
+      <% if (preview.document.pageCount) { %><p class="muted">解析结果共 <%= preview.document.pageCount %> 页。</p><% } %>
+    </section>
+    <section>
+      <h2>继续检索</h2>
+      <div class="pdf-preview-actions">
+        <a class="button small" href="/library/pdfs/search">搜索 PDF 全文</a>
+        <a class="button quiet small" href="/library">返回文献</a>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<%- include('partials/foot') %>

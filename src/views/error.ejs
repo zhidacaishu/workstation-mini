@@ -1,0 +1,13 @@
+<%- include('partials/head') %>
+
+<section class="error-state">
+  <span class="eyebrow">无法完成请求</span>
+  <h1><%= title %></h1>
+  <p><%= message %></p>
+  <div class="actions">
+    <button class="button" type="button" data-go-back>返回上一页</button>
+    <a class="button primary" href="/">回到首页</a>
+  </div>
+</section>
+
+<%- include('partials/foot') %>

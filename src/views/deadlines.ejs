@@ -1,0 +1,52 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <span class="eyebrow">时间边界</span>
+  <h1>截止日期</h1>
+  <p class="muted">投稿、实验与待办的日期汇总在同一条时间轴，逾期项目会持续保留。</p>
+  <nav class="boardnav">
+    <% [30, 90, 180, 365].forEach(days => { %>
+      <a class="chip <%= horizon === days ? 'active' : '' %>" href="/deadlines?days=<%= days %>"<% if (horizon === days) { %> aria-current="page"<% } %>>未来 <%= days %> 天</a>
+    <% }) %>
+  </nav>
+</section>
+
+<% if (entries.length === 0) { %>
+  <section class="card empty">
+    <h2>这段时间没有截止日期</h2>
+    <p class="muted">两个来源：条目 frontmatter 里的 <code>deadline</code>，
+      以及待办后面的 <code>@2026-08-10</code>。</p>
+  </section>
+<% } else { %>
+  <%
+    // 按日期分组，同一天的排在一起 —— 时间轴要一眼看出「哪天最挤」。
+    const groups = [];
+    entries.forEach(entry => {
+      const last = groups[groups.length - 1];
+      if (last && last.date === entry.date) last.items.push(entry);
+      else groups.push({ date: entry.date, overdue: entry.overdue, items: [entry] });
+    });
+  %>
+  <ol class="timeline">
+    <% groups.forEach(group => { %>
+      <li class="<%= group.overdue ? 'is-overdue' : (group.date === today ? 'is-today' : '') %>">
+        <div class="timeline-date">
+          <%= group.date %>
+          <% if (group.overdue) { %><span class="chip overdue">已过</span>
+          <% } else if (group.date === today) { %><span class="chip due-today">今天</span><% } %>
+        </div>
+        <ul class="timeline-items">
+          <% group.items.forEach(entry => { %>
+            <li>
+              <a href="/note/<%= encodePath(entry.path) %>"><%= entry.label %></a>
+              <span class="chip"><%= entry.source %></span>
+              <% if (entry.detail && entry.detail !== entry.source) { %><span class="muted"><%= entry.detail %></span><% } %>
+            </li>
+          <% }) %>
+        </ul>
+      </li>
+    <% }) %>
+  </ol>
+<% } %>
+
+<%- include('partials/foot') %>

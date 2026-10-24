@@ -1,0 +1,18 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <span class="eyebrow">资料分区</span>
+  <h1><%= section %></h1>
+  <p class="muted"><%= notes.length %> 篇</p>
+</section>
+
+<ul class="notelist">
+  <% notes.forEach(note => { %>
+    <li>
+      <a href="/note/<%= encodePath(note.path) %>"><%= note.title %></a>
+      <span class="muted path"><%= note.path %></span>
+    </li>
+  <% }) %>
+</ul>
+
+<%- include('partials/foot') %>

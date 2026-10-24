@@ -1,0 +1,62 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <h1><%= deck ? `复习 · ${deck}` : '复习' %></h1>
+  <p class="muted">
+    到期 <%= dueCount %> 张 · 新卡 <%= freshCount %> 张
+    <% if (deck) { %> · <a href="/review">复习全部</a><% } %>
+  </p>
+</section>
+
+<% if (queue.length === 0) { %>
+  <section class="card empty">
+    <h2>今天没有要复习的卡片</h2>
+    <p class="muted">到期的都复习完了。新卡可以在 vault 的 <code>cards/</code> 目录里写，
+      或者在任意笔记里选中一段文字直接建卡。</p>
+    <p><a href="/decks">看看所有卡组</a></p>
+  </section>
+<% } else { %>
+  <section id="reviewer" class="reviewer" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>">
+    <div class="review-progress">
+      <span id="review-remaining"><%= queue.length %></span> 张待复习
+      <span class="muted" id="review-deck"></span>
+    </div>
+
+    <article class="reviewcard">
+      <div class="review-front" id="review-front"></div>
+      <div class="review-back" id="review-back" hidden></div>
+    </article>
+
+    <div class="review-actions">
+      <button class="button primary" id="review-reveal" type="button">显示答案 <kbd>空格</kbd></button>
+      <div class="rating-row" id="review-ratings" hidden>
+        <% ratings.forEach(rating => { %>
+          <button class="button rating" type="button" data-rating="<%= rating.rating %>" title="<%= rating.hint %>">
+            <%= rating.label %> <kbd><%= rating.key %></kbd>
+          </button>
+        <% }) %>
+      </div>
+    </div>
+
+    <p class="muted review-hint">
+      空格显示答案，<kbd>1</kbd>–<kbd>4</kbd> 评分。评分会立刻记进
+      <code>reviews/</code> 的事件日志。
+    </p>
+  </section>
+
+  <section id="review-done" class="card empty" tabindex="-1" hidden>
+    <h2 id="review-done-title">这一轮复习完了</h2>
+    <p class="muted" id="review-summary" role="status" aria-live="polite" aria-atomic="true"></p>
+    <p id="review-failures" class="review-retry" role="alert" hidden></p>
+    <p>
+      <a class="button" href="/decks">卡组</a>
+      <a class="button" href="/review">刷新卡片，再来一轮</a>
+    </p>
+  </section>
+
+  <noscript>
+    <p class="muted">复习界面需要 JavaScript。</p>
+  </noscript>
+<% } %>
+
+<%- include('partials/foot') %>

@@ -1,0 +1,81 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <h1><%= workflow.label %></h1>
+  <p class="muted">共 <%= total %> 个<%= workflow.noun %></p>
+  <nav class="boardnav">
+    <% workflows.forEach(flow => { %>
+      <a class="chip <%= flow.key === workflow.key ? 'active' : '' %>" href="/board/<%= flow.key %>"<% if (flow.key === workflow.key) { %> aria-current="page"<% } %>><%= flow.label %></a>
+    <% }) %>
+    <a class="chip" href="/tasks">待办</a>
+  </nav>
+</section>
+
+<% if (total === 0) { %>
+  <section class="card empty">
+    <h2>还没有<%= workflow.noun %></h2>
+    <p>在 vault 的 <code>notes/<%= workflow.section %>/</code> 下建 <code>.md</code> 文件，
+      frontmatter 里写 <code>status</code> 就会出现在这里：</p>
+    <pre><code>---
+title: <%= workflow.key === 'experiment' ? '基线模型' : workflow.key === 'submission' ? '平台定价' : '第三章' %>
+status: <%= workflow.initial %>
+<% workflow.fields.forEach(field => { %><%= field %>:
+<% }) %>---</code></pre>
+    <p class="muted">条目就是普通笔记——能搜到、能被 <code>[[双链]]</code> 引用、有反向链接。</p>
+  </section>
+<% } else { %>
+  <div class="board" data-board data-workflow="<%= workflow.key %>">
+    <% columns.forEach(column => { %>
+      <section class="board-col <%= column.muted ? 'is-muted' : '' %> <%= column.warn ? 'is-warn' : '' %>" data-board-column data-status="<%= column.key %>">
+        <h2><span><%= column.label %></span> <span class="count" data-column-count><%= column.items.length %></span></h2>
+        <div class="board-items" data-board-items>
+          <p class="board-empty"<% if (column.items.length) { %> hidden<% } %>>暂无条目</p>
+
+        <% column.items.forEach(item => { %>
+          <article class="board-card" data-board-card data-path="<%= item.path %>" data-status="<%= item.status %>" data-hash="<%= item.hash %>">
+            <a class="board-title" href="/note/<%= encodePath(item.path) %>"><%= item.title %></a>
+
+            <% if (item.exercises) { %>
+              <div class="progress" title="习题完成度">
+                <div class="progress-bar" style="width:<%= item.exercises.percent %>%"></div>
+              </div>
+              <p class="board-meta"><%= item.exercises.done %>/<%= item.exercises.total %> 题</p>
+            <% } %>
+
+            <% if (item.reviews.length) { %>
+              <p class="board-meta">
+                审稿意见 <%= item.reviews.length %> 条<% if (item.reviewsOpen) { %>，<span class="open-count">未回应 <%= item.reviewsOpen %></span><% } %>
+                · <a href="/submissions/letter?path=<%= encodeURIComponent(item.path) %>">导出回复稿</a>
+              </p>
+            <% } %>
+
+            <% if (item.data.journal) { %><p class="board-meta"><%= item.data.journal %></p><% } %>
+            <% if (item.data.deadline) { %>
+              <p class="board-meta <%= String(item.data.deadline).slice(0,10) < today ? 'overdue' : '' %>">
+                截止 <%= String(item.data.deadline).slice(0, 10) %>
+              </p>
+            <% } %>
+            <% if (item.data.dataset) { %><p class="board-meta"><%= item.data.dataset %></p><% } %>
+            <% if (item.data.book) { %><p class="board-meta"><%= item.data.book %></p><% } %>
+
+            <% if (!readOnly) { %>
+              <form class="statusform" action="/board/status" method="post">
+                <input type="hidden" name="workflow" value="<%= workflow.key %>">
+                <input type="hidden" name="path" value="<%= item.path %>">
+                <input type="hidden" name="expectedHash" value="<%= item.hash %>">
+                <select name="status" data-auto-submit aria-label="改变状态">
+                  <% workflow.statuses.forEach(status => { %>
+                    <option value="<%= status.key %>" <%= status.key === item.status ? 'selected' : '' %>><%= status.label %></option>
+                  <% }) %>
+                </select>
+              </form>
+            <% } %>
+          </article>
+        <% }) %>
+        </div>
+      </section>
+    <% }) %>
+  </div>
+<% } %>
+
+<%- include('partials/foot') %>

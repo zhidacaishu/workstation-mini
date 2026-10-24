@@ -1,0 +1,60 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <span class="eyebrow">记忆练习</span>
+  <h1>卡片</h1>
+  <p class="muted">共 <%= total %> 张 · 到期 <%= due %> 张 · 新卡 <%= fresh %> 张</p>
+  <% if (due + fresh > 0) { %>
+    <div class="actions"><a class="button primary" href="/review">开始复习</a></div>
+  <% } %>
+</section>
+
+<% if (typeof failures !== 'undefined' && failures.length) { %>
+  <section class="card" role="alert"><h2>部分卡组无法读取</h2><p>其它卡组仍可复习。请修复以下文件后刷新：</p><ul>
+    <% failures.forEach(failure => { %><li><code><%= failure.path %></code>：<%= failure.message %></li><% }) %>
+  </ul></section>
+<% } %>
+<% if (typeof ambiguousHistory !== 'undefined' && ambiguousHistory) { %>
+  <p role="alert">检测到旧版卡片 ID 冲突。无法归属的旧记录已保留，但不计入排期；新的评分独立记录。</p>
+<% } %>
+<% if (decks.length === 0) { %>
+  <section class="card empty">
+    <h2>还没有卡片</h2>
+    <p>在 vault 的 <code>cards/</code> 目录下建 <code>.md</code> 文件，
+      <code>##</code> 标题是正面，下面的正文是背面：</p>
+    <pre><code>---
+deck: 英语生词
+type: en-word
+---
+
+## heterogeneity
+
+异质性；个体差异。</code></pre>
+    <p class="muted">正文里写 <code>{{挖空}}</code> 就变成挖空卡。
+      也可以在任意笔记里选中一段文字直接建卡。</p>
+  </section>
+<% } else { %>
+  <table class="decktable">
+    <thead>
+      <tr><th>卡组</th><th>到期</th><th>新卡</th><th>已学</th><th>总数</th><th></th></tr>
+    </thead>
+    <tbody>
+      <% decks.forEach(row => { %>
+        <tr>
+          <td><%= row.deck %></td>
+          <td class="<%= row.due > 0 ? 'due-count' : 'muted' %>"><%= row.due %></td>
+          <td class="<%= row.fresh > 0 ? '' : 'muted' %>"><%= row.fresh %></td>
+          <td class="muted"><%= row.learned %></td>
+          <td class="muted"><%= row.total %></td>
+          <td>
+            <% if (row.due + row.fresh > 0) { %>
+              <a href="/review?deck=<%= encodeURIComponent(row.deck) %>">复习</a>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+<% } %>
+
+<%- include('partials/foot') %>

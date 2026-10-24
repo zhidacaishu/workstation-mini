@@ -1,0 +1,26 @@
+<%- include('partials/head') %>
+<section class="hero">
+  <h1>版本历史与草稿</h1>
+  <p>保存前的旧版本、删除的笔记和自动保存的草稿都在这里。先预览，再载入编辑器确认保存。</p>
+  <p class="muted">记录仅保存在本机资料库，不依赖 Git，也不随 Git 同步；无法替代另一块磁盘上的备份。</p>
+  <% if (notePath) { %><p><code><%= notePath %></code> · <a href="/history">查看全部记录</a></p><% } %>
+</section>
+<% if (selected) { %>
+  <section class="card">
+    <h2>预览：<%= selected.path %></h2>
+    <p><%= selected.at %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %></p>
+    <pre class="history-preview"><%= selected.raw %></pre>
+    <% if (!readOnly) { %><a class="button primary" href="/recover/<%= selected.id %>">载入编辑器</a><% } %>
+  </section>
+<% } %>
+<% if (!records.length) { %><p class="muted">还没有版本或草稿。首次修改已有笔记或删除笔记时会保存旧版本。</p><% } %>
+<ul class="notelist">
+  <% records.forEach(record => { %>
+    <li>
+      <a href="/history?path=<%= encodeURIComponent(notePath) %>&id=<%= record.id %>"><%= record.path %></a>
+      <span class="chip"><%= record.kind === 'draft' ? '草稿' : record.reason === 'delete' ? '已删除' : '版本' %></span>
+      <time><%= record.at %></time>
+    </li>
+  <% }) %>
+</ul>
+<%- include('partials/foot') %>

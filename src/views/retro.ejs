@@ -1,0 +1,95 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <span class="eyebrow">周期复盘</span>
+  <h1><%= title %></h1>
+  <p class="hero-meta"><%= data.from %> → <%= data.to %></p>
+  <p class="muted">
+    数字全部从已有模块算出来，<strong>你只需要写反思</strong>——
+    回顾之所以难以坚持，多半不是因为不想想，而是「先把这段时间干了什么统计一遍」这步太累。
+  </p>
+  <nav class="boardnav">
+    <a class="chip <%= period === 'week' ? 'active' : '' %>" href="/retro"<% if (period === 'week') { %> aria-current="page"<% } %>>本周</a>
+    <a class="chip <%= period === 'month' ? 'active' : '' %>" href="/retro?scope=month"<% if (period === 'month') { %> aria-current="page"<% } %>>本月</a>
+  </nav>
+</section>
+
+<div class="statrow">
+  <div class="stat">
+    <span class="stat-label">写了日记</span>
+    <span class="stat-value"><%= data.diary.entries %><span class="stat-unit">/<%= data.days %> 天</span></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">复习次数</span>
+    <span class="stat-value"><%= data.review.count %><span class="stat-unit">覆盖 <%= data.review.cards %> 张</span></span>
+  </div>
+  <% if (data.diary.focusMinutes) { %>
+    <div class="stat">
+      <span class="stat-label">累计专注</span>
+      <span class="stat-value"><%= (data.diary.focusMinutes / 60).toFixed(1) %><span class="stat-unit">小时</span></span>
+    </div>
+  <% } %>
+  <% if (data.writing) { %>
+    <div class="stat">
+      <span class="stat-label">笔记新增</span>
+      <span class="stat-value"><%= data.writing.added %><span class="stat-unit">行</span></span>
+    </div>
+  <% } %>
+  <div class="stat">
+    <span class="stat-label">新增错题</span>
+    <span class="stat-value"><%= data.mistakes.total %><span class="stat-unit">处</span></span>
+  </div>
+</div>
+
+<% if (!data.writing) { %>
+  <p class="muted">vault 不是 git 仓库，无法统计笔记改动量——这一项就不显示了，而不是给你一个 0。</p>
+<% } %>
+
+<div class="columns">
+  <section class="col-main">
+    <h2>草稿</h2>
+    <p class="muted">下面这份可以直接存成一篇笔记，反思就写在里面。</p>
+    <form action="/retro/save" method="post" class="editform">
+      <label>
+        存到
+        <input type="text" name="path" value="<%= suggestedPath %>" <%= readOnly ? 'disabled' : '' %>>
+      </label>
+      <label>
+        内容
+        <textarea name="body" rows="22" spellcheck="false" <%= readOnly ? 'readonly' : '' %>><%= draft %></textarea>
+      </label>
+      <% if (!readOnly) { %>
+        <div class="actions"><button class="button primary" type="submit">存成笔记</button></div>
+      <% } %>
+    </form>
+  </section>
+
+  <aside class="col-side">
+    <% if (data.mistakes.top.length) { %>
+      <h2>错误集中在哪</h2>
+      <ul class="notelist">
+        <% data.mistakes.top.forEach(row => { %>
+          <li>
+            <span class="chip"><%= row.source === 'writing' ? '写作' : '习题' %></span>
+            <%= row.category %>
+            <strong><%= row.total %></strong>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+
+    <% if (data.tasks.staleCount) { %>
+      <h2>一直没动的待办 <span class="count"><%= data.tasks.staleCount %></span></h2>
+      <ul class="notelist">
+        <% data.tasks.stale.forEach(task => { %>
+          <li>
+            <a href="/note/<%= encodePath(task.path) %>"><%= task.title %></a>
+            <% if (task.due) { %><span class="chip overdue"><%= task.due %></span><% } %>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  </aside>
+</div>
+
+<%- include('partials/foot') %>

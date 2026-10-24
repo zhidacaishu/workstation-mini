@@ -1,0 +1,41 @@
+<%- include('partials/head') %>
+<section class="hero">
+  <h1><%= clip.id %></h1>
+  <p class="muted"><a href="/shadowing">← 全部素材</a>　<%= clip.cues.length %> 句</p>
+</section>
+
+<% if (clip.cues.length === 0) { %>
+  <section class="card empty">
+    <h2>这份素材还没有字幕</h2>
+    <p class="muted">跟读要一句一句循环，没有时间轴就切不出句子。</p>
+    <% if (!readOnly && whisperReady) { %><p><button class="button primary" id="transcribe">用 whisper 生成字幕</button></p>
+    <% } else if (!readOnly) { %><p class="muted">请先在设置中选择 whisper.cpp 和模型文件。</p><% } %>
+    <p class="status muted" id="transcribe-status" role="status" aria-live="polite" hidden></p>
+  </section>
+<% } else { %>
+  <audio id="player" controls src="/media/<%= encodePath(clip.audio.replace('audio/', '')) %>"></audio>
+
+  <div class="shadow-controls">
+    <label><input type="checkbox" id="loop" checked> 循环当前句</label>
+    <label>速度
+      <select id="rate">
+        <option value="0.6">0.6×</option><option value="0.75">0.75×</option>
+        <option value="0.9">0.9×</option><option value="1" selected>1×</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="hide"> 遮住字幕（先听后看）</label>
+  </div>
+  <p class="muted"><kbd>空格</kbd> 播放/暂停 · <kbd>↑</kbd><kbd>↓</kbd> 上一句/下一句 · <kbd>R</kbd> 重播本句</p>
+
+  <ol class="cuelist" id="cues" data-cues="<%= payload %>">
+    <% clip.cues.forEach(cue => { %>
+      <li data-index="<%= cue.index %>" data-start="<%= cue.start %>" data-end="<%= cue.end %>">
+        <span class="cue-time"><%= Math.floor(cue.start / 60) %>:<%= String(Math.floor(cue.start % 60)).padStart(2, '0') %></span>
+        <button class="cue-text" type="button" data-play-cue="<%= cue.index %>"><%= cue.text %></button>
+        <% if (!readOnly) { %><button class="button small" data-make-card="<%= cue.index %>">建卡</button><% } %>
+      </li>
+    <% }) %>
+  </ol>
+<% } %>
+<script src="/static/shadowing.js" defer></script>
+<%- include('partials/foot') %>

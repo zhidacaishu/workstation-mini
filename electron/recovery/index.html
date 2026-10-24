@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>恢复科研工作台资料库</title>
+  <link rel="stylesheet" href="recovery.css">
+</head>
+<body data-phase="idle">
+  <aside class="stage-rail" aria-label="恢复阶段">
+    <div class="identity"><span class="mark" aria-hidden="true">研</span><div><strong>资料库恢复</strong><small>复制、验证、再切换</small></div></div>
+    <ol id="stages">
+      <li data-stage="source"><span>01</span><div><strong>恢复来源</strong><small>Git 或本地备份</small></div></li>
+      <li data-stage="destination"><span>02</span><div><strong>新资料库</strong><small>来源保持不变</small></div></li>
+      <li data-stage="blobs"><span>03</span><div><strong>大文件</strong><small>只下载，不上传</small></div></li>
+      <li data-stage="index"><span>04</span><div><strong>索引验证</strong><small>从 Markdown 重建</small></div></li>
+      <li data-stage="activate"><span>05</span><div><strong>切换与复核</strong><small>同步保持关闭</small></div></li>
+    </ol>
+    <p class="rail-note">恢复不会提交或推送 Git，也不会修改来源目录。只有验证完成后才切换资料库。</p>
+  </aside>
+
+  <main>
+    <header>
+      <div><span class="eyebrow" id="phase-label">准备恢复</span><h1 id="title">把资料带回新工作区</h1></div>
+      <span class="state-stamp" id="outcome" hidden></span>
+    </header>
+
+    <section id="first-run" class="first-run" hidden aria-labelledby="first-run-title">
+      <p class="folio">首次启动</p>
+      <h2 id="first-run-title">选择资料库的起点</h2>
+      <p>新建一个空资料库、打开已经在本机的资料库，或从远端与备份复制出一份经过验证的新资料库。</p>
+      <div class="first-run-actions">
+        <button type="button" class="choice primary-choice" id="create-vault"><strong>创建新资料库</strong><small>选择一个新目录并开始使用</small></button>
+        <button type="button" class="choice" id="open-existing-vault"><strong>打开现有资料库</strong><small>直接使用本机已有目录</small></button>
+        <button type="button" class="choice" id="begin-restore"><strong>从备份恢复</strong><small>复制、补齐大文件并重建索引</small></button>
+      </div>
+    </section>
+
+    <form id="recovery-form">
+      <section class="sheet" id="source-panel" aria-labelledby="source-title">
+        <p class="folio">01 / 来源</p>
+        <h2 id="source-title">选择可信的文本来源</h2>
+        <p class="lede">Git 凭据由系统 Git、SSH agent 或 Credential Manager 处理。应用不会询问或保存密码、PAT 和私钥。</p>
+        <fieldset class="source-switch">
+          <legend>来源类型</legend>
+          <label><input type="radio" name="sourceKind" value="git" checked><span><strong>Git 远端</strong><small>完整 clone，不调用普通同步</small></span></label>
+          <label><input type="radio" name="sourceKind" value="local"><span><strong>本地备份</strong><small>复制到新位置，原目录不动</small></span></label>
+        </fieldset>
+        <div id="git-source" class="source-detail">
+          <label class="field"><span>远端地址</span><input id="remote" type="text" autocomplete="off" spellcheck="false" placeholder="git@host:owner/vault.git 或 https://host/owner/vault.git"><small id="remote-result">不会把地址中的秘密写入恢复日志。</small></label>
+          <button type="button" id="inspect-remote">检查远端</button>
+        </div>
+        <div id="local-source" class="source-detail" hidden>
+          <p class="selected-path" id="local-source-path">尚未选择本地备份目录</p>
+          <button type="button" id="choose-local-source">选择资料库备份</button>
+        </div>
+      </section>
+
+      <section class="sheet" id="destination-panel" aria-labelledby="destination-title">
+        <p class="folio">02 / 目标</p>
+        <h2 id="destination-title">恢复到一个全新的目录</h2>
+        <p class="lede">应用先在同一磁盘的暂存目录完成复制、下载和验证，最终只进行一次短暂切换。</p>
+        <p class="selected-path" id="destination-parent">尚未选择新资料库所在位置</p>
+        <button type="button" id="choose-destination">选择上级目录</button>
+        <label class="field directory-name"><span>新目录名称</span><input id="directory-name" type="text" autocomplete="off" value="workstation-vault-restored" required></label>
+        <label class="download-option"><input id="restore-blobs" type="checkbox" checked><span><strong>补齐远端大文件</strong><small>仅下载 audio/ 与 attachments/；已有文件绝不覆盖。</small></span></label>
+      </section>
+
+      <section class="sheet status-sheet" id="status-panel" aria-labelledby="status-title" hidden>
+        <p class="folio">恢复进度</p>
+        <h2 id="status-title">正在准备</h2>
+        <p id="status-message" class="lede" role="status" aria-live="polite"></p>
+        <div class="progress" id="progress" role="progressbar" aria-label="恢复进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+        <p id="current-path" class="current-path"></p>
+        <div id="warnings" class="report-block" hidden><h3>需要复核</h3><ul></ul></div>
+        <div id="blob-failures" class="report-block" hidden><h3>未补齐的大文件</h3><ul></ul><p class="report-total"></p></div>
+        <div id="index-failures" class="report-block" hidden><h3>未建立索引的 Markdown</h3><ul></ul><p class="report-total"></p></div>
+        <div id="fatal-error" class="fatal" role="alert" hidden><strong></strong><p></p></div>
+      </section>
+
+      <footer class="actions">
+        <p id="action-note">来源不会被修改；恢复期间不会写入 Git 远端。</p>
+        <button type="button" id="cancel" hidden>取消</button>
+        <button type="button" id="retry" hidden>重试当前阶段</button>
+        <button type="submit" class="primary" id="start">开始复制与验证</button>
+        <button type="button" class="primary" id="activate" hidden>切换到恢复的资料库</button>
+        <button type="button" id="discard-staging" hidden>清理恢复残留</button>
+        <button type="button" id="open-current-vault" hidden>打开当前资料库</button>
+      </footer>
+    </form>
+  </main>
+  <script src="recovery.js" defer></script>
+</body>
+</html>

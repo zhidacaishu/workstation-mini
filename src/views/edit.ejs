@@ -1,0 +1,39 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <h1><%= isNew ? '新建笔记' : '编辑' %></h1>
+  <p class="muted">编辑 Markdown 原文，保留 frontmatter 与正文格式。</p>
+</section>
+
+<% if (editorWarning) { %><p role="alert"><%= editorWarning %></p><% } %>
+<p><a href="/history?path=<%= encodeURIComponent(notePath) %>">查看此笔记的版本和未保存草稿</a></p>
+<form data-draft-id="<%= draftId %>" data-recovered="<%= recovered ? '1' : '0' %>" class="editform" action="/save" method="post" data-editor-form data-new-note="<%= isNew ? '1' : '0' %>">
+  <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
+  <input type="hidden" name="isNew" value="<%= isNew ? '1' : '0' %>">
+  <label>
+    路径
+    <input type="text" name="path" value="<%= notePath %>" required
+           placeholder="diary/2026-08-06.md" <%= isNew ? '' : 'readonly' %>>
+  </label>
+  <p class="muted">相对 vault 的 <code>notes/</code> 目录，必须以 <code>.md</code> 结尾。</p>
+
+  <label>
+    正文
+    <textarea name="body" rows="12" spellcheck="false" placeholder="---&#10;title: 标题&#10;tags: [日记]&#10;---&#10;&#10;正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
+  </label>
+
+  <p data-draft-status role="status" aria-live="polite"></p>
+  <div class="editor-footer">
+    <p class="editor-status" data-editor-status role="status" aria-live="polite">所有更改均已保存</p>
+    <div class="actions">
+      <button class="button primary" type="submit" data-editor-save>保存 <kbd><%= typeof isMac !== 'undefined' && isMac ? '⌘S' : 'Ctrl+S' %></kbd></button>
+      <% if (!isNew) { %>
+        <a class="button" href="/note/<%= encodePath(notePath) %>">取消</a>
+      <% } else { %>
+        <a class="button" href="/">取消</a>
+      <% } %>
+    </div>
+  </div>
+</form>
+
+<%- include('partials/foot') %>

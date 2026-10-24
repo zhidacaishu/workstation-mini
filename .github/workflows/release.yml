@@ -1,0 +1,527 @@
+name: Release draft
+
+# 这里只生成供人工审核的 GitHub draft。客户端真正看到新版本，仍需要在能访问
+# 内网 Blob 服务的机器上单独运行 scripts/publish-release.js。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 已提交到 main 的版本号（例如 0.2.0，不带 v）
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.repository }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CI: true
+
+jobs:
+  preflight:
+    name: 版本与源码预检
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - name: Require the default branch
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$REQUESTED_REF" != "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo 'Release drafts must be dispatched from the default branch.' >&2
+            exit 1
+          fi
+
+      - name: Check out the requested source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Fix the source commit
+        id: source
+        shell: bash
+        run: printf 'sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate package, lockfile and changelog versions
+        id: metadata
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/release-preflight.js --version "$RELEASE_VERSION"
+
+      - name: Reject a conflicting tag or release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+          SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          lookup_release() {
+            local response_file gh_status parser_status release_json
+            response_file="$RUNNER_TEMP/workstation-release-response-$$"
+            if gh api --include "repos/$REPOSITORY/releases/tags/$RELEASE_TAG" >"$response_file"; then
+              gh_status=0
+            else
+              gh_status=$?
+            fi
+            if release_json="$(GH_API_EXIT_STATUS="$gh_status" node scripts/release-api-response.js <"$response_file")"; then
+              parser_status=0
+            else
+              parser_status=$?
+            fi
+            rm -f "$response_file"
+            if [ "$parser_status" -eq 0 ]; then
+              printf '%s\n' "$release_json"
+              return 0
+            fi
+            [ "$parser_status" -eq 4 ] && return 4
+            return "$parser_status"
+          }
+
+          resolve_tag_commit() {
+            local refs commit
+            if ! refs="$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"; then
+              echo 'Unable to read the release tag from origin.' >&2
+              return 1
+            fi
+            commit="$(TAG_REFS="$refs" node -e '
+              const tag = `refs/tags/${process.env.RELEASE_TAG}`;
+              const refs = new Map(process.env.TAG_REFS.trim().split(/\r?\n/).filter(Boolean).map(line => {
+                const [sha, ref] = line.split(/\s+/);
+                return [ref, sha];
+              }));
+              const direct = refs.get(tag);
+              if (!direct) process.exit(2);
+              const commit = refs.get(`${tag}^{}`) || direct;
+              if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error("The release tag did not resolve to an object SHA.");
+              process.stdout.write(commit);
+            ')" || return $?
+            if ! gh api "repos/$REPOSITORY/git/commits/$commit" >/dev/null; then
+              echo 'The release tag does not resolve to a commit.' >&2
+              return 1
+            fi
+            printf '%s\n' "$commit"
+          }
+
+          require_matching_tag_if_present() {
+            local tag_commit status
+            if tag_commit="$(resolve_tag_commit)"; then
+              if [ "$tag_commit" != "$SOURCE_SHA" ]; then
+                echo "The release tag resolves to $tag_commit instead of $SOURCE_SHA." >&2
+                return 1
+              fi
+              return 0
+            fi
+            status=$?
+            [ "$status" -eq 2 ] || return "$status"
+          }
+
+          if release_json="$(lookup_release)"; then
+            RELEASE_JSON="$release_json" node -e '
+              const release = JSON.parse(process.env.RELEASE_JSON);
+              if (!release.draft) throw new Error("A published release already exists for this version.");
+              if (release.target_commitish !== process.env.SOURCE_SHA) {
+                throw new Error("The existing draft targets a different commit.");
+              }
+            '
+            require_matching_tag_if_present
+          else
+            release_status=$?
+            [ "$release_status" -eq 4 ] || exit "$release_status"
+            if tag_commit="$(resolve_tag_commit)"; then
+              echo "The release tag already exists at $tag_commit without a matching draft release." >&2
+              exit 1
+            else
+              status=$?
+              [ "$status" -eq 2 ] || exit "$status"
+            fi
+          fi
+
+      - name: Run regression tests
+        run: npm test
+
+  windows:
+    name: Windows x64 signed NSIS
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the validated source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run desktop tests
+        run: npm run test:desktop
+
+      - name: Build and verify the signed installer
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          WORKSTATION_WINDOWS_PUBLISHER: ${{ secrets.WORKSTATION_WINDOWS_PUBLISHER }}
+        run: npm run desktop:release
+
+      - name: Verify the signed release again
+        env:
+          WORKSTATION_WINDOWS_PUBLISHER: ${{ secrets.WORKSTATION_WINDOWS_PUBLISHER }}
+        run: npm run verify-release
+
+      - name: Locate the packaged executable
+        shell: pwsh
+        run: |
+          $executables = @(Get-ChildItem -Path 'dist/win-unpacked' -Filter '*.exe' -File)
+          if ($executables.Count -ne 1) {
+            throw "Expected exactly one packaged executable, found $($executables.Count)."
+          }
+          "WORKSTATION_EXECUTABLE=$($executables[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run packaged desktop smoke tests
+        run: npm run test:desktop
+
+      - name: Check the release file set
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          $expected = @(
+            "research-workstation-$($env:RELEASE_VERSION)-setup.exe",
+            "research-workstation-$($env:RELEASE_VERSION)-setup.exe.blockmap",
+            'latest.yml'
+          )
+          foreach ($name in $expected) {
+            if (-not (Test-Path (Join-Path 'dist' $name) -PathType Leaf)) { throw "Missing release file: $name" }
+          }
+          $actual = @(Get-ChildItem dist -File | Where-Object { $_.Name -eq 'latest.yml' -or $_.Name -like '*.exe' -or $_.Name -like '*.blockmap' } | ForEach-Object Name)
+          if (@(Compare-Object $expected $actual).Count -ne 0) { throw "Unexpected Windows release file set: $($actual -join ', ')" }
+
+      - name: Upload verified Windows files
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-windows-${{ needs.preflight.outputs.version }}
+          path: |
+            dist/research-workstation-${{ needs.preflight.outputs.version }}-setup.exe
+            dist/research-workstation-${{ needs.preflight.outputs.version }}-setup.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 3
+
+  macos:
+    name: macOS arm64 experimental ad-hoc DMG
+    needs: preflight
+    runs-on: macos-15
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check out the validated source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Require an Apple silicon runner
+        shell: bash
+        run: |
+          if [ "$(uname -m)" != 'arm64' ]; then
+            echo 'The macOS release job must use an Apple silicon runner so the packaged arm64 application can be executed.' >&2
+            exit 1
+          fi
+
+      - name: Run development desktop tests
+        run: npm run test:desktop
+
+      - name: Build the final arm64 DMG
+        run: npm run desktop:build:mac
+
+      - name: Mount and verify the exact DMG contents
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          dmg="dist/research-workstation-${RELEASE_VERSION}-mac-arm64-experimental.dmg"
+          mount_point="$RUNNER_TEMP/workstation-release-dmg"
+          test -f "$dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mount_point" "$dmg"
+          cleanup() { hdiutil detach "$mount_point" >/dev/null; }
+          trap cleanup EXIT
+          executable="$(node scripts/verify-mac-package.js "$mount_point")"
+          if find "$mount_point" -name app-update.yml -print -quit | grep -q .; then
+            echo 'The experimental macOS application must not contain app-update.yml.' >&2
+            exit 1
+          fi
+          if ls dist/latest-mac*.yml >/dev/null 2>&1; then
+            echo 'The experimental macOS build must not generate update metadata.' >&2
+            exit 1
+          fi
+          WORKSTATION_EXECUTABLE="$executable" npm run test:desktop
+
+      - name: Upload the verified experimental DMG
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-macos-arm64-experimental-${{ needs.preflight.outputs.version }}
+          path: dist/research-workstation-${{ needs.preflight.outputs.version }}-mac-arm64-experimental.dmg
+          if-no-files-found: error
+          retention-days: 3
+
+  draft-release:
+    name: Assemble draft release
+    needs: [preflight, windows, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the validated source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Download verified Windows files
+        uses: actions/download-artifact@v7
+        with:
+          name: release-windows-${{ needs.preflight.outputs.version }}
+          path: release-assets/windows
+
+      - name: Download verified experimental macOS file
+        uses: actions/download-artifact@v7
+        with:
+          name: release-macos-arm64-experimental-${{ needs.preflight.outputs.version }}
+          path: release-assets/macos
+
+      - name: Verify the assembled file set and checksums
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          expected_windows="research-workstation-${RELEASE_VERSION}-setup.exe research-workstation-${RELEASE_VERSION}-setup.exe.blockmap latest.yml"
+          actual_windows="$(find release-assets/windows -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
+          expected_windows="$(printf '%s\n' $expected_windows | sort | tr '\n' ' ' | sed 's/ $//')"
+          if [ "$actual_windows" != "$expected_windows" ]; then
+            echo "Unexpected Windows assets: $actual_windows" >&2
+            exit 1
+          fi
+          expected_mac="research-workstation-${RELEASE_VERSION}-mac-arm64-experimental.dmg"
+          actual_mac="$(find release-assets/macos -maxdepth 1 -type f -printf '%f\n')"
+          if [ "$actual_mac" != "$expected_mac" ]; then
+            echo "Unexpected macOS assets: $actual_mac" >&2
+            exit 1
+          fi
+          duplicates="$(find release-assets -type f -printf '%f\n' | sort | uniq -d)"
+          if [ -n "$duplicates" ]; then
+            echo "Duplicate release asset names: $duplicates" >&2
+            exit 1
+          fi
+          (cd release-assets && find windows macos -type f -print0 | sort -z | xargs -0 sha256sum) > release-assets/SHA256SUMS.txt
+
+      - name: Build release notes
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          node scripts/release-preflight.js --version "$RELEASE_VERSION" --notes-file release-notes.md
+          printf '\n### 平台说明\n\n- Windows x64：正式 Authenticode 签名的 NSIS 安装器与更新清单。\n- macOS arm64：experimental ad-hoc DMG，未公证、不支持自动更新。\n- 这是待人工审核的 draft；客户端尚不可见。审核后仍需在可信内网机器运行 `npm run publish-release`。\n' >> release-notes.md
+
+      - name: Create or update the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          lookup_release() {
+            local response_file gh_status parser_status release_json
+            response_file="$RUNNER_TEMP/workstation-release-response-$$"
+            if gh api --include "repos/$REPOSITORY/releases/tags/$RELEASE_TAG" >"$response_file"; then
+              gh_status=0
+            else
+              gh_status=$?
+            fi
+            if release_json="$(GH_API_EXIT_STATUS="$gh_status" node scripts/release-api-response.js <"$response_file")"; then
+              parser_status=0
+            else
+              parser_status=$?
+            fi
+            rm -f "$response_file"
+            if [ "$parser_status" -eq 0 ]; then
+              printf '%s\n' "$release_json"
+              return 0
+            fi
+            [ "$parser_status" -eq 4 ] && return 4
+            return "$parser_status"
+          }
+
+          resolve_tag_commit() {
+            local refs commit
+            if ! refs="$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"; then
+              echo 'Unable to read the release tag from origin.' >&2
+              return 1
+            fi
+            commit="$(TAG_REFS="$refs" node -e '
+              const tag = `refs/tags/${process.env.RELEASE_TAG}`;
+              const refs = new Map(process.env.TAG_REFS.trim().split(/\r?\n/).filter(Boolean).map(line => {
+                const [sha, ref] = line.split(/\s+/);
+                return [ref, sha];
+              }));
+              const direct = refs.get(tag);
+              if (!direct) process.exit(2);
+              const commit = refs.get(`${tag}^{}`) || direct;
+              if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error("The release tag did not resolve to an object SHA.");
+              process.stdout.write(commit);
+            ')" || return $?
+            if ! gh api "repos/$REPOSITORY/git/commits/$commit" >/dev/null; then
+              echo 'The release tag does not resolve to a commit.' >&2
+              return 1
+            fi
+            printf '%s\n' "$commit"
+          }
+
+          require_matching_draft() {
+            local release_json
+            release_json="$(gh api "repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
+            RELEASE_JSON="$release_json" node -e '
+              const release = JSON.parse(process.env.RELEASE_JSON);
+              if (!release.draft) throw new Error("A published release already exists for this version.");
+              if (release.target_commitish !== process.env.SOURCE_SHA) {
+                throw new Error("The draft targets a different commit.");
+              }
+              if (!Number.isSafeInteger(release.id) || release.id <= 0) {
+                throw new Error("The draft release has an invalid identifier.");
+              }
+            '
+          }
+
+          draft_release_id() {
+            local release_json
+            release_json="$(gh api "repos/$REPOSITORY/releases/tags/$RELEASE_TAG")"
+            RELEASE_JSON="$release_json" node -e '
+              const release = JSON.parse(process.env.RELEASE_JSON);
+              if (!release.draft || release.target_commitish !== process.env.SOURCE_SHA
+                || !Number.isSafeInteger(release.id) || release.id <= 0) process.exit(1);
+              process.stdout.write(String(release.id));
+            '
+          }
+
+          list_draft_assets() {
+            local release_id
+            release_id="$(draft_release_id)"
+            gh api --paginate --slurp "repos/$REPOSITORY/releases/$release_id/assets?per_page=100"
+          }
+
+          require_matching_tag_if_present() {
+            local tag_commit status
+            if tag_commit="$(resolve_tag_commit)"; then
+              if [ "$tag_commit" != "$SOURCE_SHA" ]; then
+                echo "The release tag resolves to $tag_commit instead of $SOURCE_SHA." >&2
+                return 1
+              fi
+              return 0
+            fi
+            status=$?
+            [ "$status" -eq 2 ] || return "$status"
+          }
+
+          mapfile -d '' assets < <(find release-assets/windows release-assets/macos -type f -print0)
+          assets+=("release-assets/SHA256SUMS.txt")
+          if release_json="$(lookup_release)"; then
+            RELEASE_JSON="$release_json" node -e '
+              const release = JSON.parse(process.env.RELEASE_JSON);
+              if (!release.draft) throw new Error("A published release already exists for this version.");
+              if (release.target_commitish !== process.env.SOURCE_SHA) {
+                throw new Error("The draft targets a different commit.");
+              }
+            '
+            require_matching_tag_if_present
+            gh release edit "$RELEASE_TAG" --draft --target "$SOURCE_SHA" --title "v$RELEASE_VERSION" --notes-file release-notes.md
+          else
+            release_status=$?
+            [ "$release_status" -eq 4 ] || exit "$release_status"
+            if tag_commit="$(resolve_tag_commit)"; then
+              echo "The release tag already exists at $tag_commit without a matching draft release." >&2
+              exit 1
+            else
+              status=$?
+              [ "$status" -eq 2 ] || exit "$status"
+            fi
+            gh release create "$RELEASE_TAG" --draft --target "$SOURCE_SHA" --title "v$RELEASE_VERSION" --notes-file release-notes.md
+          fi
+          require_matching_draft
+          require_matching_tag_if_present
+          existing_assets="$(list_draft_assets)"
+          asset_plan="$(printf '%s' "$existing_assets" | node scripts/release-assets.js --plan "${assets[@]}")"
+          missing_assets=()
+          if [ -n "$asset_plan" ]; then
+            while IFS=$'\t' read -r kind value local_file extra; do
+              if [ "$kind" = 'existing' ] && [ -n "$value" ] && [ -n "$local_file" ] && [ -z "$extra" ]; then
+                downloaded_asset="$RUNNER_TEMP/workstation-release-asset-$value"
+                gh api -H 'Accept: application/octet-stream' "repos/$REPOSITORY/releases/assets/$value" >"$downloaded_asset"
+                cmp --silent "$downloaded_asset" "$local_file"
+                rm -f "$downloaded_asset"
+              elif [ "$kind" = 'missing' ] && [ -n "$value" ] && [ -z "$local_file" ] && [ -z "$extra" ]; then
+                missing_assets+=("$value")
+              else
+                echo 'Invalid release asset plan.' >&2
+                exit 1
+              fi
+            done <<< "$asset_plan"
+          fi
+          if [ "${#missing_assets[@]}" -gt 0 ]; then
+            require_matching_draft
+            require_matching_tag_if_present
+            gh release upload "$RELEASE_TAG" "${missing_assets[@]}"
+          fi
+          require_matching_draft
+          require_matching_tag_if_present
+          uploaded_assets="$(list_draft_assets)"
+          printf '%s' "$uploaded_assets" | node scripts/release-assets.js --verify "${assets[@]}"

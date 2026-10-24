@@ -1,0 +1,139 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <span class="eyebrow">重复错误的模式</span>
+  <h1>错题本</h1>
+  <p class="muted">
+    累计 <%= total %> 处。这里的价值不在于记下每一次犯错，
+    而在于统计之后能看出<strong>反复在同一个地方栽跟头</strong>——那种自己意识不到的模式。
+  </p>
+</section>
+
+<% if (writing.length === 0 && exercise.length === 0) { %>
+  <section class="card empty">
+    <h2>还没有记录</h2>
+    <p>两个来源：</p>
+    <ul>
+      <li><strong>写作错题</strong>——对英文稿跑 <code>check_draft.py</code>，报错自动落库。</li>
+      <li><strong>习题错题</strong>——手工录入题型、错因、我的错法和正确思路。</li>
+    </ul>
+    <% if (!checkerAvailable) { %>
+      <p class="muted">检查器暂不可用。在应用设置中选择 academic-writing 的
+        <code>scripts/check_draft.py</code> 即可启用写作错题自动落库。</p>
+    <% } %>
+  </section>
+<% } %>
+
+<% if (!readOnly) { %>
+<div class="columns">
+  <section class="col-main">
+    <h2>检查英文稿</h2>
+    <% if (!checkerAvailable) { %>
+      <p class="muted">检查器不可用<% if (checkerPath) { %>（<code><%= checkerPath %></code> 不存在）<% } %>。
+        在应用设置中选择 <code>check_draft.py</code> 后可用。</p>
+    <% } else if (drafts.length === 0) { %>
+      <p class="muted">在 <code>notes/research/</code> 下写英文稿，这里就能选到。</p>
+    <% } else { %>
+      <form class="checkform" id="check-form">
+        <select name="path" aria-label="选择稿件">
+          <% drafts.forEach(draft => { %>
+            <option value="<%= draft.path %>"><%= draft.title %> — <%= draft.path %></option>
+          <% }) %>
+        </select>
+        <button class="button primary" type="submit">跑检查器</button>
+      </form>
+      <p class="muted check-status" id="check-status" hidden></p>
+    <% } %>
+  </section>
+
+  <aside class="col-side">
+    <h2>记一条习题错题</h2>
+    <form class="exercise-form" action="/mistakes/exercise" method="post">
+      <label>题型 <input type="text" name="category" required placeholder="工具变量"></label>
+      <label>来源 <input type="text" name="subject" placeholder="计量教材 ch03 第 12 题"></label>
+      <label>错因
+        <select name="reason">
+          <% reasons.forEach(reason => { %>
+            <option value="<%= reason.key %>"><%= reason.label %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>我的错法 <textarea name="detail" rows="2"></textarea></label>
+      <label>正确思路 <textarea name="note" rows="2"></textarea></label>
+      <button class="button" type="submit">记下来</button>
+    </form>
+  </aside>
+</div>
+<% } %>
+
+<% if (writing.length) { %>
+  <section>
+    <h2>写作高频错误</h2>
+    <p class="muted">按次数降序。犯得最多的排最前面，那就是最该练的。</p>
+    <table class="mistaketable">
+      <thead><tr><th>类别</th><th>次数</th><th>级别</th><th>示例</th><th></th></tr></thead>
+      <tbody>
+        <% writing.forEach(row => { %>
+          <tr>
+            <td><%= row.category %></td>
+            <td class="count-cell"><%= row.total %><% if (row.truncated) { %><span class="muted" title="检查器输出只列前 25 条，其余按表头计数补齐">（含 <%= row.truncated %> 处未逐条列出）</span><% } %></td>
+            <td><span class="chip <%= row.tier === 'hard' ? 'tier-hard' : '' %>"><%= row.tier === 'hard' ? '必改' : '人工复核' %></span></td>
+            <td class="sample"><%= row.samples[0] ? row.samples[0].detail.slice(0, 60) : '—' %></td>
+            <td>
+              <% if (!readOnly && row.samples[0]) { %>
+                <button class="button small" data-make-card="<%= row.samples[0].id %>">转卡片</button>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </section>
+<% } %>
+
+<% if (exercise.length) { %>
+  <section>
+    <h2>习题高频错误</h2>
+    <table class="mistaketable">
+      <thead><tr><th>题型</th><th>次数</th><th>错因</th><th>示例</th><th></th></tr></thead>
+      <tbody>
+        <% exercise.forEach(row => { %>
+          <tr>
+            <td><%= row.category %></td>
+            <td class="count-cell"><%= row.total %></td>
+            <td><span class="chip"><%= reasonLabel(row.tier) %></span></td>
+            <td class="sample"><%= row.samples[0] ? row.samples[0].detail.slice(0, 60) : '—' %></td>
+            <td>
+              <% if (!readOnly && row.samples[0]) { %>
+                <button class="button small" data-make-card="<%= row.samples[0].id %>">转卡片</button>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </section>
+<% } %>
+
+<% if (recent.length) { %>
+  <details class="tableview">
+    <summary>最近 <%= recent.length %> 条原始记录</summary>
+    <table>
+      <thead><tr><th>时间</th><th>来源</th><th>类别</th><th>内容</th></tr></thead>
+      <tbody>
+        <% recent.forEach(row => { %>
+          <tr>
+            <td><%= row.ts.slice(0, 10) %></td>
+            <td class="muted"><%= row.source === 'writing' ? '写作' : '习题' %></td>
+            <td><%= row.category %></td>
+            <td class="sample"><%= (row.detail || row.subject || '').slice(0, 80) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </details>
+<% } %>
+
+<script src="/static/mistakes.js" defer></script>
+
+<%- include('partials/foot') %>

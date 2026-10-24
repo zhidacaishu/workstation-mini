@@ -1,0 +1,19 @@
+<%- include('partials/head') %>
+
+<section class="hero">
+  <span class="eyebrow">可携带的今日视图</span>
+  <h1>每日简报</h1>
+  <p class="muted">
+    和首页同一批数据，换成适合复制、保存或发送的纯文本。
+    <a href="/briefing.md">查看纯文本版</a>。
+  </p>
+</section>
+
+<pre class="briefing"><%= text %></pre>
+
+<section class="briefing-note">
+  <h2>纯文本预览与使用</h2>
+  <p class="muted">纯文本版与这里内容相同，适合复制到邮件、聊天或自己的归档流程中。</p>
+</section>
+
+<%- include('partials/foot') %>

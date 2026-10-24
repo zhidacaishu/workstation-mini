@@ -1,0 +1,50 @@
+<%- include('partials/head') %>
+<section class="hero">
+  <span class="eyebrow">从本地笔记与 PDF 解析正文中回答</span>
+  <h1>问资料库</h1>
+  <form class="searchform" action="/ask" method="get">
+    <input type="search" name="q" value="<%= question %>" placeholder="工具变量如何处理内生性？" autofocus>
+    <% if (llmConfigured) { %><label class="inline-check"><input type="checkbox" name="answer" value="1" <%= answerRequested ? 'checked' : '' %>> 让模型作答</label><% } %>
+    <button class="button" type="submit">问</button>
+  </form>
+  <% if (llmConfigured) { %>
+    <p class="muted integration-status">本地检索不会发送资料；勾选“让模型作答”后，只向 Anthropic 发送下面最多 6 个相关文字片段，不发送整份 PDF。</p>
+  <% } else { %>
+    <p class="muted integration-status">未在应用设置中配置 Anthropic API key，只做本地检索不生成答案。</p>
+  <% } %>
+  <% if (pdfRetrievalError) { %><p class="muted integration-status"><%= pdfRetrievalError %></p><% } %>
+</section>
+
+<% if (answer && answer.ok) { %>
+  <section class="card">
+    <h2>答案</h2>
+    <pre class="briefing"><%= answer.text %></pre>
+    <p class="muted">编号对应下面的片段。模型只能使用这些片段；资料中没有的内容会明确说明。</p>
+  </section>
+<% } else if (answer && !answer.ok) { %>
+  <p class="muted integration-status">生成答案失败：<%= answer.reason %>（检索结果不受影响）</p>
+<% } %>
+
+<% if (question) { %>
+  <h2>相关片段 <span class="count"><%= passages.length %></span></h2>
+  <% if (passages.length === 0) { %><p class="muted">没搜到相关内容。</p><% } %>
+  <ol class="results">
+    <% passages.forEach((p, i) => { %>
+      <li>
+        <% if (p.source === 'pdf') { %>
+          <a class="result-title" href="/library/pdfs/<%= p.documentId %>?chunk=<%= p.chunkIndex %>#chunk-<%= p.chunkIndex %>">[<%= i + 1 %>] <%= p.title %></a>
+          <span class="chip">PDF</span>
+          <span class="chip">第 <%= p.pageNumber %> 页</span>
+          <% if (p.heading) { %><span class="chip"><%= p.heading %></span><% } %>
+          <span class="chip via-<%= p.via %>"><%= p.via === 'like' ? '子串' : '全文' %></span>
+        <% } else { %>
+          <a class="result-title" href="/note/<%= encodePath(p.path) %>">[<%= i + 1 %>] <%= p.title %></a>
+          <span class="chip">笔记</span>
+          <span class="chip"><%= (p.score * 100).toFixed(0) %>%</span>
+        <% } %>
+        <p class="snippet"><%= p.excerpt %></p>
+      </li>
+    <% }) %>
+  </ol>
+<% } %>
+<%- include('partials/foot') %>
