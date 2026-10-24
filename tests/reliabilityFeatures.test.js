@@ -131,7 +131,7 @@ test('special deck names, uppercase extension and one malformed deck leave healt
   assert.equal((await service.stats()).failures.length, 1);
   await fs.writeFile(path.join(c.root, 'cards', 'UPPER.MD'), '## Newer\nAnswer');
   assert.ok((await service.allCards()).some(card => card.front === 'Newer'));
-  for (const page of ['/', '/decks', '/calendar']) assert.equal((await request(c.app).get(page)).status, 200);
+  for (const page of ['/', '/decks', '/deadlines']) assert.equal((await request(c.app).get(page)).status, 200);
 });
 
 test('cross-file card IDs isolated; unambiguous old events migrate; ambiguous old events never duplicate', async t => {

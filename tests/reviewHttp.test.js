@@ -191,7 +191,7 @@ test('只读模式不能改 Markdown，但可以复习', async () => {
     // 改 Markdown：一律拒绝
     await request(ctx.app).post('/save').type('form').send({ path: 'a.md', body: 'x' }).expect(403);
     await request(ctx.app).post('/cards/add').send({ front: '新卡' }).expect(403);
-    await request(ctx.app).post('/diary/today').type('form').send({ date: '2026-03-17' }).expect(403);
+    await request(ctx.app).post('/diary/today').type('form').send({ date: '2026-03-17' }).expect(404);
 
     // 卡片文件确实没被动过
     const cardFile = await fs.readFile(path.join(ctx.vaultDir, 'cards', 'english.md'), 'utf8');
