@@ -23,7 +23,7 @@ const DEFAULT_MAX_TOKENS = 16_000;
  * LLM 客户端。
  *
  * **没有配 API key 时返回 available:false，不抛错。** 这是整个应用的底线：
- * 工作台是本地优先的个人工具，绝大多数功能（笔记、复习、错题、看板）都不该
+ * 工作台是本地优先的个人工具，绝大多数功能（笔记、复习、待办、月历）都不该
  * 因为没连外部服务就不能用。LLM 只是锦上添花的那一层。
  */
 function createLlm({ apiKey = '', model = MODEL } = {}) {

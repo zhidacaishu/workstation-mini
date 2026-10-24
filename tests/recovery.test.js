@@ -86,6 +86,25 @@ test('本地恢复复制来源但不修改来源，并排除 DB 与临时文件'
   }
 });
 
+test('恢复只检查仍在使用的复习日志设备名，旧错题日志按普通文件保留', async () => {
+  for (const directory of ['mistakes/exercise', 'reviews']) {
+    const ctx = await setup();
+    try {
+      const logDir = path.join(ctx.source, directory);
+      await fs.mkdir(logDir, { recursive: true });
+      const logName = '2026-10-device-a.jsonl';
+      const content = '{"id":"legacy"}\n';
+      await fs.writeFile(path.join(logDir, logName), content);
+      const ready = await prepareLocal(ctx);
+      assert.equal(ready.warnings.some(warning => warning.code === 'device-name-collision'), directory === 'reviews');
+      const candidate = path.join(ctx.destinationParent, `.workstation-recovery-${ready.sessionId}`, 'candidate');
+      assert.equal(await fs.readFile(path.join(candidate, directory, logName), 'utf8'), content);
+    } finally {
+      await ctx.cleanup();
+    }
+  }
+});
+
 test('本地来源含 symlink 时失败且不会跟随复制', async t => {
   const ctx = await setup();
   try {

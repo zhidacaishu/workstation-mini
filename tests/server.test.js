@@ -50,7 +50,8 @@ test('首页在 vault 为空时给出引导', async () => {
   const ctx = await setup();
   try {
     const response = await request(ctx.app).get('/').expect(200);
-    assert.match(response.text, /vault 还是空的/);
+    assert.match(response.text, /还没有笔记/);
+    assert.match(response.text, /href="\/new">写第一篇笔记<\/a>/);
   } finally {
     await ctx.cleanup();
   }
@@ -72,7 +73,7 @@ test('工作区壳提供当前导航、主内容与命令面板语义', async ()
     assert.match(search.text, /class="workspace-nav-link is-active" href="\/search" aria-current="page">\s*<span>笔记<\/span>/);
 
     const board = await request(ctx.app).get('/board/experiment').expect(200);
-    assert.match(board.text, /class="chip active" href="\/board\/experiment" aria-current="page">研究项目<\/a>/);
+    assert.match(board.text, /class="workspace-nav-link is-active" href="\/board\/experiment" aria-current="page">\s*<span>研究项目<\/span>/);
 
     const health = await request(ctx.app).get('/health').expect(200);
     assert.match(health.text, /<details class="workspace-tools" open>/);
@@ -163,7 +164,7 @@ test('指向不存在笔记的链接渲染成待建而不是死链', async () =>
   }
 });
 
-test('搜索页对中文可用，并标出是全文还是子串命中', async () => {
+test('搜索页支持中文全文与子串命中，不展示检索实现标签', async () => {
   const ctx = await setup();
   try {
     await writeNote(ctx.notesDir, 'a.md', {
@@ -172,12 +173,14 @@ test('搜索页对中文可用，并标出是全文还是子串命中', async ()
     await ctx.indexer.scan();
 
     const fts = await request(ctx.app).get('/search?q=' + encodeURIComponent('教材')).expect(200);
-    assert.match(fts.text, /找到 1 篇/);
-    assert.match(fts.text, /全文/);
+    assert.match(fts.text, /id="library-results-title">匹配的笔记<\/h2><span>1 篇/);
+    assert.match(fts.text, /class="library-document" href="\/note\/a.md"/);
+    assert.doesNotMatch(fts.text, /全文|子串/);
 
     const fallback = await request(ctx.app).get('/search?q=' + encodeURIComponent('经济学')).expect(200);
-    assert.match(fallback.text, /找到 1 篇/, '「经济学」必须能搜到');
-    assert.match(fallback.text, /子串/, '应标出走了兜底路径');
+    assert.match(fallback.text, /id="library-results-title">匹配的笔记<\/h2><span>1 篇/, '「经济学」必须能搜到');
+    assert.match(fallback.text, /class="library-document" href="\/note\/a.md"/);
+    assert.doesNotMatch(fallback.text, /全文|子串/);
   } finally {
     await ctx.cleanup();
   }
@@ -194,7 +197,8 @@ test('保存笔记后立刻能搜到', async () => {
       .expect('Location', '/note/diary/2026-08-06.md');
 
     const search = await request(ctx.app).get('/search?q=' + encodeURIComponent('工具变量')).expect(200);
-    assert.match(search.text, /找到 1 篇/);
+    assert.match(search.text, /id="library-results-title">匹配的笔记<\/h2><span>1 篇/);
+    assert.match(search.text, /class="library-document" href="\/note\/diary\/2026-08-06.md"/);
 
     // 落盘的是 Markdown 文件本身，不是数据库里的一行。
     const raw = await fs.readFile(path.join(ctx.notesDir, 'diary/2026-08-06.md'), 'utf8');
@@ -439,7 +443,7 @@ test('只读实例的页面不渲染编辑入口', async () => {
     assert.ok(!response.text.includes('/static/selection-card.js'), '只读模式不该加载写入脚本');
     assert.match(response.text, /<body class="page-reading is-readonly"/);
     assert.match(response.text, /<div class="workspace-sidebar-footer">[\s\S]*class="readonly-status" title="可浏览、搜索和复习，不能修改笔记"/);
-    assert.match(response.text, /<header class="workspace-toolbar">[\s\S]*class="readonly-status readonly-status-compact" title="可浏览、搜索和复习，不能修改笔记" aria-label="只读模式：可浏览、搜索和复习，不能修改笔记"/);
+    assert.doesNotMatch(response.text, /readonly-status-compact|navigation-dialog|data-navigation-open/);
     assert.match(response.text, /<dialog id="palette" class="palette" data-readonly="1"/);
     assert.match(response.headers['content-security-policy'], /worker-src 'self'/);
   } finally {

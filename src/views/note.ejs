@@ -8,7 +8,7 @@
     <% if (note.tags.length) { %>
       <ul class="chiplist inline">
         <% note.tags.forEach(tag => { %>
-          <li><a class="chip" href="/search?tag=<%= encodeURIComponent(tag) %>&q=<%= encodeURIComponent(tag) %>"><%= tag %></a></li>
+          <li><a class="chip" href="/search?tag=<%= encodeURIComponent(tag) %>"><%= tag %></a></li>
         <% }) %>
       </ul>
     <% } %>

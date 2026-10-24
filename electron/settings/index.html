@@ -11,25 +11,21 @@
   <aside class="sidebar">
     <div class="identity">
       <span class="mark" aria-hidden="true">研</span>
-      <div><strong>Workstation Mini</strong><small>本机设置</small></div>
+      <div><strong>科研工作台</strong><small>本机设置</small></div>
     </div>
     <p class="sidebar-label">设置分组</p>
     <nav aria-label="设置分组" data-settings-nav>
       <a href="#workspace">工作区</a>
       <a href="#sync">同步</a>
-      <a href="#practice">练习与错题</a>
       <a href="#ai">Anthropic</a>
       <a href="#system">系统</a>
     </nav>
-    <p class="local-note">内部服务只监听随机的本机回环端口，不接受局域网或互联网访问。</p>
   </aside>
 
   <main>
     <header class="page-header">
       <div>
-        <span class="eyebrow">应用偏好</span>
         <h1>设置</h1>
-        <p>资料库或运行配置改变后，应用会安全重启内部服务。</p>
       </div>
       <div class="status-stack" aria-label="设置状态">
         <span id="runtime-status" class="status-pill">正在读取…</span>
@@ -39,21 +35,20 @@
 
     <form id="settings-form" aria-busy="true">
       <section id="workspace" class="settings-section">
-        <div class="section-heading"><span>01</span><div><h2>工作区</h2><p>Markdown 是唯一真相，SQLite 索引可随时重建。</p></div></div>
+        <div class="section-heading"><div><h2>工作区</h2></div></div>
         <label class="field wide">
           <span>资料库目录</span>
           <div class="path-control"><input name="vaultDir" type="text" autocomplete="off" required><button type="button" data-choose-dir="vaultDir">选择</button></div>
-          <small>优先使用已保存目录；首次运行会自动识别用户目录下的 workstation-vault。</small>
         </label>
         <div class="field-grid">
-          <label class="field"><span>设备名</span><input name="device" type="text" autocomplete="off"><small>用于区分事件文件；中文等名称会自动转换为带短摘要的安全文件名，避免不同设备重名。</small></label>
+          <label class="field"><span>设备名</span><input name="device" type="text" autocomplete="off"><small>用于区分不同设备的复习记录。</small></label>
           <label class="toggle"><input name="readOnly" type="checkbox"><span><strong>只读模式</strong><small>允许浏览、搜索和复习，阻止修改 Markdown。</small></span></label>
         </div>
-        <div class="recovery-entry"><div><strong>从备份恢复到新资料库</strong><p>从 Git 远端或本地备份复制并重建 SQLite；当前资料库和来源均不会修改。</p></div><button type="button" id="open-recovery">开始恢复…</button></div>
+        <div class="recovery-entry"><div><strong>从备份恢复到新资料库</strong><p>当前资料库和备份均不会修改。</p></div><button type="button" id="open-recovery">开始恢复…</button></div>
       </section>
 
       <section id="sync" class="settings-section">
-        <div class="section-heading"><span>02</span><div><h2>Git 同步</h2><p>资料库不是 Git 仓库时会自动跳过，不影响本地使用。</p></div></div>
+        <div class="section-heading"><div><h2>Git 同步</h2><p>资料库不是 Git 仓库时会自动跳过，不影响本地使用。</p></div></div>
         <div class="field-grid">
           <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先拉取，再提交和推送。</small></span></label>
           <label class="field"><span>同步间隔（分钟）</span><input name="syncIntervalMinutes" type="number" min="1" max="1440" step="1" required></label>
@@ -65,14 +60,8 @@
         <button type="button" class="secondary" id="sync-now">立即同步</button>
       </section>
 
-      <section id="practice" class="settings-section">
-        <div class="section-heading"><span>03</span><div><h2>练习与错题</h2><p>可选连接 academic-writing 检查器；没有配置时，手工练习与错题转卡仍可用。</p></div></div>
-        <label class="field wide"><span>检查器脚本</span><div class="path-control"><input name="checkDraftPath" type="text" autocomplete="off" placeholder="留空则关闭写作检查"><button type="button" data-choose-file="checkDraftPath">选择</button></div><small>选择本机的 check_draft.py；脚本只读取你明确提交检查的 Markdown。</small></label>
-        <label class="field wide"><span>Python 命令</span><input name="pythonPath" type="text" autocomplete="off" placeholder="python3"><small>默认使用 python3（Windows 默认 python）。</small></label>
-      </section>
-
       <section id="ai" class="settings-section">
-        <div class="section-heading"><span>04</span><div><h2>Anthropic</h2><p>用于生成候选卡片与练习提示；本地检索与复习不需要 API key。只有显式请求模型时，才会发送当前选中的笔记片段。</p></div></div>
+        <div class="section-heading"><div><h2>Anthropic</h2><p>用于生成候选卡片与练习提示；本地检索与复习不需要 API key。只有显式请求模型时，才会发送当前选中的笔记片段。</p></div></div>
         <label class="field wide"><span>API key <em id="anthropic-status"></em></span><input name="anthropicApiKey" type="password" autocomplete="new-password" placeholder="留空则保留已保存的 key"><small>使用系统安全存储加密，不会回填到设置页面。</small></label>
         <label class="clear-secret"><input name="clearAnthropicApiKey" type="checkbox"> 清除已保存的 API key</label>
       </section>
@@ -80,7 +69,7 @@
 
 
       <section id="system" class="settings-section">
-        <div class="section-heading"><span>05</span><div><h2>系统</h2><p>关闭主窗口时应用会隐藏，仍可从系统托盘或菜单栏恢复。</p></div></div>
+        <div class="section-heading"><div><h2>系统</h2><p>关闭主窗口时应用会隐藏，仍可从系统托盘或菜单栏恢复。</p></div></div>
         <div data-capability="launchAtLogin">
           <label class="toggle"><input name="launchAtLogin" type="checkbox"><span><strong>登录 Windows 后启动</strong><small>默认关闭；启用后会静默启动到托盘。</small></span></label>
         </div>

@@ -9,15 +9,14 @@
       items: [
         { label: '今日', href: '/', active: matches('/') },
         { label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
-        { label: '卡片', href: '/decks', active: matches('/decks', '/review') },
-        { label: '待办', href: '/tasks', active: matches('/tasks') },
-        { label: '错题', href: '/mistakes', active: matches('/mistakes') }
+        { label: '研究项目', href: '/board/experiment', active: matches('/board', '/item') },
+        { label: '计划', href: '/plan', active: matches('/plan', '/tasks', '/calendar', '/deadlines') },
+        { label: '复习', href: '/decks', active: matches('/decks', '/review') }
       ]
     }
   ];
   const toolItems = [
     { label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
-    { label: '截止日期', href: '/deadlines', active: matches('/deadlines') },
     { label: '资料库健康', href: '/health', active: matches('/health') }
   ];
   const toolsActive = toolItems.some(item => item.active);
@@ -30,7 +29,7 @@
       ? 'page-focus'
       : matches('/note')
         ? 'page-reading'
-        : 'page-work';
+        : matches('/board') || (matches('/plan', '/calendar') && typeof view !== 'undefined' && view === 'calendar') ? 'page-canvas' : 'page-work';
 %>
 <!doctype html>
 <html lang="zh-CN">
@@ -48,54 +47,32 @@
 </head>
 <body class="<%= pageMode %><%= readOnly ? ' is-readonly' : '' %>" data-page-path="<%= routePath %>" data-primary-modifier="<%= primaryModifier %>"<% if (typeof note !== 'undefined' && note) { %> data-note-path="<%= note.path %>"<% } %>>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
-  <dialog id="navigation-dialog" class="navigation-dialog" aria-labelledby="navigation-title">
-    <div class="dialog-heading">
-      <h2 id="navigation-title">前往工作区</h2>
-      <button type="button" class="button small" data-navigation-close aria-label="关闭导航">关闭 <kbd>Esc</kbd></button>
-    </div>
-    <%- include('navigation', { navGroups, toolItems, toolsActive }) %>
-    <div class="navigation-actions">
-      <% if (!readOnly) { %><a class="button" href="/new">新建笔记</a>
-      <% } else { %><span class="readonly-status">只读模式：可浏览、搜索和复习</span><% } %>
-    </div>
-  </dialog>
   <div class="app-shell">
     <aside class="workspace-sidebar">
       <a class="workspace-brand" href="/" aria-label="科研工作台首页">
         <span class="workspace-mark" aria-hidden="true">研</span>
-        <span><strong>科研工作台</strong><small>Quiet research desk</small></span>
+        <span><strong>科研工作台</strong></span>
       </a>
 
       <%- include('navigation', { navGroups, toolItems, toolsActive }) %>
-      <span class="compact-page-title"><%= title %></span>
-      <button type="button" class="button small compact-nav-trigger" data-navigation-open aria-haspopup="dialog" aria-controls="navigation-dialog" aria-expanded="false">导航</button>
 
       <div class="workspace-sidebar-footer">
-        <% if (!readOnly) { %>
+        <% if (!readOnly && !matches('/search', '/new', '/edit')) { %>
           <a class="button workspace-create" href="/new">新建笔记 <span aria-hidden="true">＋</span></a>
-        <% } else { %>
+        <% } else if (readOnly) { %>
           <span class="readonly-status" title="可浏览、搜索和复习，不能修改笔记"><span aria-hidden="true"></span>只读模式</span>
         <% } %>
-        <button type="button" class="palette-trigger sidebar-command" data-palette-open aria-label="打开命令面板" aria-haspopup="dialog" aria-controls="palette">
-          <span>打开命令</span><kbd><%= paletteHint %></kbd>
-        </button>
       </div>
     </aside>
 
     <div class="workspace-main">
       <header class="workspace-toolbar">
-        <div class="workspace-context">
-          <span>当前视图</span>
-          <strong><%= title %></strong>
-        </div>
+        <div class="workspace-context"><span class="workspace-location">工作区</span><span aria-hidden="true">/</span><strong><%= title %></strong></div>
         <form class="topsearch" action="/search" method="get" role="search">
           <span class="search-glyph" aria-hidden="true"></span>
           <input type="search" name="q" placeholder="搜索资料库…" value="<%= typeof query !== 'undefined' ? query : '' %>" aria-label="搜索笔记">
           <kbd>/</kbd>
         </form>
-        <% if (readOnly) { %>
-          <span class="readonly-status readonly-status-compact" title="可浏览、搜索和复习，不能修改笔记" aria-label="只读模式：可浏览、搜索和复习，不能修改笔记"><span aria-hidden="true"></span>只读</span>
-        <% } %>
         <button type="button" class="palette-trigger toolbar-command" data-palette-open aria-label="打开命令面板" aria-haspopup="dialog" aria-controls="palette">
           <span>命令</span><kbd><%= paletteHint %></kbd>
         </button>

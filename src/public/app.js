@@ -152,35 +152,6 @@
     waitForEditorWork
   };
 
-  const navigation = document.getElementById('navigation-dialog');
-  const navigationTrigger = document.querySelector('[data-navigation-open]');
-  if (navigation && navigationTrigger) {
-    const compact = window.matchMedia('(max-width: 760px)');
-    let navigationOpener = null;
-    const closeNavigation = () => navigation.close();
-    navigationTrigger.addEventListener('click', () => {
-      if (!compact.matches || hasOpenDialog()) return;
-      navigationOpener = document.activeElement;
-      navigation.showModal();
-      navigationTrigger.setAttribute('aria-expanded', 'true');
-      navigation.querySelector('[aria-current="page"]')?.focus();
-    });
-    navigation.querySelector('[data-navigation-close]').addEventListener('click', closeNavigation);
-    navigation.addEventListener('click', event => {
-      if (event.target === navigation) closeNavigation();
-    });
-    navigation.addEventListener('close', () => {
-      navigationTrigger.setAttribute('aria-expanded', 'false');
-      const target = compact.matches && navigationOpener?.isConnected
-        ? navigationOpener : document.getElementById('main-content');
-      navigationOpener = null;
-      target?.focus();
-    });
-    compact.addEventListener('change', () => {
-      if (!compact.matches && navigation.open) closeNavigation();
-    });
-  }
-
   async function updateBoardStatus(select) {
     const form = select.form;
     const card = form?.closest('[data-board-card]');

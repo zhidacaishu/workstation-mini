@@ -411,24 +411,23 @@ test('非法评分被拒绝，不写进日志', async () => {
 test('卡片正面压成一行，多行内容不会漏进背面', async () => {
   const vault = await makeVault();
   try {
-    // 错题转卡片曾经把「下面这句话问题在哪？\n\n<那句话>」整段塞进 front。
     // 卡片格式里正面就是那行 `## 标题`，只有第一行算正面，剩下的会被
     // splitCards 当成背面 —— 于是要考的那句话在翻开答案之前根本看不到。
     await cards.appendCard(vault, {
-      deckFile: 'writing-mistakes',
+      deckFile: 'writing',
       front: '冗余表达：下面这句话问题在哪？\n\nIt should be noted that the results are significant.',
       back: '删掉 It should be noted that。'
     });
 
-    const raw = await fs.readFile(path.join(vault, 'cards', 'writing-mistakes.md'), 'utf8');
-    const parsed = cards.parseCardFile('cards/writing-mistakes.md', raw);
+    const raw = await fs.readFile(path.join(vault, 'cards', 'writing.md'), 'utf8');
+    const parsed = cards.parseCardFile('cards/writing.md', raw);
 
     assert.equal(parsed.length, 1);
     assert.ok(parsed[0].front.includes('It should be noted that'), '要考的句子必须留在正面');
     assert.ok(!parsed[0].front.includes('\n'), '正面只能是一行');
     assert.equal(parsed[0].back, '删掉 It should be noted that。', '背面只放答案');
     // 写进文件的标题和算出来的 ID 要对得上（cardId 也做同样的空白归一）。
-    assert.equal(parsed[0].id, cards.cardId('cards/writing-mistakes.md', parsed[0].front));
+    assert.equal(parsed[0].id, cards.cardId('cards/writing.md', parsed[0].front));
   } finally {
     await fs.rm(vault, { recursive: true, force: true });
   }

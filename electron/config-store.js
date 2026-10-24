@@ -5,8 +5,8 @@ const { replaceFileSync } = require('../src/vault/atomic');
 
 const SCHEMA_VERSION = 4;
 const SECRET_FIELDS = ['anthropicApiKey'];
-const PLAIN_FIELDS = ['vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'checkDraftPath', 'pythonPath', 'launchAtLogin'];
-const DEFAULT_SETTINGS = Object.freeze({ schemaVersion: SCHEMA_VERSION, vaultDir: '', device: '', readOnly: false, syncEnabled: false, syncIntervalMinutes: 15, checkDraftPath: '', pythonPath: process.platform === 'win32' ? 'python' : 'python3', launchAtLogin: false, secrets: {} });
+const PLAIN_FIELDS = ['vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'launchAtLogin'];
+const DEFAULT_SETTINGS = Object.freeze({ schemaVersion: SCHEMA_VERSION, vaultDir: '', device: '', readOnly: false, syncEnabled: false, syncIntervalMinutes: 15, launchAtLogin: false, secrets: {} });
 
 function atomicWrite(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -22,7 +22,7 @@ function normalizeSettings(value = {}) {
   const interval = Number(settings.syncIntervalMinutes);
   settings.syncIntervalMinutes = Number.isFinite(interval) ? Math.min(Math.max(Math.trunc(interval), 1), 1440) : 15;
   settings.readOnly = Boolean(settings.readOnly); settings.syncEnabled = Boolean(settings.syncEnabled); settings.launchAtLogin = Boolean(settings.launchAtLogin);
-  for (const key of ['vaultDir', 'device', 'checkDraftPath', 'pythonPath']) settings[key] = typeof settings[key] === 'string' ? settings[key].trim() : '';
+  for (const key of ['vaultDir', 'device']) settings[key] = typeof settings[key] === 'string' ? settings[key].trim() : '';
   return settings;
 }
 function createConfigStore({ userDataPath, safeStorage }) {

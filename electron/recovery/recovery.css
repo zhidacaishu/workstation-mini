@@ -22,7 +22,7 @@
   --motion: 160ms cubic-bezier(.2, .7, .2, 1);
 }
 * { box-sizing: border-box; }
-body { min-height: 100vh; margin: 0; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); background: var(--canvas); color: var(--text); font: 14px/1.55 var(--ui); }
+body { min-width: 900px; min-height: 100vh; margin: 0; display: grid; grid-template-columns: var(--rail) minmax(0, 1fr); background: var(--canvas); color: var(--text); font: 14px/1.55 var(--ui); }
 button, input { font: inherit; }
 button { min-height: 38px; padding: 8px 13px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-raised); color: var(--secondary); cursor: pointer; transition: border-color var(--motion), background var(--motion), color var(--motion), transform var(--motion); }
 button:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text); }
@@ -95,6 +95,4 @@ input[type="text"]:focus { border-color: var(--focus); box-shadow: 0 0 0 3px col
 .actions p { min-width: 0; margin: 0 auto 0 0; color: var(--tertiary); font-size: .73rem; }
 body[data-phase="activating"] .actions { border-top-color: var(--accent); }
 @media (prefers-color-scheme: dark) { :root { --canvas: #1d1b18; --canvas-deep: #24211d; --surface: #282520; --surface-raised: #302c26; --surface-accent: #283a33; --border: #454038; --border-strong: #635c51; --text: #ece7de; --secondary: #bcb4a8; --tertiary: #938b80; --accent: #82ad98; --accent-contrast: #17231e; --accent-strong: #a5c8b6; --warning: #d39a69; --danger: #dd897d; --focus: #8bb7a2; } }
-@media (max-width: 760px) { :root { --rail: 0px; } body { display: block; } .stage-rail { position: static; width: auto; padding: 17px 18px 12px; border-right: 0; border-bottom: 1px solid var(--border); } .identity { margin-bottom: 14px; } .stage-rail ol { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; } .stage-rail ol::before, .stage-rail li div, .rail-note { display: none; } .stage-rail li { min-height: auto; display: block; } .stage-rail li > span { margin: auto; } main { width: auto; padding: 26px 20px 106px; } .first-run-actions { grid-template-columns: 1fr; } .actions { left: 0; padding: 10px 20px; } .actions p { display: none; } }
-@media (max-width: 560px) { header { display: block; } .state-stamp { display: inline-block; margin-top: 13px; } .source-switch { grid-template-columns: 1fr; } .actions { flex-wrap: wrap; justify-content: flex-end; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; } }

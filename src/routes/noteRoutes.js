@@ -18,16 +18,27 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
     const query = String(req.query.q || '');
     const section = String(req.query.section || '');
     const tag = String(req.query.tag || '');
-    const outcome = query ? search.search(query, { section, tag }) : { results: [], usedFallback: false };
+    const isBrowsing = !query.trim();
+    const outcome = isBrowsing
+      ? { results: search.browse({ section, tag }), usedFallback: false }
+      : search.search(query, { section, tag });
 
     res.render('search', {
-      title: query ? `搜索：${query}` : '搜索',
+      title: isBrowsing ? '笔记资料库' : `搜索：${query}`,
       query,
       section,
       tag,
       results: outcome.results,
+      isBrowsing,
+      total: db.countNotes(),
       usedFallback: outcome.usedFallback,
-      sections: db.raw.prepare(`SELECT DISTINCT section FROM notes WHERE section != '' ORDER BY section`).all(),
+      sections: db.raw.prepare(`
+        SELECT section, count(*) AS count
+        FROM notes
+        WHERE section != ''
+        GROUP BY section
+        ORDER BY section
+      `).all(),
       tags: db.listTags()
     });
   });

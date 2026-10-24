@@ -208,9 +208,6 @@ function protectCardSeparators(text) {
 /**
  * 往卡组文件末尾追加一张卡。
  *
- * 划词建卡和错题转卡片共用这一个入口 —— 错题本要能喂给复习引擎，
- * 靠的就是这条路径，没必要写两遍。
- *
  * 只追加、不重排：卡片文件是给人读的 Markdown，程序不该擅自改动别的部分。
  */
 async function appendCard(vaultDir, {

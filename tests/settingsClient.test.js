@@ -5,11 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const PLAIN_FIELDS = [
-  'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes',
-  'zoteroApi', 'zoteroDataDir', 'journalTrackerUrl', 'journalTrackerEmail',
-  'checkDraftPath', 'pythonPath', 'whisperPath', 'whisperModel', 'blogRepo',
-  'launchAtLogin', 'blobServerUrl', 'updatesEnabled',
-  'remindersEnabled', 'reminderLeadMinutes'
+  'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'launchAtLogin'
 ];
 
 function clone(value) {
@@ -23,25 +19,8 @@ function makeData(overrides = {}) {
     readOnly: false,
     syncEnabled: true,
     syncIntervalMinutes: 15,
-    zoteroApi: 'http://127.0.0.1:23119/api',
-    zoteroDataDir: 'C:/Zotero',
-    journalTrackerUrl: '',
-    journalTrackerEmail: '',
-    checkDraftPath: '',
-    pythonPath: 'python',
-    whisperPath: '',
-    whisperModel: '',
-    blogRepo: '',
     launchAtLogin: false,
-    updatesEnabled: true,
-    remindersEnabled: false,
-    reminderLeadMinutes: 10,
-    secrets: {
-      anthropicApiKey: true,
-      journalTrackerPassword: false,
-      blobServerToken: false,
-      mineruApiToken: false
-    },
+    secrets: { anthropicApiKey: true },
     ...overrides
   };
   if (overrides.secrets) settings.secrets = overrides.secrets;
@@ -52,8 +31,7 @@ function makeData(overrides = {}) {
     syncStatus: settings.syncEnabled
       ? { phase: 'idle', operation: '', recovery: null, lastResult: null }
       : { phase: 'disabled', operation: '', recovery: null, lastResult: null },
-    updateStatus: { phase: 'idle', version: '', reason: '', enabled: true, text: '尚未检查更新' },
-    capabilities: { launchAtLogin: true, autoUpdate: true }
+    capabilities: { launchAtLogin: true }
   };
 }
 
@@ -103,18 +81,12 @@ async function flush() {
 async function loadSettings(initial = makeData()) {
   const fields = new Map();
   for (const name of PLAIN_FIELDS) {
-    const checkbox = ['readOnly', 'syncEnabled', 'launchAtLogin', 'updatesEnabled', 'remindersEnabled'].includes(name);
-    const number = ['syncIntervalMinutes', 'reminderLeadMinutes'].includes(name);
+    const checkbox = ['readOnly', 'syncEnabled', 'launchAtLogin'].includes(name);
+    const number = name === 'syncIntervalMinutes';
     fields.set(name, createElement({ name, type: checkbox ? 'checkbox' : number ? 'number' : 'text' }));
   }
   fields.set('anthropicApiKey', createElement({ name: 'anthropicApiKey', type: 'password' }));
   fields.set('clearAnthropicApiKey', createElement({ name: 'clearAnthropicApiKey', type: 'checkbox' }));
-  fields.set('journalTrackerPassword', createElement({ name: 'journalTrackerPassword', type: 'password' }));
-  fields.set('clearJournalTrackerPassword', createElement({ name: 'clearJournalTrackerPassword', type: 'checkbox' }));
-  fields.set('blobServerToken', createElement({ name: 'blobServerToken', type: 'password' }));
-  fields.set('clearBlobServerToken', createElement({ name: 'clearBlobServerToken', type: 'checkbox' }));
-  fields.set('mineruApiToken', createElement({ name: 'mineruApiToken', type: 'password' }));
-  fields.set('clearMineruApiToken', createElement({ name: 'clearMineruApiToken', type: 'checkbox' }));
 
   const form = createElement({ id: 'settings-form' });
   form.elements = { namedItem: name => fields.get(name) || null };
@@ -134,20 +106,12 @@ async function loadSettings(initial = makeData()) {
   const openVault = createElement({ id: 'open-vault' });
   const openConfig = createElement({ id: 'open-config' });
   const openRecovery = createElement({ id: 'open-recovery' });
-  const repairBlobs = createElement({ id: 'repair-blobs' });
   const anthropicStatus = createElement({ id: 'anthropic-status' });
-  const journalStatus = createElement({ id: 'journal-password-status' });
-  const blobTokenStatus = createElement({ id: 'blob-token-status' });
-  const mineruTokenStatus = createElement({ id: 'mineru-token-status' });
-  const updateStatusLine = createElement({ id: 'update-status' });
   const launchCapability = createElement();
   launchCapability.dataset.capability = 'launchAtLogin';
   launchCapability.querySelectorAll = () => [fields.get('launchAtLogin')];
-  const updateCapability = createElement();
-  updateCapability.dataset.capability = 'autoUpdate';
-  updateCapability.querySelectorAll = () => [fields.get('updatesEnabled')];
-  const capabilityElements = [launchCapability, updateCapability];
-  const controls = [...fields.values(), save, reload, sync, abortGit, openVault, openConfig, openRecovery, repairBlobs];
+  const capabilityElements = [launchCapability];
+  const controls = [...fields.values(), save, reload, sync, abortGit, openVault, openConfig, openRecovery];
   form.querySelectorAll = selector => selector === 'input, button' ? controls : [];
 
   const byId = new Map([
@@ -156,10 +120,7 @@ async function loadSettings(initial = makeData()) {
     ['sync-now', sync], ['sync-status', syncStatus], ['sync-status-title', syncStatusTitle],
     ['sync-status-detail', syncStatusDetail], ['abort-git-operation', abortGit],
     ['open-vault', openVault], ['open-config', openConfig],
-    ['open-recovery', openRecovery], ['repair-blobs', repairBlobs],
-    ['anthropic-status', anthropicStatus], ['journal-password-status', journalStatus],
-    ['blob-token-status', blobTokenStatus], ['mineru-token-status', mineruTokenStatus],
-    ['update-status', updateStatusLine]
+    ['open-recovery', openRecovery], ['anthropic-status', anthropicStatus]
   ]);
   const body = { dataset: {} };
   const document = {
@@ -172,7 +133,6 @@ async function loadSettings(initial = makeData()) {
   let current = clone(initial);
   let changed;
   let syncStatusChanged;
-  let updateStatusChanged;
   let saveImpl = async update => {
     current = makeData({ ...update.settings, secrets: current.settings.secrets });
     return clone(current);
@@ -189,15 +149,13 @@ async function loadSettings(initial = makeData()) {
       return result;
     },
     async chooseDirectory() { return ''; },
-    async chooseFile() { return ''; },
     async syncNow() { return { ok: true }; },
     async abortGitOperation() { return { ok: true, aborted: 'rebase' }; },
     async openVault() {},
     async openConfigDirectory() {},
     async openRecovery(mode) { recoveryModes.push(mode); },
     onChanged(callback) { changed = callback; return () => {}; },
-    onSyncStatusChanged(callback) { syncStatusChanged = callback; return () => {}; },
-    onUpdateStatusChanged(callback) { updateStatusChanged = callback; return () => {}; }
+    onSyncStatusChanged(callback) { syncStatusChanged = callback; return () => {}; }
   };
 
   const windowListeners = new Map();
@@ -221,13 +179,12 @@ async function loadSettings(initial = makeData()) {
 
   return {
     fields, form, message, save, reload, runtime, state, sync, syncStatus,
-    syncStatusTitle, syncStatusDetail, abortGit, openVault, openConfig, openRecovery, repairBlobs,
-    updateStatusLine, launchCapability, updateCapability, body, savedUpdates, recoveryModes,
+    syncStatusTitle, syncStatusDetail, abortGit, openVault, openConfig, openRecovery,
+    launchCapability, body, savedUpdates, recoveryModes,
     setSave(implementation) { saveImpl = implementation; },
     setCurrent(data) { current = clone(data); },
     async change() { await changed(); await flush(); },
     async changeSyncStatus(status) { syncStatusChanged(status); await flush(); },
-    async changeUpdateStatus(status) { updateStatusChanged(status); await flush(); },
     getCalls: () => getCalls,
     beforeUnload() {
       const event = { prevented: false, returnValue: undefined, preventDefault() { this.prevented = true; } };
@@ -238,22 +195,18 @@ async function loadSettings(initial = makeData()) {
 }
 
 test('macOS capabilities 隐藏不支持项并保留对应设置原值', async () => {
-  const initial = makeData({ launchAtLogin: true, updatesEnabled: true });
-  initial.capabilities = { launchAtLogin: false, autoUpdate: false };
+  const initial = makeData({ launchAtLogin: true });
+  initial.capabilities = { launchAtLogin: false };
   const ui = await loadSettings(initial);
 
   assert.equal(ui.launchCapability.hidden, true);
-  assert.equal(ui.updateCapability.hidden, true);
   assert.equal(ui.launchCapability.attributes['aria-hidden'], 'true');
   assert.equal(ui.fields.get('launchAtLogin').disabled, true);
-  assert.equal(ui.fields.get('updatesEnabled').disabled, true);
-  assert.equal(ui.updateStatusLine.textContent, '');
 
   ui.fields.get('device').value = 'mac';
   await ui.form.dispatch('input');
   ui.setSave(async update => {
     assert.equal(update.settings.launchAtLogin, true);
-    assert.equal(update.settings.updatesEnabled, true);
     const result = makeData({ ...update.settings, secrets: initial.settings.secrets });
     result.capabilities = initial.capabilities;
     return result;
@@ -261,28 +214,43 @@ test('macOS capabilities 隐藏不支持项并保留对应设置原值', async (
   await ui.form.dispatch('submit');
 
   assert.equal(ui.savedUpdates[0].settings.launchAtLogin, true);
-  assert.equal(ui.savedUpdates[0].settings.updatesEnabled, true);
   assert.equal(ui.launchCapability.hidden, true);
 });
 
-test('更新状态实时显示，文案取自主进程而不是在页面里再拼一遍', async () => {
+test('设置测试控件与实际页面保持一致', async () => {
+  const html = await fs.readFile(path.join(__dirname, '..', 'electron', 'settings', 'index.html'), 'utf8');
+  const names = [...html.matchAll(/<input\b[^>]*\bname="([^"]+)"/g)].map(match => match[1]);
   const ui = await loadSettings();
-  assert.equal(ui.updateStatusLine.textContent, '尚未检查更新');
+  assert.deepEqual([...ui.fields.keys()].sort(), names.sort());
+});
 
-  await ui.changeUpdateStatus({
-    phase: 'downloaded', version: '0.2.0', reason: '', enabled: true,
-    text: '更新 0.2.0 已就绪，退出时安装'
-  });
-  assert.match(ui.updateStatusLine.textContent, /0\.2\.0/);
-  assert.equal(ui.updateStatusLine.dataset.phase, 'downloaded');
+test('同步状态实时更新，不改变未保存设置', async () => {
+  const ui = await loadSettings();
+  ui.fields.get('device').value = 'local-draft';
+  await ui.form.dispatch('input');
+  await ui.changeSyncStatus({ phase: 'running', operation: 'sync' });
+  assert.equal(ui.syncStatus.dataset.phase, 'running');
+  assert.equal(ui.sync.disabled, true);
+  assert.match(ui.syncStatusTitle.textContent, /正在进行/);
 
-  // 没配存储服务时也要说清楚原因，而不是留一行空白让人以为坏了。
-  await ui.changeUpdateStatus({
-    phase: 'disabled', version: '', reason: '未配置大文件存储服务地址，无法检查更新。',
-    enabled: false, text: '未启用自动更新：未配置大文件存储服务地址，无法检查更新。'
-  });
-  assert.match(ui.updateStatusLine.textContent, /存储服务/);
-  assert.equal(ui.updateStatusLine.dataset.phase, 'disabled');
+  await ui.changeSyncStatus({ phase: 'error', lastResult: { error: '本地测试同步失败' } });
+  assert.equal(ui.syncStatus.dataset.phase, 'error');
+  assert.equal(ui.sync.disabled, false);
+  assert.equal(ui.syncStatusDetail.textContent, '本地测试同步失败');
+  assert.equal(ui.body.dataset.settingsState, 'dirty');
+  assert.equal(ui.fields.get('device').value, 'local-draft');
+});
+
+test('设置表单不依赖已移除的检查器控件，保存时只提交当前字段', async () => {
+  const ui = await loadSettings();
+  assert.equal(ui.body.dataset.settingsState, 'clean');
+  ui.fields.get('device').value = 'desktop';
+  await ui.form.dispatch('input');
+  await ui.form.dispatch('submit');
+  assert.equal(ui.body.dataset.settingsState, 'clean');
+  assert.deepEqual(Object.keys(ui.savedUpdates[0].settings).sort(), [
+    'device', 'launchAtLogin', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'vaultDir'
+  ]);
 });
 
 test('同步恢复状态独立展示，并阻止手工同步', async () => {
@@ -322,9 +290,8 @@ test('恢复入口只打开独立窗口，不改变未保存设置状态', async
   await ui.form.dispatch('input');
 
   await ui.openRecovery.dispatch('click');
-  await ui.repairBlobs.dispatch('click');
 
-  assert.deepEqual(ui.recoveryModes, ['restore', 'repair-blobs']);
+  assert.deepEqual(ui.recoveryModes, ['restore']);
   assert.equal(ui.body.dataset.settingsState, 'dirty');
   assert.equal(ui.fields.get('device').value, 'local-draft');
 });
@@ -362,7 +329,7 @@ test('保存期间锁定竞争操作，成功后清空秘密并吸收自身变�
   ui.setSave(update => new Promise(resolve => {
     resolveSave = () => resolve(makeData({
       ...update.settings,
-      secrets: { anthropicApiKey: true, journalTrackerPassword: false }
+      secrets: { anthropicApiKey: true }
     }));
   }));
 
@@ -396,33 +363,33 @@ test('保存期间锁定竞争操作，成功后清空秘密并吸收自身变�
 test('外部变化在 clean 时自动刷新，在 dirty 时保留本地值并合并未编辑字段', async () => {
   const ui = await loadSettings(makeData({ revision: 3 }));
 
-  ui.setCurrent(makeData({ revision: 4, device: 'external-clean', zoteroApi: 'http://external/one' }));
+  ui.setCurrent(makeData({ revision: 4, device: 'external-clean', syncIntervalMinutes: 30 }));
   await ui.change();
   assert.equal(ui.fields.get('device').value, 'external-clean');
-  assert.equal(ui.fields.get('zoteroApi').value, 'http://external/one');
+  assert.equal(ui.fields.get('syncIntervalMinutes').value, 30);
   assert.equal(ui.body.dataset.settingsState, 'clean');
 
   ui.fields.get('device').value = 'local-draft';
   await ui.form.dispatch('input');
-  ui.setCurrent(makeData({ revision: 5, device: 'external-two', zoteroApi: 'http://external/two' }));
+  ui.setCurrent(makeData({ revision: 5, device: 'external-two', syncIntervalMinutes: 60 }));
   await ui.change();
 
   assert.equal(ui.body.dataset.settingsState, 'conflict');
   assert.equal(ui.fields.get('device').value, 'local-draft');
-  assert.equal(ui.fields.get('zoteroApi').value, 'http://external/one');
+  assert.equal(ui.fields.get('syncIntervalMinutes').value, 30);
   assert.equal(ui.reload.hidden, false);
   assert.match(ui.message.textContent, /没有被覆盖/);
 
   ui.setSave(async update => makeData({
     revision: 6,
     ...update.settings,
-    secrets: { anthropicApiKey: true, journalTrackerPassword: false }
+    secrets: { anthropicApiKey: true }
   }));
   await ui.form.dispatch('submit');
 
   assert.equal(ui.savedUpdates.at(-1).expectedRevision, 5);
   assert.equal(ui.savedUpdates.at(-1).settings.device, 'local-draft');
-  assert.equal(ui.savedUpdates.at(-1).settings.zoteroApi, 'http://external/two');
+  assert.equal(ui.savedUpdates.at(-1).settings.syncIntervalMinutes, 60);
   assert.equal(ui.body.dataset.settingsState, 'clean');
 });
 

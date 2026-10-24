@@ -6,9 +6,9 @@ const { createNoteRoutes } = require('./routes/noteRoutes');
 const { createHistoryRoutes } = require('./routes/historyRoutes');
 const { createHealthRoutes } = require('./routes/healthRoutes');
 const { createReviewRoutes } = require('./routes/reviewRoutes');
-const { createMistakeRoutes } = require('./routes/mistakeRoutes');
 const { createItemRoutes } = require('./routes/itemRoutes');
 const { createTodayRoutes } = require('./routes/todayRoutes');
+const { createCalendarRoutes } = require('./routes/calendarRoutes');
 const { encodePath } = require('./vault/paths');
 
 function safeEqual(left, right) {
@@ -95,8 +95,8 @@ function createApp(config, deps) {
   });
 
   app.use(createTodayRoutes({ config, ...resolved }));
+  app.use(createCalendarRoutes({ config, ...resolved }));
   app.use(createReviewRoutes({ config, ...resolved }));
-  app.use(createMistakeRoutes({ config, ...resolved }));
   app.use(createItemRoutes({ config, ...resolved }));
   app.use(createNoteRoutes({ config, ...resolved }));
   app.use(createHistoryRoutes({ config, ...resolved }));

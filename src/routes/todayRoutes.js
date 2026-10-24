@@ -12,24 +12,13 @@ function createTodayRoutes({ config, db, search, now }) {
       res.render('today', {
         title: '今日',
         snapshot,
+        projectDeadlines: aggregate.deadlines(snapshot.date).filter(entry => entry.source === '研究项目').slice(0, 4),
         total: db.countNotes(),
         recent: search.recent(8)
       });
     } catch (error) { next(error); }
   });
 
-  router.get('/deadlines', async (req, res, next) => {
-    try {
-      const snapshot = await aggregate.today();
-      const horizon = Math.min(Math.max(Number(req.query.days) || 90, 7), 365);
-      res.render('deadlines', {
-        title: '截止日期',
-        today: snapshot.date,
-        horizon,
-        entries: aggregate.deadlines(snapshot.date, horizon)
-      });
-    } catch (error) { next(error); }
-  });
 
   return router;
 }

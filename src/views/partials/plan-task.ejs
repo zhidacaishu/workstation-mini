@@ -1,0 +1,16 @@
+<li class="plan-task<%= task.done ? ' is-done' : '' %>">
+  <% if (readOnly) { %>
+    <div class="plan-task-form"><span class="plan-checkbox" aria-label="<%= task.done ? '已完成' : '未完成' %>"><%= task.done ? '☑' : '☐' %></span><div class="plan-task-content"><a href="/note/<%= encodePath(task.path) %>#L<%= task.line %>"><%= task.title %></a><% if (task.noteTitle !== task.title) { %><span><%= task.noteTitle %></span><% } %></div><% if (task.due) { %><time datetime="<%= task.due %>"><%= task.due %></time><% } %></div>
+  <% } else { %>
+    <form class="plan-task-form" action="/tasks/update" method="post" data-task-form data-plan-task>
+      <input type="hidden" name="path" value="<%= task.path %>">
+      <input type="hidden" name="line" value="<%= task.line %>">
+      <input type="hidden" name="expectedHash" value="<%= task.hash %>">
+      <input type="hidden" name="returnTo" value="<%= view === 'calendar' ? '/plan?view=calendar&month=' + month + '&date=' + selected : '/plan?view=list&filter=' + filter %>">
+      <input class="plan-checkbox" type="checkbox" name="done"<% if (task.done) { %> checked<% } %> data-task-toggle aria-label="<%= task.done ? '重新打开' : '完成' %>：<%= task.title %>">
+      <div class="plan-task-content"><a href="/note/<%= encodePath(task.path) %>#L<%= task.line %>"><%= task.title %></a><% if (task.noteTitle !== task.title) { %><span><%= task.noteTitle %></span><% } %></div>
+      <input class="plan-task-date" type="date" name="due" value="<%= task.due || '' %>" aria-label="<%= task.title %>的到期日期" title="到期日期">
+      <button class="button quiet small" type="submit" data-task-save>保存</button>
+    </form>
+  <% } %>
+</li>

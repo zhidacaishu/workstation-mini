@@ -8,6 +8,7 @@ const fsSync = require('node:fs');
 
 const { createConfigStore, normalizeSettings } = require('../electron/config-store');
 const { createRuntimeConfig } = require('../electron/runtime-config');
+const { validateSettingsUpdate } = require('../electron/settings-validation');
 
 function fakeSafeStorage() {
   return {
@@ -104,6 +105,30 @@ test('空秘密更新保留旧值，清除必须显式操作', () => {
     secrets: { anthropicApiKey: { action: 'clear' } }
   });
   assert.equal(cleared.secrets.anthropicApiKey, undefined);
+});
+
+test('旧检查器配置字段在归一化时被丢弃，且不再接受更新', () => {
+  const normalized = normalizeSettings({
+    vaultDir: ' /vault ',
+    checkDraftPath: ' /tools/check_draft.py ',
+    pythonPath: ' python3 '
+  });
+  assert.deepEqual(normalized, {
+    schemaVersion: 4,
+    vaultDir: '/vault',
+    device: '',
+    readOnly: false,
+    syncEnabled: false,
+    syncIntervalMinutes: 15,
+    launchAtLogin: false,
+    secrets: {}
+  });
+  assert.throws(() => validateSettingsUpdate({
+    settings: { vaultDir: '/vault', checkDraftPath: '/tools/check_draft.py' }
+  }), /未知设置字段：checkDraftPath/);
+  assert.throws(() => validateSettingsUpdate({
+    settings: { vaultDir: '/vault', pythonPath: 'python3' }
+  }), /未知设置字段：pythonPath/);
 });
 
 test('设置归一化把同步间隔限制为有效整数范围', () => {

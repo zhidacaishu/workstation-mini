@@ -1,63 +1,76 @@
 <%- include('partials/head') %>
-
-<section class="hero">
-  <span class="eyebrow">今日节奏</span>
-  <h1>今日 <span class="muted today-date"><%= snapshot.date %> <%= snapshot.weekday || '' %></span></h1>
-</section>
-
 <%
-  const headline = [];
-  if (snapshot.review && (snapshot.review.due || snapshot.review.fresh)) headline.push('要复习 ' + ((snapshot.review.due || 0) + (snapshot.review.fresh || 0)) + ' 张卡');
-  if (snapshot.tasks && snapshot.tasks.overdue) headline.push(snapshot.tasks.overdue + ' 条待办已逾期');
-  if (snapshot.tasks && snapshot.tasks.dueToday) headline.push(snapshot.tasks.dueToday + ' 条今天到期');
-  if (snapshot.deadlines && snapshot.deadlines.length) headline.push(snapshot.deadlines.length + ' 个近期截止日期');
+  const attention = snapshot.attention || {};
+  const projects = [...(attention.runningExperiments || []), ...(attention.plannedProjects || [])].slice(0, 2);
+  const review = snapshot.review || {};
+  const reviewCount = (review.due || 0) + (review.fresh || 0);
+  const tasks = snapshot.tasks || {};
+  const upcoming = projectDeadlines;
+  const sectionNames = { experiments: '研究项目', research: '研究笔记', calendar: '月历备注', learning: '学习笔记', reading: '阅读笔记', inbox: '收件箱' };
 %>
-<p class="headline"><%= headline.length ? headline.join('；') + '。' : '今天没有到期的东西。' %></p>
 
-<div class="statrow">
-  <a class="stat stat-link" href="/review"><span class="stat-label">待复习</span><span class="stat-value"><%= (snapshot.review && snapshot.review.due || 0) + (snapshot.review && snapshot.review.fresh || 0) %><span class="stat-unit">张</span></span></a>
-  <a class="stat stat-link" href="/tasks"><span class="stat-label">未完成待办</span><span class="stat-value <%= snapshot.tasks && snapshot.tasks.overdue ? 'is-overdue' : '' %>"><%= snapshot.tasks && snapshot.tasks.open || 0 %></span></a>
-  <a class="stat stat-link" href="/deadlines"><span class="stat-label">临近截止</span><span class="stat-value"><%= snapshot.deadlines && snapshot.deadlines.length || 0 %></span></a>
-  <a class="stat stat-link" href="/search"><span class="stat-label">笔记总数</span><span class="stat-value"><%= total %></span></a>
-</div>
+<header class="desk-header">
+  <div>
+    <p class="desk-date"><%= snapshot.date.replaceAll('-', ' / ') %><span><%= snapshot.weekday || '' %></span></p>
+    <h1>回到研究现场</h1>
+  </div>
+</header>
 
-<div class="columns">
-  <section class="col-main">
-    <% if (snapshot.tasks && snapshot.tasks.top && snapshot.tasks.top.length) { %>
-      <h2>待办 <a class="muted more" href="/tasks">全部</a></h2>
-      <ul class="tasklist">
-        <% snapshot.tasks.top.forEach(task => { %>
-          <li><span class="task-box">☐</span><span class="task-title"><%= task.title %></span><%- include('partials/task-actions', { task }) %><% if (task.due) { %><span class="chip <%= task.due < snapshot.date ? 'overdue' : (task.due === snapshot.date ? 'due-today' : '') %>"><%= task.due < snapshot.date ? '逾期 ' : '' %><%= task.due %></span><% } %><a class="task-source muted" href="/note/<%= encodePath(task.path) %>"><%= task.noteTitle %></a></li>
-        <% }) %>
-      </ul>
-    <% } %>
+<div class="desk-layout">
+  <div class="desk-main">
+    <section class="desk-section" aria-labelledby="continue-title">
+      <div class="desk-section-heading"><h2 id="continue-title">继续研究</h2><a href="/board/experiment">全部项目</a></div>
+      <% if (projects.length) { %>
+        <div class="research-stack">
+          <% projects.forEach((project, index) => { %>
+            <article class="research-entry<%= index === 0 ? ' is-featured' : '' %>">
+              <div class="research-context"><span class="research-status<%= project.status === 'running' ? ' is-running' : '' %>"><%= project.statusLabel %></span><% if (project.data.dataset) { %><span><%= project.data.dataset %></span><% } %></div>
+              <h3><a href="/note/<%= encodePath(project.path) %>"><%= project.title %></a></h3>
+              <% if (project.data.next) { %><p class="research-next"><span>下一步</span><%= project.data.next %></p><% } %>
+              <% if (index === 0) { %><a class="research-open" href="/note/<%= encodePath(project.path) %>">继续这个项目</a><% } %>
+            </article>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <div class="desk-empty"><h3>暂无进行中的项目</h3><a class="button" href="/board/experiment">查看研究项目</a></div>
+      <% } %>
+    </section>
 
-    <% if (snapshot.deadlines && snapshot.deadlines.length) { %>
-      <h2>临近截止 <a class="muted more" href="/deadlines">时间轴</a></h2>
-      <ul class="notelist">
-        <% snapshot.deadlines.forEach(entry => { %><li><span class="chip <%= entry.overdue ? 'overdue' : '' %>"><%= entry.date %></span><a href="/note/<%= encodePath(entry.path) %>"><%= entry.label %></a><span class="muted"><%= entry.detail %></span></li><% }) %>
-      </ul>
-    <% } %>
+    <section class="desk-section" aria-labelledby="recent-title">
+      <div class="desk-section-heading"><h2 id="recent-title">最近的笔记</h2><a href="/search">打开资料库</a></div>
+      <% if (recent && recent.length) { %>
+        <ul class="desk-notes">
+          <% recent.filter(note => !projects.some(project => project.path === note.path)).slice(0, 3).forEach(note => { %>
+            <li><a href="/note/<%= encodePath(note.path) %>"><span class="document-mark" aria-hidden="true"></span><span><strong><%= note.title %></strong><small><%= sectionNames[note.section] || note.section || '未分区' %></small></span></a></li>
+          <% }) %>
+        </ul>
+      <% } else { %>
+        <div class="desk-empty"><h3>还没有笔记</h3><% if (!readOnly) { %><a class="button" href="/new">写第一篇笔记</a><% } %></div>
+      <% } %>
+    </section>
+  </div>
 
-    <% if (snapshot.review && (snapshot.review.due || snapshot.review.fresh)) { %>
-      <h2>复习队列</h2>
-      <p class="muted">今天有 <strong><%= snapshot.review.due || 0 %></strong> 张到期卡和 <strong><%= snapshot.review.fresh || 0 %></strong> 张新卡，完成后会记录到本地复习日志。</p>
-    <% } %>
-  </section>
+  <aside class="desk-side" aria-label="今日安排">
+    <section class="desk-section" aria-labelledby="task-title">
+      <div class="desk-section-heading"><h2 id="task-title">今天需要处理</h2><a href="/plan?view=list">全部计划</a></div>
+      <% if (tasks.top && tasks.top.length) { %>
+        <ul class="desk-tasks">
+          <% tasks.top.slice(0, 4).forEach(task => { %>
+            <li><div class="desk-task-title"><span class="task-box" aria-hidden="true">☐</span><a href="/note/<%= encodePath(task.path) %>"><%= task.title %></a></div><div class="desk-task-meta"><span><%= task.noteTitle %></span><% if (task.due) { %><time class="<%= task.due < snapshot.date ? 'is-overdue' : '' %>" datetime="<%= task.due %>"><%= task.due < snapshot.date ? '逾期 · ' : task.due === snapshot.date ? '今天 · ' : '' %><%= task.due.slice(5).replace('-', '/') %></time><% } else { %><span>未安排日期</span><% } %></div><% if (!readOnly) { %><details class="desk-task-edit"><summary>调整待办</summary><%- include('partials/task-actions', { task }) %></details><% } %></li>
+          <% }) %>
+        </ul>
+      <% } else { %><p class="desk-quiet">没有待办</p><% } %>
+    </section>
 
-  <aside class="col-side">
-    <% const attention = snapshot.attention || {}; const planned = attention.plannedProjects || []; const running = attention.runningExperiments || []; %>
-    <% if (planned.length || running.length) { %>
-      <h2>研究行动</h2>
-      <ul class="notelist">
-        <% planned.forEach(item => { %><li><span class="chip">计划中</span><a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a></li><% }) %>
-        <% running.forEach(item => { %><li><span class="chip">进行中</span><a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a></li><% }) %>
-      </ul>
-    <% } %>
+    <section class="desk-review" aria-labelledby="review-title">
+      <div class="desk-section-heading"><h2 id="review-title">巩固所学</h2></div>
+      <% if (reviewCount) { %><p><% if (review.due) { %><strong><%= review.due %> 张到期卡</strong><% if (review.fresh) { %>，另有 <%= review.fresh %> 张新卡<% } %>，等待复习。<% } else { %><strong><%= review.fresh %> 张新卡</strong>。<% } %></p><a class="button primary" href="/review">开始复习</a><% } else { %><p>暂无待复习卡片</p><a class="button" href="/decks">查看卡组</a><% } %>
+    </section>
 
-    <% if (total === 0) { %><h2>vault 还是空的</h2><p class="muted">在 <code>notes/</code> 下建立 <code>.md</code> 文件<% if (!readOnly) { %>，或者直接<a href="/new">新建一篇</a><% } %>。</p><% } else if (recent && recent.length) { %>
-      <h2>最近改动</h2><ul class="notelist"><% recent.forEach(note => { %><li><a href="/note/<%= encodePath(note.path) %>"><%= note.title %></a></li><% }) %></ul>
-    <% } %>
+    <section class="desk-section" aria-labelledby="deadline-title">
+      <div class="desk-section-heading"><h2 id="deadline-title">项目期限</h2><a href="/plan?view=calendar">月历</a></div>
+      <% if (upcoming.length) { %><ul class="desk-deadlines"><% upcoming.slice(0, 4).forEach(entry => { %><li><time datetime="<%= entry.date %>" class="<%= entry.overdue ? 'is-overdue' : '' %>"><%= entry.date.slice(5).replace('-', '/') %><% if (entry.overdue) { %><small>已逾期</small><% } %></time><a href="/note/<%= encodePath(entry.path) %>"><%= entry.label %></a></li><% }) %></ul><% } else { %><p class="desk-quiet">近期没有截止事项。</p><% } %>
+    </section>
   </aside>
 </div>
 

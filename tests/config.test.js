@@ -31,6 +31,12 @@ test('显式设置派生出桌面内部运行配置', () => {
   assert.equal(config.anthropicApiKey, 'key');
 });
 
+test('旧写作检查器配置不再进入运行时', () => {
+  const config = loadConfig({ checkDraftPath: path.resolve('checker.py'), pythonPath: 'python' });
+  assert.equal(Object.hasOwn(config, 'checkDraftPath'), false);
+  assert.equal(Object.hasOwn(config, 'pythonPath'), false);
+});
+
 test('默认 vault 位于用户主目录且索引跟随 vault', () => {
   assert.equal(defaultVaultDir(), path.join(os.homedir(), 'workstation-vault'));
   const config = loadConfig({ vaultDir: defaultVaultDir() });

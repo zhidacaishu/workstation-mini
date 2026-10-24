@@ -122,11 +122,41 @@ function createSearch(db) {
     return { query: text, results, usedFallback };
   }
 
+  /**
+   * 浏览资料库。空搜索不是「搜不到」，而是按最近修改时间列出可继续阅读的笔记；
+   * 分区和标签过滤在这里与全文检索共用同一套语义。
+   */
+  function browse(options = {}) {
+    const limit = Math.min(Math.max(Number(options.limit) || DEFAULT_LIMIT, 1), 200);
+    const filters = { section: options.section || '', tag: options.tag || '' };
+    const params = [];
+    const clause = buildFilterClause(filters, params);
+    const rows = db.raw.prepare(`
+      SELECT notes.path, notes.title_raw AS title, notes.section,
+             notes.mtime_ms, notes.body_raw AS body
+      FROM notes
+      WHERE 1 = 1${clause}
+      ORDER BY notes.mtime_ms DESC, notes.path ASC
+      LIMIT ${limit}
+    `).all(...params);
+
+    return rows.map(row => ({
+      path: row.path,
+      title: row.title,
+      section: row.section,
+      mtime_ms: row.mtime_ms,
+      snippet: buildSnippet(String(row.body)
+        .replace(/^#{1,6}\s+.+$/m, '')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, label) => label || target)
+        .replace(/^[ \t]*[-*+]\s+(?:\[[ xX]\]\s*)?/gm, '')
+        .replace(/[*`#]/g, ''), '')
+    }));
+  }
+
   function recent(limit = 20) {
-    return db.raw.prepare(`
-      SELECT path, title_raw AS title, section, mtime_ms AS mtimeMs
-      FROM notes ORDER BY mtime_ms DESC LIMIT ?
-    `).all(Math.min(Math.max(Number(limit) || 20, 1), 200));
+    return browse({ limit }).map(({ mtime_ms, ...note }) => ({ ...note, mtimeMs: mtime_ms }));
   }
 
   function bySection(section, limit = 100) {
@@ -136,7 +166,7 @@ function createSearch(db) {
     `).all(section, Math.min(Math.max(Number(limit) || 100, 1), 500));
   }
 
-  return { search, recent, bySection, buildSnippet };
+  return { search, browse, recent, bySection, buildSnippet };
 }
 
 module.exports = { createSearch, buildSnippet, escapeLike };

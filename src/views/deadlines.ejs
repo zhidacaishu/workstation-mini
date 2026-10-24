@@ -5,6 +5,7 @@
   <h1>截止日期</h1>
   <p class="muted">研究项目与待办的日期汇总在同一条时间轴，逾期项目会持续保留。</p>
   <nav class="boardnav">
+    <a class="chip" href="/calendar">月历备注 →</a>
     <% [30, 90, 180, 365].forEach(days => { %>
       <a class="chip <%= horizon === days ? 'active' : '' %>" href="/deadlines?days=<%= days %>"<% if (horizon === days) { %> aria-current="page"<% } %>>未来 <%= days %> 天</a>
     <% }) %>

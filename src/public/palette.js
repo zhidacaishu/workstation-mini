@@ -70,10 +70,17 @@
         run: () => navigate(`/new${query ? `?path=${encodeURIComponent(query)}` : ''}`)
       },
       {
-        label: '截止日期',
-        hint: '查看近期时间边界',
+        label: '计划',
+        hint: '',
         icon: '工具',
-        run: () => navigate('/deadlines')
+        defaultVisible: true,
+        run: () => navigate('/plan')
+      },
+      {
+        label: '截止日期',
+        hint: '',
+        icon: '工具',
+        run: () => navigate('/plan?view=list&filter=deadlines')
       },
       {
         label: query ? `全文搜索「${query}」` : '全文搜索',

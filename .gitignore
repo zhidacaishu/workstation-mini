@@ -24,9 +24,8 @@ playwright-report/
 test-results/
 coverage/
 
-# 派生索引。删掉后能从 Markdown 和 MinerU 持久产物全量重建，因此永远不进版本库。
-# .workstation/mineru/ 本身是持久解析结果，必须保留并纳入 Git。
-# 真实 vault 仓库里也要有同名数据库规则。
+# 派生索引可从本地资料重建，永远不进版本库。
+# 真实资料库仓库里也要有同名数据库规则。
 *.db
 *.db-shm
 *.db-wal

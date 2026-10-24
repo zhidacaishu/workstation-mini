@@ -77,10 +77,12 @@ test('draft survives restart; history restores deleted note; tasks edit source i
     });
     await phase('edit-task', async () => {
       await page.goto(origin + '/tasks', { waitUntil: 'domcontentloaded', timeout: 15000 });
-    const task = page.locator('[data-task-form]').first();
-    await task.locator('[name="done"]').check();
-    await task.locator('[name="due"]').fill('2026-10-08');
-    await task.locator('button').click();
+      const task = page.locator('[data-task-form]').first();
+      await task.locator('[name="due"]').fill('2026-10-08');
+      await task.locator('button').click();
+      await page.waitForFunction(() => document.querySelector('[data-task-form] [name="due"]')?.value === '2026-10-08'
+        && !document.querySelector('[data-task-form]')?.hasAttribute('aria-busy'));
+      await page.locator('[data-task-form]').first().locator('[name="done"]').check();
       await page.waitForFunction(() => document.querySelector('.empty')?.textContent.includes('没有未完成'), null, { timeout: 10000 });
     });
     assert.match(await fs.readFile(path.join(vault, 'notes', 'task.md'), 'utf8'), /- \[x\] write paper @2026-10-08/);

@@ -1,7 +1,6 @@
 <nav class="workspace-nav" aria-label="主导航">
   <% navGroups.forEach(group => { %>
     <section class="workspace-nav-group">
-      <h2><%= group.label %></h2>
       <% group.items.forEach(item => { %>
         <a class="workspace-nav-link<%= item.active ? ' is-active' : '' %>" href="<%= item.href %>"<% if (item.active) { %> aria-current="page"<% } %>>
           <span><%= item.label %></span>
@@ -11,7 +10,7 @@
   <% }) %>
 
   <details class="workspace-tools"<% if (toolsActive) { %> open<% } %>>
-    <summary>回顾与工具</summary>
+    <summary>资料库工具</summary>
     <div class="workspace-tools-list">
       <% toolItems.forEach(item => { %>
         <a class="workspace-nav-link<%= item.active ? ' is-active' : '' %>" href="<%= item.href %>"<% if (item.active) { %> aria-current="page"<% } %>><%= item.label %></a>

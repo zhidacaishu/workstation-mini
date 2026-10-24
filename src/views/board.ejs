@@ -3,12 +3,6 @@
 <section class="hero">
   <h1><%= workflow.label %></h1>
   <p class="muted">共 <%= total %> 个<%= workflow.noun %></p>
-  <nav class="boardnav">
-    <% workflows.forEach(flow => { %>
-      <a class="chip <%= flow.key === workflow.key ? 'active' : '' %>" href="/board/<%= flow.key %>"<% if (flow.key === workflow.key) { %> aria-current="page"<% } %>><%= flow.label %></a>
-    <% }) %>
-    <a class="chip" href="/tasks">待办</a>
-  </nav>
 </section>
 
 <% if (total === 0) { %>
@@ -35,19 +29,13 @@ status: <%= workflow.initial %>
           <article class="board-card" data-board-card data-path="<%= item.path %>" data-status="<%= item.status %>" data-hash="<%= item.hash %>">
             <a class="board-title" href="/note/<%= encodePath(item.path) %>"><%= item.title %></a>
 
-            <% if (item.exercises) { %>
-              <div class="progress" title="习题完成度">
-                <div class="progress-bar" style="width:<%= item.exercises.percent %>%"></div>
-              </div>
-              <p class="board-meta"><%= item.exercises.done %>/<%= item.exercises.total %> 题</p>
-            <% } %>
-
             <% if (item.data.deadline) { %>
               <p class="board-meta <%= String(item.data.deadline).slice(0,10) < today ? 'overdue' : '' %>">
                 截止 <%= String(item.data.deadline).slice(0, 10) %>
               </p>
             <% } %>
             <% if (item.data.dataset) { %><p class="board-meta"><%= item.data.dataset %></p><% } %>
+            <% if (item.data.next) { %><p class="board-next"><%= item.data.next %></p><% } %>
 
             <% if (!readOnly) { %>
               <form class="statusform" action="/board/status" method="post">

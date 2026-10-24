@@ -292,26 +292,24 @@ function createRecoveryService({
 
   async function checkDeviceCollision(vaultDir, device) {
     const suffix = `-${normalizeDeviceName(device)}.jsonl`;
-    for (const root of [path.join(vaultDir, 'reviews'), path.join(vaultDir, 'mistakes')]) {
-      const stack = [root];
-      while (stack.length) {
-        const current = stack.pop();
-        let entries;
-        try {
-          entries = await fsp.readdir(current, { withFileTypes: true });
-        } catch (error) {
-          if (error.code === 'ENOENT') continue;
-          throw error;
-        }
-        for (const entry of entries) {
-          if (entry.isSymbolicLink()) continue;
-          if (entry.isDirectory()) stack.push(path.join(current, entry.name));
-          else if (entry.isFile() && entry.name.endsWith(suffix)) {
-            return [{
-              code: 'device-name-collision',
-              message: '恢复资料中已有相同设备名的事件日志，请在启用同步前检查。'
-            }];
-          }
+    const stack = [path.join(vaultDir, 'reviews')];
+    while (stack.length) {
+      const current = stack.pop();
+      let entries;
+      try {
+        entries = await fsp.readdir(current, { withFileTypes: true });
+      } catch (error) {
+        if (error.code === 'ENOENT') continue;
+        throw error;
+      }
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isDirectory()) stack.push(path.join(current, entry.name));
+        else if (entry.isFile() && entry.name.endsWith(suffix)) {
+          return [{
+            code: 'device-name-collision',
+            message: '恢复资料中已有相同设备名的事件日志，请在启用同步前检查。'
+          }];
         }
       }
     }

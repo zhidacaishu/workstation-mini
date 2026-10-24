@@ -1,7 +1,6 @@
 <%- include('partials/head') %>
 
 <section class="hero">
-  <span class="eyebrow">记忆练习</span>
   <h1>卡片</h1>
   <p class="muted">共 <%= total %> 张 · 到期 <%= due %> 张 · 新卡 <%= fresh %> 张</p>
   <% if (due + fresh > 0) { %>
@@ -20,8 +19,9 @@
 <% if (decks.length === 0) { %>
   <section class="card empty">
     <h2>还没有卡片</h2>
-    <p>在 vault 的 <code>cards/</code> 目录下建 <code>.md</code> 文件，
-      <code>##</code> 标题是正面，下面的正文是背面：</p>
+    <p>在笔记中选中文字即可建卡。</p>
+    <details class="format-help"><summary>手动编写卡组</summary>
+    <p><code>cards/</code> 下的 Markdown 文件以 <code>##</code> 标题作为正面，正文作为背面。</p>
     <pre><code>---
 deck: 英语生词
 type: en-word
@@ -30,8 +30,8 @@ type: en-word
 ## heterogeneity
 
 异质性；个体差异。</code></pre>
-    <p class="muted">正文里写 <code>{{挖空}}</code> 就变成挖空卡。
-      也可以在任意笔记里选中一段文字直接建卡。</p>
+    <p class="muted"><code>{{挖空}}</code> 可创建挖空卡。</p>
+    </details>
   </section>
 <% } else { %>
   <table class="decktable">

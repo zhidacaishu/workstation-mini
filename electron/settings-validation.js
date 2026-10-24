@@ -1,8 +1,7 @@
 const path = require('node:path');
 
 const BOOLEAN_FIELDS = new Set(['readOnly', 'syncEnabled', 'launchAtLogin']);
-const STRING_LIMITS = new Map([['vaultDir', 32767], ['device', 128], ['checkDraftPath', 32767], ['pythonPath', 32767]]);
-const ABSOLUTE_PATH_FIELDS = new Set(['vaultDir', 'checkDraftPath']);
+const STRING_LIMITS = new Map([['vaultDir', 32767], ['device', 128]]);
 const SECRET_FIELDS = new Set(['anthropicApiKey']);
 const TOP_LEVEL_FIELDS = new Set(['settings', 'secrets']);
 const SETTING_FIELDS = new Set([...BOOLEAN_FIELDS, ...STRING_LIMITS.keys(), 'syncIntervalMinutes']);
@@ -17,7 +16,6 @@ function validateSettingsUpdate(update) {
   for (const [field] of STRING_LIMITS) if (Object.hasOwn(update.settings, field)) validateString(field, update.settings[field]);
   if (Object.hasOwn(update.settings, 'syncIntervalMinutes') && (!Number.isInteger(update.settings.syncIntervalMinutes) || update.settings.syncIntervalMinutes < 1 || update.settings.syncIntervalMinutes > 1440)) throw new Error('同步间隔必须是 1 到 1440 之间的整数。');
   const vaultDir = update.settings.vaultDir?.trim(); if (!vaultDir || !path.isAbsolute(vaultDir)) throw new Error('资料库必须是绝对路径。');
-  for (const field of ABSOLUTE_PATH_FIELDS) { const value = update.settings[field]?.trim(); if (field !== 'vaultDir' && value && !path.isAbsolute(value)) throw new Error(`设置字段 ${field} 必须是绝对路径。`); }
   if (update.secrets !== undefined) { if (!isRecord(update.secrets)) throw new Error('秘密设置数据无效。'); rejectUnknownFields(update.secrets, SECRET_FIELDS, '秘密'); for (const [field, change] of Object.entries(update.secrets)) validateSecretChange(field, change); }
 }
 module.exports = { validateSettingsUpdate };

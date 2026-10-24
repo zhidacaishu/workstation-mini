@@ -237,7 +237,6 @@ test('匹配命令排在最多六篇笔记之前，fallback 命令排在之后',
   await flush();
 
   assert.deepEqual(ui.labels(), [
-    '今天的日记', '日记',
     'research/日记 1.md', '日记研究 2', '日记研究 3', '日记研究 4', '日记研究 5', '日记研究 6',
     '新建笔记', '全文搜索「日记」'
   ]);
@@ -336,7 +335,7 @@ test('只读模式隐藏写命令但保留搜索和笔记导航', async () => {
   ui.keydown(shortcut('ctrl').event);
   await flush();
 
-  assert.deepEqual(ui.labels(), ['可读笔记', '日记', '日历', '重新扫描索引']);
+  assert.deepEqual(ui.labels(), ['可读笔记', '计划', '重新扫描索引']);
   for (const label of ['今天的日记', '新建笔记']) assert.ok(!ui.labels().includes(label));
 
   ui.input.value = '安全';
@@ -356,7 +355,7 @@ test('鼠标悬停只更新 active 状态，不替换待点击节点', async () 
   assert.equal(ui.list.children[1], target);
   assert.equal(target.className, 'palette-item active');
   target.dispatch('click');
-  assert.equal(ui.location.href, '/new');
+  assert.equal(ui.location.href, '/plan');
 });
 
 test('键盘导航循环更新 active 状态并执行当前项', async () => {
@@ -374,8 +373,8 @@ test('键盘导航循环更新 active 状态并执行当前项', async () => {
   ui.input.dispatch('keydown', { key: 'Enter', preventDefault });
 
   assert.equal(ui.dialog.open, false);
-  assert.equal(ui.form.action, '/diary/today');
-  assert.equal(ui.form.submitCalls, 1);
+  assert.equal(ui.location.href, '/new');
+  assert.equal(ui.form.submitCalls, 0);
 });
 
 test('命令和笔记使用正确 URL，重新扫描索引通过 POST 后刷新', async () => {

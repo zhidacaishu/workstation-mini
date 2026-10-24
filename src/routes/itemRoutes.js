@@ -2,7 +2,6 @@ const express = require('express');
 
 const { createItems } = require('../items');
 const { WORKFLOWS, workflowOf } = require('../workflows');
-const { sortTasks, summarize } = require('../tasks');
 const { updateTask } = require('../taskActions');
 const { isSafeRelativePath } = require('../vault/paths');
 const { toLocalDate } = require('../templates');
@@ -24,11 +23,14 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
       });
       await indexer.scan({ paths: [notePath] });
       if ((req.get('accept') || '').includes('application/json')) res.json({ ok: true, ...result });
-      else res.redirect('/tasks');
+      else {
+        const returnTo = String(req.body.returnTo || '');
+        res.redirect(returnTo.startsWith('/plan?') ? returnTo : '/plan');
+      }
     } catch (error) { next(error); }
   });
 
-  /** 三类条目共用这一个看板页面，只是喂进去的工作流不同。 */
+  /** 研究项目看板，旧工作流由 workflowOf 明确拒绝。 */
   router.get('/board/:workflow', (req, res, next) => {
     try {
       const key = String(req.params.workflow);
@@ -73,31 +75,6 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
       next(/不是.*合法状态/.test(error.message) ? httpError(400, error.message) : error);
     }
   });
-
-  /**
-   * 待办汇总。
-   *
-   * 任务从各篇笔记正文的 `- [ ]` 抽出来，这里只是换个角度看同一批数据 ——
-   * 勾掉一条的正确做法仍然是去改那篇 Markdown。
-   */
-  router.get('/tasks', (req, res, next) => {
-    try {
-      const today = toLocalDate(now());
-      const showDone = req.query.done === '1';
-      const all = db.listTasks({ includeDone: showDone });
-
-      res.render('tasks', {
-        title: '待办',
-        today,
-        showDone,
-        tasks: sortTasks(all, today),
-        summary: summarize(db.listTasks({ includeDone: true }), today)
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
 
   return router;
 }

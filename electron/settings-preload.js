@@ -17,7 +17,6 @@ contextBridge.exposeInMainWorld('workstationSettings', {
   get: () => invoke('settings:get'),
   save: update => invoke('settings:save', update),
   chooseDirectory: field => invoke('settings:choose-directory', field),
-  chooseFile: field => invoke('settings:choose-file', field),
   syncNow: () => invoke('settings:sync-now'),
   abortGitOperation: () => invoke('settings:abort-git-operation'),
   openVault: () => invoke('settings:open-vault'),

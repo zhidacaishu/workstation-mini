@@ -1,57 +1,36 @@
 <%- include('partials/head') %>
+<%
+  const browsing = typeof isBrowsing !== 'undefined' ? isBrowsing : !query;
+  const sectionNames = { experiments: '研究项目', research: '研究笔记', calendar: '月历备注', learning: '学习笔记', reading: '阅读笔记', inbox: '收件箱' };
+  const sectionName = value => sectionNames[value] || value || '未分区';
+%>
+<header class="library-header">
+  <div><h1><%= browsing ? '笔记资料库' : '搜索结果' %></h1></div>
+  <% if (!readOnly) { %><a class="button primary" href="/new">新建笔记</a><% } %>
+</header>
 
-<section class="hero">
-  <h1>搜索</h1>
-  <form class="searchform" action="/search" method="get">
-    <input type="search" name="q" value="<%= query %>" placeholder="中英文都可以…" autofocus aria-label="搜索词">
-    <select name="section" aria-label="按分区过滤">
-      <option value="">全部分区</option>
-      <% sections.forEach(row => { %>
-        <option value="<%= row.section %>" <%= row.section === section ? 'selected' : '' %>><%= row.section %></option>
+<form class="library-filters" action="/search" method="get" aria-label="筛选笔记">
+  <% if (query) { %><input type="hidden" name="q" value="<%= query %>"><% } %>
+  <label><span>分区</span><select name="section"><option value="">全部分区</option><% sections.forEach(row => { %><option value="<%= row.section %>"<% if (row.section === section) { %> selected<% } %>><%= sectionName(row.section) %></option><% }) %></select></label>
+  <label><span>标签</span><select name="tag"><option value="">全部标签</option><% tags.forEach(row => { %><option value="<%= row.tag %>"<% if (row.tag === tag) { %> selected<% } %>><%= row.tag %></option><% }) %></select></label>
+  <button class="button quiet small" type="submit">筛选</button>
+  <% if (section || tag || query) { %><a class="library-clear" href="/search">清除<%= query ? '搜索与' : '' %>筛选</a><% } %>
+</form>
+
+<section class="library-collection" aria-labelledby="library-results-title">
+  <div class="library-list-heading"><h2 id="library-results-title"><%= browsing ? (section ? sectionName(section) : '最近修改') : '匹配的笔记' %></h2><span><%= results.length %> 篇<% if (browsing && typeof total !== 'undefined' && total > results.length) { %> / 资料库共 <%= total %> 篇<% } %></span></div>
+  <% if (results.length) { %>
+    <ul class="library-list">
+      <% results.forEach(row => { const modified = row.mtime_ms || row.mtimeMs; const date = modified ? new Date(modified) : null; %>
+        <li><a class="library-document" href="/note/<%= encodePath(row.path) %>">
+          <span class="document-mark" aria-hidden="true"></span>
+          <span class="library-document-content"><strong><%= row.title %></strong><% if (row.snippet) { %><span class="library-excerpt"><%= row.snippet %></span><% } %><span class="library-document-meta"><span><%= sectionName(row.section) %></span><% if (date && !Number.isNaN(date.getTime())) { %><time datetime="<%= date.toISOString() %>"><%= new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric' }).format(date) %>修改</time><% } %></span></span>
+        </a></li>
       <% }) %>
-    </select>
-    <select name="tag" aria-label="按标签过滤">
-      <option value="">全部标签</option>
-      <% tags.forEach(row => { %>
-        <option value="<%= row.tag %>" <%= row.tag === tag ? 'selected' : '' %>><%= row.tag %></option>
-      <% }) %>
-    </select>
-    <button class="button" type="submit">搜索</button>
-  </form>
+    </ul>
+  <% } else { %>
+    <div class="library-empty"><span class="document-mark" aria-hidden="true"></span><h2><%= query || section || tag ? '没有匹配的笔记' : '还没有笔记' %></h2><p><%= query || section || tag ? '试试其他关键词，或清除筛选。' : '写下第一个问题、灵感或研究结论。笔记会保存在本地，随时可以找回。' %></p><% if (query || section || tag) { %><a class="button" href="/search">查看全部笔记</a><% } else if (!readOnly) { %><a class="button" href="/new">写第一篇笔记</a><% } %></div>
+  <% } %>
 </section>
-
-<% if (query) { %>
-  <section class="results-section" aria-labelledby="search-results-title">
-    <div class="section-heading">
-      <div>
-        <span class="eyebrow">检索结果</span>
-        <h2 id="search-results-title">找到 <%= results.length %> 篇</h2>
-      </div>
-      <% if (section || tag) { %><a class="button quiet small" href="/search?q=<%= encodeURIComponent(query) %>">清除筛选</a><% } %>
-    </div>
-    <% if (usedFallback) { %>
-      <p class="muted">部分结果使用子串匹配：分词边界与查询词不一致时，会自动走这条兜底路径。</p>
-    <% } %>
-
-    <ul class="results">
-    <% results.forEach(row => { %>
-      <li>
-        <a class="result-title" href="/note/<%= encodePath(row.path) %>"><%= row.title %></a>
-        <% if (row.section) { %><span class="chip"><%= row.section %></span><% } %>
-        <span class="chip via via-<%= row.via %>"><%= row.via === 'fts' ? '全文' : '子串' %></span>
-        <p class="snippet"><%= row.snippet %></p>
-        <p class="muted path"><%= row.path %></p>
-      </li>
-    <% }) %>
-  </ul>
-
-    <% if (results.length === 0) { %>
-      <div class="empty-inline">
-        <p>没有找到匹配的笔记。</p>
-        <p class="muted">换个词试试，或者清除分区与标签筛选。</p>
-      </div>
-    <% } %>
-  </section>
-<% } %>
 
 <%- include('partials/foot') %>

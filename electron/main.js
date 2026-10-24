@@ -39,7 +39,6 @@ const PRELOAD_FILE = path.join(__dirname, 'settings-preload.js');
 const RECOVERY_FILE = path.join(__dirname, 'recovery', 'index.html');
 const RECOVERY_URL = pathToFileURL(RECOVERY_FILE).href;
 const RECOVERY_PRELOAD_FILE = path.join(__dirname, 'recovery-preload.js');
-const FILE_FIELDS = new Set(['checkDraftPath']);
 const DIRECTORY_FIELDS = new Set(['vaultDir']);
 const RECOVERY_SWITCHABLE_PHASES = new Set(['idle', 'cancelled', 'completed', 'failed']);
 const platformPolicy = createPlatformPolicy();
@@ -48,7 +47,7 @@ const { capabilities } = platformPolicy;
 // 窗口底色是渲染进程画出第一帧之前、以及缩放窗口时新暴露区域露出的颜色。
 // 界面本身支持 prefers-color-scheme，写死浅色的话深色模式下拖拽缩放会闪白边。
 // 取值和 styles.css / settings.css 里的 --canvas 保持一致。
-const WINDOW_BACKGROUND = { light: '#f3f1ec', dark: '#191a17' };
+const WINDOW_BACKGROUND = { light: '#f5f6f3', dark: '#181e1b' };
 
 function windowBackgroundColor() {
   return nativeTheme.shouldUseDarkColors ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light;
@@ -890,20 +889,6 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(settingsWindow, {
       defaultPath: settings[field] || settings.vaultDir || app.getPath('home'),
       properties: ['openDirectory', 'createDirectory']
-    });
-    return result.canceled ? '' : result.filePaths[0];
-  });
-
-  ipcMain.handle('settings:choose-file', async (event, field) => {
-    assertSettingsSender(event);
-    if (!FILE_FIELDS.has(field)) throw new Error('不允许选择这个文件字段。');
-    const filters = process.platform === 'win32'
-      ? [{ name: '可执行文件', extensions: ['exe'] }]
-      : [];
-    const result = await dialog.showOpenDialog(settingsWindow, {
-      defaultPath: settings[field] || app.getPath('home'),
-      properties: ['openFile'],
-      filters
     });
     return result.canceled ? '' : result.filePaths[0];
   });

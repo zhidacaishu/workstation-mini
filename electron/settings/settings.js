@@ -14,7 +14,7 @@ const capabilityElements = [...document.querySelectorAll('[data-capability]')];
 
 const PLAIN_FIELDS = [
   'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes',
-  'checkDraftPath', 'pythonPath', 'launchAtLogin'
+  'launchAtLogin'
 ];
 
 let phase = 'loading';
@@ -358,12 +358,12 @@ form.addEventListener('submit', async event => {
   }
 });
 
-async function choosePath(button, choose) {
+async function chooseDirectory(button) {
   if (activeOperation) return;
-  const name = button.dataset.chooseDir || button.dataset.chooseFile;
+  const name = button.dataset.chooseDir;
   beginOperation('choose', '正在选择路径…');
   try {
-    const selected = await choose(name);
+    const selected = await api.chooseDirectory(name);
     if (selected) field(name).value = selected;
     settleOperation(selected ? '路径已选择，保存后生效。' : '');
   } catch (error) {
@@ -372,11 +372,7 @@ async function choosePath(button, choose) {
 }
 
 document.querySelectorAll('[data-choose-dir]').forEach(button => {
-  button.addEventListener('click', () => choosePath(button, api.chooseDirectory));
-});
-
-document.querySelectorAll('[data-choose-file]').forEach(button => {
-  button.addEventListener('click', () => choosePath(button, api.chooseFile));
+  button.addEventListener('click', () => chooseDirectory(button));
 });
 
 syncButton.addEventListener('click', async () => {

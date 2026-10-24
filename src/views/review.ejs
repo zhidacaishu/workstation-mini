@@ -11,8 +11,7 @@
 <% if (queue.length === 0) { %>
   <section class="card empty">
     <h2>今天没有要复习的卡片</h2>
-    <p class="muted">到期的都复习完了。新卡可以在 vault 的 <code>cards/</code> 目录里写，
-      或者在任意笔记里选中一段文字直接建卡。</p>
+    <p class="muted">在笔记中选中文字即可建卡。</p>
     <p><a href="/decks">看看所有卡组</a></p>
   </section>
 <% } else { %>
@@ -39,8 +38,7 @@
     </div>
 
     <p class="muted review-hint">
-      空格显示答案，<kbd>1</kbd>–<kbd>4</kbd> 评分。评分会立刻记进
-      <code>reviews/</code> 的事件日志。
+      <kbd>空格</kbd> 显示答案，<kbd>1</kbd>–<kbd>4</kbd> 评分。
     </p>
   </section>
 
