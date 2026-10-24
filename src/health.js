@@ -86,10 +86,17 @@ async function createHealthReport({ config, db, indexer, sync, now = () => new D
   const vaultExists = await exists(config.vaultDir);
   const notesDirExists = await exists(config.notesDir);
   const noteFiles = notesDirExists ? await listNotes(config.notesDir) : [];
-  const indexedNotes = Number(db && db.countNotes ? db.countNotes() : 0);
-  const index = Object.assign({}, indexer && indexer.getStatus ? indexer.getStatus() : {}, { notes: indexedNotes });
-  let brokenCount = 0;
-  try { brokenCount = Number(db.raw.prepare("SELECT count(*) AS c FROM links WHERE to_path = ''").get().c || 0); } catch {}
+  const index = indexer?.getStatus?.() || {};
+  const statErrors = [];
+  function readStat(statistic, read) {
+    try { return read(); } catch {
+      // Keep other diagnostics available; raw database errors may contain private data.
+      statErrors.push({ statistic, code: 'database-read-failed', reason: '索引统计读取失败，结果未知。' });
+      return null;
+    }
+  }
+  const indexedNotes = readStat('indexedNotes', () => db.countNotes());
+  const brokenCount = readStat('brokenCount', () => db.raw.prepare("SELECT count(*) AS c FROM links WHERE to_path = ''").get().c);
   let records = [];
   try { records = await listRecords(config.notesDir); } catch {}
   const git = await gitReport(config.vaultDir);
@@ -99,8 +106,8 @@ async function createHealthReport({ config, db, indexer, sync, now = () => new D
   const syncRecovery = sync && sync.getStatus ? sync.getStatus().recovery || null : null;
   return {
     generatedAt: now().toISOString(),
-    vault: { exists: vaultExists, notesDirExists, noteFiles: noteFiles.length, indexedNotes, indexLag: noteFiles.length - indexedNotes, indexRebuildable: true },
-    index: { phase: index.phase || 'unknown', generation: index.generation || 0, done: index.done || 0, total: index.total || 0, failureTotal: index.failureTotal || 0, failures: (index.failures || []).map(item => ({ path: item.path, code: item.code, reason: item.reason, retryable: item.retryable })), failuresTruncated: Boolean(index.failuresTruncated), fatal: index.fatal || null },
+    vault: { exists: vaultExists, notesDirExists, noteFiles: noteFiles.length, indexedNotes, indexLag: indexedNotes === null ? null : noteFiles.length - indexedNotes, indexRebuildable: true },
+    index: { statErrors, phase: index.phase || 'unknown', generation: index.generation || 0, done: index.done || 0, total: index.total || 0, failureTotal: index.failureTotal || 0, failures: (index.failures || []).map(item => ({ path: item.path, code: item.code, reason: item.reason, retryable: item.retryable })), failuresTruncated: Boolean(index.failuresTruncated), fatal: index.fatal || null },
     links: { brokenCount },
     reviews,
     drafts: { count: draftCount, deletedNoteHistoryCount },

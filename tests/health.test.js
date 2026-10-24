@@ -62,3 +62,59 @@ test('Git health preserves modified, renamed and Unicode paths without refreshin
     assert.deepEqual(await fs.readFile(path.join(root, '.git', 'index')), before);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test('health remains available when SQLite statistics fail, without reporting false zeroes', async () => {
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-health-corrupt-'));
+  const db = openDatabase(':memory:');
+  try {
+    const config = loadConfig({ vaultDir, dbPath: ':memory:', readOnly: true });
+    await fs.mkdir(config.notesDir);
+    await fs.writeFile(path.join(config.notesDir, 'a.md'), '# retained source');
+    const fail = () => { throw Object.assign(new Error('private database details'), { code: 'SQLITE_CORRUPT' }); };
+    const fatal = { code: 'database-corrupt', reason: '索引数据库已损坏，重启应用后会自动重建', retryable: false };
+    const app = createApp(config, {
+      db: { ...db, countNotes: fail, raw: { prepare: fail } },
+      search: createSearch(db), indexer: { getStatus: () => ({ phase: 'error', fatal }) }
+    });
+    const response = await request(app).get('/api/health').expect(200);
+    assert.equal(response.body.vault.noteFiles, 1);
+    assert.equal(response.body.vault.indexedNotes, null);
+    assert.equal(response.body.vault.indexLag, null);
+    assert.equal(response.body.links.brokenCount, null);
+    assert.equal(response.body.index.statErrors.length, 2);
+    assert.deepEqual(response.body.index.fatal, fatal);
+    assert.equal(response.body.reviews.files, 0);
+    assert.doesNotMatch(JSON.stringify(response.body), /private database details/);
+    const page = await request(app).get('/health').expect(200);
+    assert.match(page.text, /索引数据库已损坏/);
+    assert.match(page.text, /未知/);
+    assert.equal(await fs.readFile(path.join(config.notesDir, 'a.md'), 'utf8'), '# retained source');
+  } finally { db.close(); await fs.rm(vaultDir, { recursive: true, force: true }); }
+});
+
+test('health prioritizes Git and sync recovery over a clean worktree', async () => {
+  const { execFileSync } = require('node:child_process');
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-health-recovery-'));
+  const db = openDatabase(':memory:');
+  try {
+    execFileSync('git', ['-C', vaultDir, 'init', '-q']);
+    const config = loadConfig({ vaultDir, dbPath: ':memory:' });
+    const indexer = createIndexer({ db, vaultDir: config.notesDir });
+    const app = createApp(config, { db, indexer, search: createSearch(db) });
+    await fs.writeFile(path.join(vaultDir, '.git', 'MERGE_HEAD'), '0'.repeat(40) + '\n');
+    const report = (await request(app).get('/api/health').expect(200)).body;
+    assert.equal(report.git.dirty, false);
+    assert.deepEqual(report.git.recoveryRequired.markers, ['MERGE_HEAD']);
+    const page = await request(app).get('/health').expect(200);
+    assert.match(page.text, /Git <strong>需要恢复/);
+    assert.match(page.text, /MERGE_HEAD/);
+    assert.doesNotMatch(page.text, /Git <strong>干净/);
+    await fs.rm(path.join(vaultDir, '.git', 'MERGE_HEAD'));
+    const syncApp = createApp(config, { db, indexer, search: createSearch(db),
+      sync: { getStatus: () => ({ recovery: { kind: 'rebase', unmergedCount: 1 } }) } });
+    const syncPage = await request(syncApp).get('/health').expect(200);
+    assert.match(syncPage.text, /Git <strong>需要恢复/);
+    assert.match(syncPage.text, /rebase/);
+    assert.doesNotMatch(syncPage.text, /Git <strong>干净/);
+  } finally { db.close(); await fs.rm(vaultDir, { recursive: true, force: true }); }
+});
