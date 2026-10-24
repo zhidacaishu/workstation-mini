@@ -6,13 +6,7 @@ const { openDatabase } = require('./db');
 const { createIndexer } = require('./vault/indexer');
 const { createWatcher } = require('./vault/watcher');
 const { createSearch } = require('./search');
-const { createSimilarityService } = require('./similarityService');
 const { createSync } = require('./sync');
-const { createBlobClient } = require('./blobs/client');
-const { reconcileBlobs } = require('./blobs/reconcile');
-const { createMineruClient } = require('./integrations/mineru');
-const { createPdfLibraryService } = require('./pdf/service');
-const { createPdfSearch } = require('./pdf/search');
 
 // 退出前那次提交推送的 git 期限。比常规同步的 60 秒短得多：
 // 退出时用户在等，宁可放弃这一轮推送，也不能让应用看起来卡死。
@@ -64,7 +58,6 @@ async function startRuntime(config, {
   logger = console,
   watcherOptions = {},
   initialBlobReconcile = true,
-  pdfOptions = {},
   // 对账要删除本地文件时（别的设备删掉了它）怎么删。桌面端传系统回收站，
   // 误删还能找回来；不传就直接删除。
   trashItem = null,
@@ -81,9 +74,6 @@ async function startRuntime(config, {
   let sync;
   let server;
   let watcher;
-  let similarity;
-  let pdfService;
-  let pdfReady = Promise.resolve({ manifests: 0, ready: 0 });
   let syncTimer;
   let syncNowQueue = Promise.resolve();
   let blobQueue = Promise.resolve();
@@ -103,18 +93,14 @@ async function startRuntime(config, {
 
     // 配了大文件存储才把 audio/、attachments/ 排除出 Git。没配的话这些素材
     // 只存在本地，再把它们从版本库里摘掉就等于没有任何备份。
-    const blobs = createBlobClient({
-      baseUrl: config.blobServerUrl,
-      token: config.blobServerToken,
-      logger
-    });
+    const blobs = null;
 
     sync = createSync({
       vaultDir: config.vaultDir,
       logger,
       enabled: gitWritesEnabled,
       reviewSyncEnabled: config.syncEnabled,
-      ignoreMedia: blobs.configured,
+      ignoreMedia: false,
       onMediaRemoved: paths => {
         for (const item of paths) gitRemovedMedia.add(item);
       }
@@ -148,22 +134,10 @@ async function startRuntime(config, {
     });
 
     const search = createSearch(db);
-    const pdfSearch = createPdfSearch(db);
-    similarity = createSimilarityService({ db, logger });
-    pdfService = pdfOptions.instance || createPdfLibraryService({
-      config,
-      db,
-      logger,
-      mineru: pdfOptions.mineru || createMineruClient({ token: config.mineruApiToken }),
-      ...pdfOptions.service
-    });
-
     const app = createApp(config, {
       db,
       indexer,
       search,
-      pdfSearch,
-      pdfService,
       sync,
       syncReviewNow,
       similarity,
@@ -172,15 +146,6 @@ async function startRuntime(config, {
     });
     server = http.createServer(app);
     await listen(server, config.port, config.host);
-
-    pdfReady = pdfService.initialize().then(stats => {
-      logger.log?.(`[pdf] 已载入 ${stats.manifests} 个任务，重建 ${stats.ready} 篇 PDF 索引`);
-      return stats;
-    }).catch(error => {
-      logger.warn?.(`[pdf] 初始化失败：${error.message}`);
-      throw error;
-    });
-    pdfReady.catch(() => {});
 
     // 首次扫描放到监听之后，而且**不等它**。
     //
@@ -286,17 +251,10 @@ async function startRuntime(config, {
           if (outcome.changed) await indexer.scan();
           return outcome;
         } finally {
-          reconcileNow().catch(error => logger.warn?.(`[blobs] ${error.message}`));
         }
       });
       syncNowQueue = result.catch(() => {});
       return result;
-    }
-
-    // 启动后对一次账，但不挡启动流程：换台机器时要把整个 audio/ 拉下来，
-    // 让窗口为此干等几分钟是不可接受的。
-    if (initialBlobReconcile && blobs.configured && !config.readOnly) {
-      reconcileNow().catch(error => logger.warn?.(`[blobs] 首次对账失败：${error.message}`));
     }
 
     if (gitWritesEnabled) {
@@ -335,7 +293,6 @@ async function startRuntime(config, {
         }
 
         await settle(() => closeServer(server));
-        await settle(() => pdfService?.stop());
         await settle(() => syncNowQueue);
         // 等对账收尾，但只等一小会儿：之后中止进行中的传输。半路中止是安全的
         // （两边都是临时文件 + rename），而无限期等下去会让退出卡在一次大上传上。
@@ -361,7 +318,6 @@ async function startRuntime(config, {
         }
 
         await settle(() => indexer.idle());
-        await settle(() => similarity.close());
         await settle(() => db.close());
         if (failure) throw failure;
       })();
@@ -386,13 +342,10 @@ async function startRuntime(config, {
       syncReviewNow,
       reconcileNow,
       blobs,
-      pdfService,
-      pdfSearch,
       stop,
       // 首次扫描的句柄。启动不再等它，但需要「索引已就绪」这个确定状态的
       // 调用方（测试、冒烟检查）可以自己 await。
       indexReady,
-      pdfReady,
       getIndexStatus: () => ({ ...indexer.getStatus(), notes: db.countNotes() }),
       rescan: () => indexer.scan(),
       isWatchDegraded: () => Boolean(watcher?.isDegraded()),
@@ -406,9 +359,7 @@ async function startRuntime(config, {
     try { watcher?.close(); } catch {}
     try { await closeServer(server); } catch {}
     try { await sync?.idle(); } catch {}
-    try { await pdfService?.stop(); } catch {}
     try { await indexer?.idle(); } catch {}
-    try { await similarity?.close(); } catch {}
     try { db?.close(); } catch {}
     throw error;
   }
