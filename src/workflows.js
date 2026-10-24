@@ -1,21 +1,19 @@
-// 条目状态机（E6）。
+// 研究项目条目状态机。
 //
-// 实验记录、投稿追踪、教材章节，本质都是「带状态流转的条目列表」，
-// 所以共用这一套定义和同一个看板组件，而不是各写一遍。
+// 研究项目是带状态流转的条目列表，复用同一个看板组件。
 //
-// 条目就是普通笔记，状态写在 frontmatter 的 status 里 —— 沿用 P1 为日记打点
-// 加的 data_json 列，这里零 schema 改动就能查。
+// 条目就是普通笔记，状态写在 frontmatter 的 status 里。
 //
-// 关于目录：方案草图把 experiments/ 和 submissions/ 放在 notes/ 同级。
+// 研究项目放在 notes/experiments/ 下，保持可搜索和可双链。
 // 这里放进 notes/ 下面，因为索引器只扫 notes/ —— 放外面就搜不到、不能双链、
 // 没有反链，而「今天跑了 [[experiments/exp-042]]」正是这套东西最该有的用法。
 
 const WORKFLOWS = {
   experiment: {
     key: 'experiment',
-    label: '实验记录',
+    label: '研究项目',
     section: 'experiments',
-    noun: '实验',
+    noun: '项目',
     initial: 'planned',
     statuses: [
       { key: 'planned', label: '计划中' },
@@ -23,43 +21,7 @@ const WORKFLOWS = {
       { key: 'done', label: '已完成' },
       { key: 'abandoned', label: '已放弃', muted: true }
     ],
-    // 实验记录的意义在于半年后还能查到「当时为什么选这个设定」，
-    // 所以这几个字段是模板里就该占好位的。
     fields: ['dataset', 'params', 'seed', 'commit', 'result', 'conclusion', 'next']
-  },
-
-  submission: {
-    key: 'submission',
-    label: '投稿追踪',
-    section: 'submissions',
-    noun: '稿件',
-    initial: 'drafting',
-    statuses: [
-      { key: 'drafting', label: '写作中' },
-      { key: 'submitted', label: '已投出' },
-      { key: 'under-review', label: '审稿中' },
-      { key: 'major-revision', label: '大修' },
-      { key: 'minor-revision', label: '小修' },
-      { key: 'accepted', label: '已接收' },
-      { key: 'rejected', label: '被拒', muted: true }
-    ],
-    fields: ['journal', 'deadline', 'submitted_at']
-  },
-
-  chapter: {
-    key: 'chapter',
-    label: '教材进度',
-    section: 'reading',
-    noun: '章节',
-    initial: 'todo',
-    statuses: [
-      { key: 'todo', label: '未开始' },
-      { key: 'reading', label: '在读' },
-      { key: 'exercises', label: '做题中' },
-      { key: 'stuck', label: '卡住了', warn: true },
-      { key: 'done', label: '已打通' }
-    ],
-    fields: ['book', 'exercises_done', 'exercises_total']
   }
 };
 

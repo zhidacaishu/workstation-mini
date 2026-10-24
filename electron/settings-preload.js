@@ -34,11 +34,5 @@ contextBridge.exposeInMainWorld('workstationSettings', {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on('sync-status:changed', listener);
     return () => ipcRenderer.removeListener('sync-status:changed', listener);
-  },
-  onUpdateStatusChanged: callback => {
-    if (typeof callback !== 'function') return () => {};
-    const listener = (_event, status) => callback(status);
-    ipcRenderer.on('update-status:changed', listener);
-    return () => ipcRenderer.removeListener('update-status:changed', listener);
   }
 });

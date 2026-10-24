@@ -20,10 +20,7 @@ function createPlatformPolicy({
 } = {}) {
   const isMac = platform === 'darwin';
   const isWindows = platform === 'win32';
-  const capabilities = Object.freeze({
-    launchAtLogin: isWindows,
-    autoUpdate: isWindows
-  });
+  const capabilities = Object.freeze({ launchAtLogin: isWindows });
 
   function initializeApp(app) {
     if (isWindows) app.setAppUserModelId(appId);
@@ -66,7 +63,7 @@ function createPlatformPolicy({
     }
 
     const appMenuItemIds = new Set([
-      'show-settings', 'quit-application', 'launch-at-login', 'update-status', 'install-update'
+      'show-settings', 'quit-application', 'launch-at-login'
     ]);
     const workspaceItems = actionItems.filter(item => !appMenuItemIds.has(item.id));
     while (workspaceItems.at(-1)?.type === 'separator') workspaceItems.pop();

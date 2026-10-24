@@ -5,26 +5,20 @@ const {
   app,
   BrowserWindow,
   Menu,
-  Notification,
   Tray,
   dialog,
   ipcMain,
   nativeTheme,
-  powerMonitor,
   safeStorage,
   session,
   shell,
   nativeImage
 } = require('electron');
 
-const { autoUpdater } = require('electron-updater');
-
 const { createConfigStore } = require('./config-store');
 const { createRuntimeConfig } = require('./runtime-config');
 const { validateSettingsUpdate } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
-const { createUpdater } = require('./updater');
-const { createReminders } = require('./reminders');
 const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
 const { createPlatformPolicy } = require('./platform-policy');
 const {
@@ -36,8 +30,6 @@ const { activateRecoveredVault } = require('./recovery-activation');
 const { normalizedDocumentUrl, isTrustedMainFrameSender } = require('./trusted-sender');
 const { startRuntime } = require('../src/runtime');
 const { defaultVaultDir } = require('../src/config');
-const { createBlobClient } = require('../src/blobs/client');
-const { createBlobRestore } = require('../src/blobs/restore');
 const { createRecoveryJournal } = require('../src/recovery/journal');
 const { createRecoveryService, validateVaultRoot } = require('../src/recovery/service');
 
@@ -47,8 +39,8 @@ const PRELOAD_FILE = path.join(__dirname, 'settings-preload.js');
 const RECOVERY_FILE = path.join(__dirname, 'recovery', 'index.html');
 const RECOVERY_URL = pathToFileURL(RECOVERY_FILE).href;
 const RECOVERY_PRELOAD_FILE = path.join(__dirname, 'recovery-preload.js');
-const FILE_FIELDS = new Set(['checkDraftPath', 'whisperPath', 'whisperModel']);
-const DIRECTORY_FIELDS = new Set(['vaultDir', 'zoteroDataDir', 'blogRepo']);
+const FILE_FIELDS = new Set(['checkDraftPath']);
+const DIRECTORY_FIELDS = new Set(['vaultDir']);
 const RECOVERY_SWITCHABLE_PHASES = new Set(['idle', 'cancelled', 'completed', 'failed']);
 const platformPolicy = createPlatformPolicy();
 const { capabilities } = platformPolicy;
@@ -65,8 +57,6 @@ function windowBackgroundColor() {
 let configStore;
 let settings;
 let runtime;
-let updater;
-let reminders;
 let mainWindow;
 let mainWindowPromise;
 let settingsWindow;
@@ -130,14 +120,6 @@ function notifyRecoveryStateChanged(state = recoveryService?.getState()) {
   }
 }
 
-function updateState() {
-  // 文案在主进程算好再送过去：STATE_LABELS 抄一份到渲染进程，
-  // 就等于以后每加一个状态都要改两处，而漏掉的那处只会显示成空白。
-  return updater
-    ? { ...updater.getState(), text: updater.describe() }
-    : { phase: 'disabled', version: '', reason: '', enabled: false, text: '未启用自动更新' };
-}
-
 function writeSettings(nextSettings) {
   settings = configStore.write(nextSettings);
   settingsRevision += 1;
@@ -155,7 +137,6 @@ function runtimeState() {
       recovery: null,
       lastResult: null
     },
-    updateStatus: updateState(),
     capabilities: { ...capabilities }
   };
 }
@@ -166,72 +147,6 @@ function notifySyncStatusChanged(status) {
   }
 }
 
-function notifyUpdateStatusChanged() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.webContents.send('update-status:changed', updateState());
-  }
-}
-
-/**
- * 按当前设置重新配置自动更新。
- *
- * 秘密要现解一次：更新源的令牌和存储服务用的是同一个，而设置里只存密文。
- * 解不出来（安全存储暂时不可用）不该让保存设置整体失败 —— 自动更新是
- * 锦上添花的那一层，退化成「这次先不检查更新」就够了。
- */
-function configureUpdater(nextSettings = settings) {
-  if (!updater) return;
-  let blobServerToken = '';
-  try {
-    blobServerToken = configStore.runtimeSecrets(nextSettings).blobServerToken;
-  } catch (error) {
-    console.warn(`[update] 读取存储服务令牌失败，本次不检查更新：${error.message}`);
-  }
-  updater.configure({
-    updatesEnabled: nextSettings.updatesEnabled,
-    blobServerUrl: nextSettings.blobServerUrl,
-    blobServerToken
-  });
-}
-
-/**
- * 到点提醒。
- *
- * 提醒逻辑整个待在主进程：主窗口是 sandbox + 无 preload 的（见 createMainWindow），
- * 网页那边根本没有和主进程通话的通道。主进程访问本地服务和网页走同一条路 ——
- * 带上 internal token 请求 runtime.origin，和 attachInternalSession 里做的是同一件事。
- */
-function createConfiguredReminders() {
-  return createReminders({
-    async fetchAgenda() {
-      if (!runtime) return null;
-      const response = await fetch(`${runtime.origin}/api/calendar/agenda`, {
-        headers: { 'x-workstation-internal-token': runtime.config.internalToken }
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    },
-    notify({ title, body, date }) {
-      // Windows 上不支持通知时（比如系统里整个关掉了），静默跳过而不是抛错。
-      if (!Notification.isSupported()) return;
-      const notification = new Notification({ title, body, silent: false });
-      notification.on('click', () => {
-        const targetUrl = runtime ? `${runtime.origin}/calendar?day=${date}` : '';
-        showMainWindow(targetUrl);
-      });
-      notification.show();
-    }
-  });
-}
-
-function configureReminders(nextSettings = settings) {
-  if (!reminders) return;
-  reminders.configure({
-    // 没有运行时（还没选资料库、或者启动失败）就没有议程可拉，别空转。
-    remindersEnabled: Boolean(nextSettings.remindersEnabled) && Boolean(runtime),
-    reminderLeadMinutes: nextSettings.reminderLeadMinutes
-  });
-}
 
 function setRuntime(nextRuntime) {
   unsubscribeSyncStatus();
@@ -246,8 +161,6 @@ function setRuntime(nextRuntime) {
     });
   }
   notifySyncStatusChanged(runtimeState().syncStatus);
-  // 运行时换了（改设置、换资料库）之后议程的来源也换了，跟着重配一次。
-  configureReminders();
 }
 
 function notifySettingsChanged() {
@@ -546,60 +459,6 @@ async function confirmAndAbortGitOperation() {
   return runtime.abortGitOperation();
 }
 
-/**
- * 更新相关的菜单项。
- *
- * 关掉自动更新或没配存储服务时一条都不加：菜单里挂一行永远灰着的
- * 「未启用自动更新」，除了变长没有任何用处。
- */
-function updateMenuItems() {
-  const status = updateState();
-  if (!status.enabled) return [];
-  if (status.phase === 'downloaded') {
-    return [
-      {
-        id: 'install-update',
-        label: `退出并安装更新 ${status.version}`.trim(),
-        click: () => confirmAndInstallUpdate().catch(showFatalError)
-      },
-      { type: 'separator' }
-    ];
-  }
-  return [
-    { id: 'update-status', label: status.text, enabled: false },
-    { type: 'separator' }
-  ];
-}
-
-/**
- * 「退出并安装更新」。
- *
- * 安装器会替换掉正在运行的程序，所以这里必须先确认，再走完整套退出流程：
- * 未提交的笔记要在最后一次同步里推出去，运行时资源要释放干净。
- * 真正的安装由 electron-updater 挂在 Electron 的 quit 事件上完成 ——
- * 那个事件只可能在 quitApplication() 跑完之后触发。
- */
-async function confirmAndInstallUpdate() {
-  const status = updateState();
-  if (status.phase !== 'downloaded') throw new Error('还没有已下载好的更新。');
-  const options = {
-    type: 'question',
-    title: '安装更新',
-    message: `确认退出并安装更新 ${status.version}？`.trim(),
-    detail: '应用会先完成最后一次提交和推送，再关闭并静默安装。安装完成后需要重新启动科研工作台。',
-    buttons: ['取消', '退出并安装'],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true
-  };
-  const parent = dialogParent();
-  const { response } = parent
-    ? await dialog.showMessageBox(parent, options)
-    : await dialog.showMessageBox(options);
-  if (response !== 1) return { cancelled: true };
-  return updater.installOnQuit(quitApplication);
-}
-
 function actionMenuItems({ includeShow = true } = {}) {
   const syncStatus = runtime?.getSyncStatus();
   const recovery = syncStatus?.recovery;
@@ -614,7 +473,6 @@ function actionMenuItems({ includeShow = true } = {}) {
     { id: 'open-vault', label: '打开资料库', enabled: Boolean(settings.vaultDir), click: openVault },
     { id: 'change-vault', label: '更换资料库', click: () => chooseAndSaveVault().catch(showFatalError) },
     { type: 'separator' },
-    ...(capabilities.autoUpdate ? updateMenuItems() : []),
     ...(capabilities.launchAtLogin ? [
       {
         id: 'launch-at-login',
@@ -684,46 +542,22 @@ function publicRecoveryState(state = recoveryService?.getState()) {
 }
 
 function recoveryFingerprint(mode) {
-  let blobServerToken = '';
-  try {
-    blobServerToken = configStore.runtimeSecrets(settings).blobServerToken;
-  } catch {}
-  return JSON.stringify({
-    mode,
-    vaultDir: settings.vaultDir,
-    blobServerUrl: settings.blobServerUrl,
-    blobServerToken
-  });
+  return JSON.stringify({ mode, vaultDir: settings.vaultDir });
 }
 
 function resetRecoveryService(mode) {
   const validatedMode = validateRecoveryMode(mode);
+  if (validatedMode === 'repair-blobs') throw new Error('Mini 不支持大文件恢复。');
   unsubscribeRecoveryState();
   const journal = createRecoveryJournal({
     journalPath: path.join(configStore.directory, 'recovery-session.json')
   });
-  let blobServerToken = '';
-  try {
-    blobServerToken = configStore.runtimeSecrets(settings).blobServerToken;
-  } catch (error) {
-    console.warn(`[recovery] 读取存储服务令牌失败：${error.message}`);
-  }
-  const blobs = createBlobClient({
-    baseUrl: settings.blobServerUrl,
-    token: blobServerToken
-  });
   recoveryServiceFingerprint = recoveryFingerprint(validatedMode);
-  recoveryService = createRecoveryService({
-    journal,
-    blobRestore: createBlobRestore({ blobs }),
-    mode: validatedMode === 'repair-blobs' ? 'repair-blobs' : 'restore',
-    currentVaultDir: validatedMode === 'repair-blobs' ? settings.vaultDir : ''
-  });
+  recoveryService = createRecoveryService({ journal, mode: 'restore' });
   recoveryResidueLoaded = false;
   unsubscribeRecoveryState = recoveryService.onState(notifyRecoveryStateChanged);
   return recoveryService;
 }
-
 function ensureRecoveryService(mode) {
   const state = recoveryService?.getState();
   const fingerprintChanged = recoveryServiceFingerprint !== recoveryFingerprint(mode);
@@ -743,9 +577,7 @@ function ensureRecoveryService(mode) {
 async function showRecoveryWindow(mode = 'restore') {
   if (quitting) return;
   validateRecoveryMode(mode);
-  if (mode === 'repair-blobs' && (!runtime || !settings.vaultDir)) {
-    throw new Error('工作台尚未启动，不能检查当前资料库。');
-  }
+  if (mode === 'repair-blobs') throw new Error('Mini 不支持大文件恢复。');
   const service = ensureRecoveryService(mode);
   if (mode !== recoveryMode && !RECOVERY_SWITCHABLE_PHASES.has(service.getState().phase)) {
     throw new Error('请先完成或取消当前恢复操作。');
@@ -876,7 +708,6 @@ async function replaceRuntime(nextSettings, previousSettings, { initialBlobRecon
     candidateRuntime = await startConfiguredRuntime(nextSettings, { initialBlobReconcile });
     writeSettings(nextSettings);
     applyLoginItemSetting();
-    configureUpdater();
     setRuntime(candidateRuntime);
     candidateRuntime = null;
     await createMainWindow({ hidden: !showMainAfterRestart });
@@ -902,7 +733,6 @@ async function replaceRuntime(nextSettings, previousSettings, { initialBlobRecon
       rollbackErrors.push(rollbackError);
     }
     try {
-      configureUpdater();
     } catch (rollbackError) {
       rollbackErrors.push(rollbackError);
     }
@@ -983,8 +813,6 @@ async function finishQuit() {
   // 定时检查停掉，但不动 autoInstallOnAppQuit：更新的安装要留到最后，
   // 由 Electron 的 quit 事件触发 —— 那时 runtime.stop() 已经跑完，
   // 最后一次提交推送不会被安装器打断。
-  updater?.stop();
-  reminders?.stop();
   const recoveryState = recoveryService?.getState();
   if (recoveryState?.canCancel) await recoveryService.cancel().catch(error => console.error(error));
   await recoveryService?.idle();
@@ -1034,7 +862,6 @@ function registerIpc() {
         settings: {
           ...update?.settings,
           ...(!capabilities.launchAtLogin ? { launchAtLogin: previous.launchAtLogin } : {}),
-          ...(!capabilities.autoUpdate ? { updatesEnabled: previous.updatesEnabled } : {})
         },
         secrets: update?.secrets
       };
@@ -1070,13 +897,9 @@ function registerIpc() {
   ipcMain.handle('settings:choose-file', async (event, field) => {
     assertSettingsSender(event);
     if (!FILE_FIELDS.has(field)) throw new Error('不允许选择这个文件字段。');
-    const filters = field === 'checkDraftPath'
-      ? [{ name: 'Python 脚本', extensions: ['py'] }]
-      : field === 'whisperModel'
-        ? [{ name: 'Whisper 模型', extensions: ['bin', 'gguf'] }]
-        : process.platform === 'win32'
-          ? [{ name: '可执行文件', extensions: ['exe'] }]
-          : [];
+    const filters = process.platform === 'win32'
+      ? [{ name: '可执行文件', extensions: ['exe'] }]
+      : [];
     const result = await dialog.showOpenDialog(settingsWindow, {
       defaultPath: settings[field] || app.getPath('home'),
       properties: ['openFile'],
@@ -1290,20 +1113,8 @@ if (!gotLock) {
 
     configStore = createConfigStore({ userDataPath: app.getPath('userData'), safeStorage });
     settings = configStore.load();
-    // isTestRun 也算开发态。打包版的 smoke test 里 app.isPackaged 是 true，
-    // 不排除掉的话，CI 上跑一次冒烟测试就可能真的去下载并安装一个更新。
-    updater = createUpdater({
-      autoUpdater,
-      isPackaged: app.isPackaged && !isTestRun && capabilities.autoUpdate,
-      onStateChange: () => {
-        notifyUpdateStatusChanged();
-        refreshMenus();
-      }
-    });
-    reminders = createConfiguredReminders();
     // 合盖再打开之后，setInterval 的节奏已经乱了，中间那段时间的提醒也没跑。
     // 醒来立刻补一轮 —— tick 本身是按墙上时钟算的，补跑不会重复发。
-    powerMonitor.on('resume', () => { reminders?.tick(); });
     registerIpc();
 
     const startupRecovery = resetRecoveryService('restore');
@@ -1311,7 +1122,6 @@ if (!gotLock) {
     recoveryResidueLoaded = true;
     if (residue) {
       applyLoginItemSetting();
-      configureUpdater();
       createTray();
       await showRecoveryWindow('restore');
       return;
@@ -1326,7 +1136,6 @@ if (!gotLock) {
       writeSettings({ ...settings, vaultDir: choice.vaultDir });
     }
     applyLoginItemSetting();
-    configureUpdater();
     createTray();
 
     if (choice.firstRun || choice.restore || !settings.vaultDir) {

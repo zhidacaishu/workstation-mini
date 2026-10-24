@@ -10,15 +10,11 @@ const syncStatusPanel = document.getElementById('sync-status');
 const syncStatusTitle = document.getElementById('sync-status-title');
 const syncStatusDetail = document.getElementById('sync-status-detail');
 const abortGitButton = document.getElementById('abort-git-operation');
-const updateStatusLine = document.getElementById('update-status');
 const capabilityElements = [...document.querySelectorAll('[data-capability]')];
 
 const PLAIN_FIELDS = [
   'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes',
-  'zoteroApi', 'zoteroDataDir', 'journalTrackerUrl', 'journalTrackerEmail',
-  'checkDraftPath', 'pythonPath', 'whisperPath', 'whisperModel', 'blogRepo',
-  'launchAtLogin', 'blobServerUrl', 'updatesEnabled',
-  'remindersEnabled', 'reminderLeadMinutes'
+  'checkDraftPath', 'pythonPath', 'launchAtLogin'
 ];
 
 let phase = 'loading';
@@ -35,7 +31,7 @@ let loadToken = 0;
 let revision = 0;
 let disabledBeforeBusy = new Map();
 let syncStatus = { phase: 'disabled', operation: '', recovery: null, lastResult: null };
-let capabilities = { launchAtLogin: true, autoUpdate: true };
+let capabilities = { launchAtLogin: true };
 
 function field(name) {
   return form.elements.namedItem(name);
@@ -54,7 +50,6 @@ function readPlainSettings() {
     settings[name] = input.type === 'checkbox' ? input.checked : input.value;
   }
   settings.syncIntervalMinutes = Number(settings.syncIntervalMinutes);
-  settings.reminderLeadMinutes = Number(settings.reminderLeadMinutes);
   return settings;
 }
 
@@ -73,10 +68,7 @@ function snapshot() {
   return JSON.stringify({
     settings: readPlainSettings(),
     secrets: {
-      anthropicApiKey: secretIntent('anthropicApiKey', 'clearAnthropicApiKey'),
-      journalTrackerPassword: secretIntent('journalTrackerPassword', 'clearJournalTrackerPassword'),
-      blobServerToken: secretIntent('blobServerToken', 'clearBlobServerToken'),
-      mineruApiToken: secretIntent('mineruApiToken', 'clearMineruApiToken')
+      anthropicApiKey: secretIntent('anthropicApiKey', 'clearAnthropicApiKey')
     }
   });
 }
@@ -102,7 +94,6 @@ function updateActions() {
   document.getElementById('open-vault').disabled = locked || !savedVaultDir;
   document.getElementById('open-config').disabled = locked;
   document.getElementById('open-recovery').disabled = locked;
-  document.getElementById('repair-blobs').disabled = locked || !runtimeRunning;
 }
 
 function renderSyncStatus(status = {}) {
@@ -136,17 +127,10 @@ function renderSyncStatus(status = {}) {
   updateActions();
 }
 
-// 文案由主进程算好（updater.js 的 describeState），这里只负责显示 ——
-// 状态标签抄两份的话，以后加状态漏掉这边只会显示成一片空白。
-function renderUpdateStatus(status = {}) {
-  updateStatusLine.textContent = capabilities.autoUpdate ? status.text || '' : '';
-  updateStatusLine.dataset.phase = status.phase || 'disabled';
-}
 
 function applyCapabilities(next = {}) {
   capabilities = {
-    launchAtLogin: next.launchAtLogin !== false,
-    autoUpdate: next.autoUpdate !== false
+    launchAtLogin: next.launchAtLogin !== false
   };
   for (const element of capabilityElements) {
     const supported = Boolean(capabilities[element.dataset.capability]);
@@ -234,21 +218,11 @@ function fill(data) {
   }
 
   field('anthropicApiKey').value = '';
-  field('journalTrackerPassword').value = '';
-  field('blobServerToken').value = '';
-  field('mineruApiToken').value = '';
   field('clearAnthropicApiKey').checked = false;
-  field('clearJournalTrackerPassword').checked = false;
-  field('clearBlobServerToken').checked = false;
-  field('clearMineruApiToken').checked = false;
   document.getElementById('anthropic-status').textContent = data.settings.secrets.anthropicApiKey ? '已安全保存' : '未配置';
-  document.getElementById('journal-password-status').textContent = data.settings.secrets.journalTrackerPassword ? '已安全保存' : '未配置';
-  document.getElementById('blob-token-status').textContent = data.settings.secrets.blobServerToken ? '已安全保存' : '未配置';
-  document.getElementById('mineru-token-status').textContent = data.settings.secrets.mineruApiToken ? '已安全保存' : '未配置';
 
   runtimeRunning = Boolean(data.runtimeRunning);
   renderSyncStatus(data.syncStatus);
-  renderUpdateStatus(data.updateStatus);
   savedVaultDir = String(data.settings.vaultDir || '');
   runtimeStatus.textContent = runtimeRunning ? '工作台运行中' : '等待选择资料库';
   loaded = true;
@@ -268,15 +242,11 @@ function collect() {
       : local[name];
   }
   settings.syncIntervalMinutes = Number(settings.syncIntervalMinutes);
-  settings.reminderLeadMinutes = Number(settings.reminderLeadMinutes);
   return {
     expectedRevision: Number(externalData?.revision ?? revision),
     settings,
     secrets: {
-      anthropicApiKey: secretChange('anthropicApiKey', 'clearAnthropicApiKey'),
-      journalTrackerPassword: secretChange('journalTrackerPassword', 'clearJournalTrackerPassword'),
-      blobServerToken: secretChange('blobServerToken', 'clearBlobServerToken'),
-      mineruApiToken: secretChange('mineruApiToken', 'clearMineruApiToken')
+      anthropicApiKey: secretChange('anthropicApiKey', 'clearAnthropicApiKey')
     }
   };
 }
@@ -451,7 +421,6 @@ async function openLocation(name, operation) {
 document.getElementById('open-vault').addEventListener('click', () => openLocation('已打开资料库。', api.openVault));
 document.getElementById('open-config').addEventListener('click', () => openLocation('已打开配置目录。', api.openConfigDirectory));
 document.getElementById('open-recovery').addEventListener('click', () => openLocation('已打开资料库恢复。', () => api.openRecovery('restore')));
-document.getElementById('repair-blobs').addEventListener('click', () => openLocation('已打开大文件检查。', () => api.openRecovery('repair-blobs')));
 
 reloadButton.addEventListener('click', () => {
   if (!externalData || !window.confirm('载入外部设置会放弃本页未保存的更改。继续？')) return;
@@ -496,5 +465,4 @@ window.addEventListener('resize', activateVisibleSection);
 
 api.onChanged(handleExternalChange);
 api.onSyncStatusChanged(renderSyncStatus);
-api.onUpdateStatusChanged(renderUpdateStatus);
 load();

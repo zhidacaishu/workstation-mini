@@ -36,31 +36,6 @@ test('新安装默认关闭同步，旧设置缺字段时保留历史开启行�
   }
 });
 
-test('自动更新默认开启，升级后不会因为老设置里没这个字段而悄悄关掉', async () => {
-  const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-updates-settings-'));
-  try {
-    const store = createConfigStore({ userDataPath, safeStorage: fakeSafeStorage() });
-    assert.equal(store.load().updatesEnabled, true);
-
-    // 这是升级路径：设置文件是老版本写的，里面根本没有 updatesEnabled。
-    // Boolean(undefined) 会判成关闭，那样每次升级都要手工再打开一次。
-    await fs.mkdir(store.directory, { recursive: true });
-    await fs.writeFile(store.filePath, JSON.stringify({ schemaVersion: 2, vaultDir: 'C:\\vault' }), 'utf8');
-    assert.equal(store.load().updatesEnabled, true);
-
-    // 显式关掉就要留住，不能被默认值盖回去。
-    await fs.writeFile(
-      store.filePath,
-      JSON.stringify({ schemaVersion: 2, vaultDir: 'C:\\vault', updatesEnabled: false }),
-      'utf8'
-    );
-    assert.equal(store.load().updatesEnabled, false);
-    assert.equal(store.write(store.load()).updatesEnabled, false);
-  } finally {
-    await fs.rm(userDataPath, { recursive: true, force: true });
-  }
-});
-
 test('桌面设置原子保存并保留上一版快照', async () => {
   const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-settings-'));
   try {
@@ -99,27 +74,14 @@ test('秘密只以密文保存，公开设置只返回配置状态', async () =>
       settings: { vaultDir: 'C:\\vault' },
       secrets: {
         anthropicApiKey: { action: 'set', value: 'sk-ant-secret' },
-        journalTrackerPassword: { action: 'set', value: 'password' },
-        blobServerToken: { action: 'set', value: 'blob-token-secret' },
-        mineruApiToken: { action: 'set', value: 'mineru-token-secret' }
       }
     });
     store.write(next);
 
     const raw = await fs.readFile(store.filePath, 'utf8');
-    assert.doesNotMatch(raw, /sk-ant-secret|blob-token-secret|mineru-token-secret|"password"\s*:/);
-    assert.deepEqual(store.runtimeSecrets(next), {
-      anthropicApiKey: 'sk-ant-secret',
-      journalTrackerPassword: 'password',
-      blobServerToken: 'blob-token-secret',
-      mineruApiToken: 'mineru-token-secret'
-    });
-    assert.deepEqual(store.publicSettings(next).secrets, {
-      anthropicApiKey: true,
-      journalTrackerPassword: true,
-      blobServerToken: true,
-      mineruApiToken: true
-    });
+    assert.doesNotMatch(raw, /sk-ant-secret/);
+    assert.deepEqual(store.runtimeSecrets(next), { anthropicApiKey: 'sk-ant-secret' });
+    assert.deepEqual(store.publicSettings(next).secrets, { anthropicApiKey: true });
   } finally {
     await fs.rm(userDataPath, { recursive: true, force: true });
   }

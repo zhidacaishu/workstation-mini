@@ -98,25 +98,6 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
     }
   });
 
-  /** 导出 response letter 草稿。 */
-  router.get('/submissions/letter', (req, res, next) => {
-    try {
-      const notePath = String(req.query.path || '');
-      if (!isSafeRelativePath(notePath)) throw httpError(400, '路径不合法。');
-
-      const paper = items.list('submission').find(item => item.path === notePath);
-      if (!paper) throw httpError(404, '没有这份稿件。');
-
-      const letter = items.responseLetter(paper);
-      if (!letter) throw httpError(400, '这份稿件还没有录入审稿意见。');
-
-      res.type('text/markdown; charset=utf-8')
-        .set('Content-Disposition', `attachment; filename="response-letter.md"`)
-        .send(letter);
-    } catch (error) {
-      next(error);
-    }
-  });
 
   return router;
 }

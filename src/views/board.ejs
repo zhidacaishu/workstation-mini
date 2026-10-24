@@ -17,7 +17,7 @@
     <p>在 vault 的 <code>notes/<%= workflow.section %>/</code> 下建 <code>.md</code> 文件，
       frontmatter 里写 <code>status</code> 就会出现在这里：</p>
     <pre><code>---
-title: <%= workflow.key === 'experiment' ? '基线模型' : workflow.key === 'submission' ? '平台定价' : '第三章' %>
+title: 基线模型
 status: <%= workflow.initial %>
 <% workflow.fields.forEach(field => { %><%= field %>:
 <% }) %>---</code></pre>
@@ -42,21 +42,12 @@ status: <%= workflow.initial %>
               <p class="board-meta"><%= item.exercises.done %>/<%= item.exercises.total %> 题</p>
             <% } %>
 
-            <% if (item.reviews.length) { %>
-              <p class="board-meta">
-                审稿意见 <%= item.reviews.length %> 条<% if (item.reviewsOpen) { %>，<span class="open-count">未回应 <%= item.reviewsOpen %></span><% } %>
-                · <a href="/submissions/letter?path=<%= encodeURIComponent(item.path) %>">导出回复稿</a>
-              </p>
-            <% } %>
-
-            <% if (item.data.journal) { %><p class="board-meta"><%= item.data.journal %></p><% } %>
             <% if (item.data.deadline) { %>
               <p class="board-meta <%= String(item.data.deadline).slice(0,10) < today ? 'overdue' : '' %>">
                 截止 <%= String(item.data.deadline).slice(0, 10) %>
               </p>
             <% } %>
             <% if (item.data.dataset) { %><p class="board-meta"><%= item.data.dataset %></p><% } %>
-            <% if (item.data.book) { %><p class="board-meta"><%= item.data.book %></p><% } %>
 
             <% if (!readOnly) { %>
               <form class="statusform" action="/board/status" method="post">

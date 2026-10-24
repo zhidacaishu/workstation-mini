@@ -30,7 +30,7 @@ test('Windows 平台保留 AppUserModelID、登录启动与隐藏启动语义', 
   const app = fakeApp();
 
   assert.equal(policy.restoreOnActivate, false);
-  assert.deepEqual(policy.capabilities, { launchAtLogin: true, autoUpdate: true });
+  assert.deepEqual(policy.capabilities, { launchAtLogin: true });
   policy.initializeApp(app);
   assert.equal(policy.applyLoginItem(app, true, {
     isPackaged: false,
@@ -62,7 +62,7 @@ test('macOS 平台不调用 Windows API，并使用 template status item', () =>
   const app = fakeApp();
 
   assert.equal(policy.restoreOnActivate, true);
-  assert.deepEqual(policy.capabilities, { launchAtLogin: false, autoUpdate: false });
+  assert.deepEqual(policy.capabilities, { launchAtLogin: false });
   policy.initializeApp(app);
   assert.equal(policy.applyLoginItem(app, true), false);
   assert.deepEqual(app.calls, []);

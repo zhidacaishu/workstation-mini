@@ -13,13 +13,13 @@
   <label>
     路径
     <input type="text" name="path" value="<%= notePath %>" required
-           placeholder="diary/2026-08-06.md" <%= isNew ? '' : 'readonly' %>>
+           placeholder="research/notes.md" <%= isNew ? '' : 'readonly' %>>
   </label>
   <p class="muted">相对 vault 的 <code>notes/</code> 目录，必须以 <code>.md</code> 结尾。</p>
 
   <label>
     正文
-    <textarea name="body" rows="12" spellcheck="false" placeholder="---&#10;title: 标题&#10;tags: [日记]&#10;---&#10;&#10;正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
+    <textarea name="body" rows="12" spellcheck="false" placeholder="---&#10;title: 标题&#10;tags: [概念]&#10;---&#10;&#10;正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
   </label>
 
   <p data-draft-status role="status" aria-live="polite"></p>

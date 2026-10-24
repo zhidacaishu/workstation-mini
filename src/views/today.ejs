@@ -2,158 +2,61 @@
 
 <section class="hero">
   <span class="eyebrow">今日节奏</span>
-  <h1>今日 <span class="muted today-date"><%= snapshot.date %> <%= snapshot.weekday %></span></h1>
+  <h1>今日 <span class="muted today-date"><%= snapshot.date %> <%= snapshot.weekday || '' %></span></h1>
 </section>
 
 <%
-  // 开头一句话把最要紧的说完，剩下的才是细节。
   const headline = [];
-  if (snapshot.review.total) headline.push(`要复习 ${snapshot.review.total} 张卡`);
-  if (snapshot.tasks.overdue) headline.push(`${snapshot.tasks.overdue} 条待办已逾期`);
-  if (snapshot.tasks.dueToday) headline.push(`${snapshot.tasks.dueToday} 条今天到期`);
-  if (snapshot.annotations.pending) headline.push(`${snapshot.annotations.pending} 条文献标注待加工`);
-  if (!snapshot.diary.writtenToday) headline.push('日记还没写');
+  if (snapshot.review && (snapshot.review.due || snapshot.review.fresh)) headline.push('要复习 ' + ((snapshot.review.due || 0) + (snapshot.review.fresh || 0)) + ' 张卡');
+  if (snapshot.tasks && snapshot.tasks.overdue) headline.push(snapshot.tasks.overdue + ' 条待办已逾期');
+  if (snapshot.tasks && snapshot.tasks.dueToday) headline.push(snapshot.tasks.dueToday + ' 条今天到期');
+  if (snapshot.deadlines && snapshot.deadlines.length) headline.push(snapshot.deadlines.length + ' 个近期截止日期');
 %>
 <p class="headline"><%= headline.length ? headline.join('；') + '。' : '今天没有到期的东西。' %></p>
 
 <div class="statrow">
-  <a class="stat stat-link" href="/review">
-    <span class="stat-label">待复习</span>
-    <span class="stat-value"><%= snapshot.review.total %><span class="stat-unit">张</span></span>
-  </a>
-  <a class="stat stat-link" href="/tasks">
-    <span class="stat-label">未完成待办</span>
-    <span class="stat-value <%= snapshot.tasks.overdue ? 'is-overdue' : '' %>"><%= snapshot.tasks.open %></span>
-  </a>
-  <a class="stat stat-link" href="/deadlines">
-    <span class="stat-label">临近截止</span>
-    <span class="stat-value"><%= snapshot.deadlines.length %></span>
-  </a>
-  <a class="stat stat-link" href="/library">
-    <span class="stat-label">待加工标注</span>
-    <span class="stat-value"><%= snapshot.annotations.pending %><span class="stat-unit">条</span></span>
-  </a>
-  <a class="stat stat-link" href="/diary">
-    <span class="stat-label">近 30 天日记</span>
-    <span class="stat-value"><%= snapshot.diary.entriesLast30 %><span class="stat-unit">/30</span></span>
-  </a>
+  <a class="stat stat-link" href="/review"><span class="stat-label">待复习</span><span class="stat-value"><%= (snapshot.review && snapshot.review.due || 0) + (snapshot.review && snapshot.review.fresh || 0) %><span class="stat-unit">张</span></span></a>
+  <a class="stat stat-link" href="/tasks"><span class="stat-label">未完成待办</span><span class="stat-value <%= snapshot.tasks && snapshot.tasks.overdue ? 'is-overdue' : '' %>"><%= snapshot.tasks && snapshot.tasks.open || 0 %></span></a>
+  <a class="stat stat-link" href="/deadlines"><span class="stat-label">临近截止</span><span class="stat-value"><%= snapshot.deadlines && snapshot.deadlines.length || 0 %></span></a>
+  <a class="stat stat-link" href="/search"><span class="stat-label">笔记总数</span><span class="stat-value"><%= total %></span></a>
 </div>
 
 <div class="columns">
   <section class="col-main">
-    <% if (!snapshot.diary.writtenToday && !readOnly) { %>
-      <form class="inline-form" action="/diary/today" method="post">
-        <input type="hidden" name="date" value="<%= snapshot.date %>">
-        <button class="button primary" type="submit">写今天的日记</button>
-      </form>
-    <% } %>
-
-    <% if (snapshot.diary.plan.length) { %>
-      <h2>今天的计划</h2>
-      <ul class="planlist">
-        <% snapshot.diary.plan.forEach(block => { %>
-          <li>
-            <% if (block.from) { %><span class="plan-time"><%= block.from %>–<%= block.to %></span><% } %>
-            <span><%= block.what %></span>
-          </li>
-        <% }) %>
-      </ul>
-    <% } else if (snapshot.diary.writtenToday) { %>
-      <p class="muted">今天还没安排时间块。在<a href="/note/<%= encodePath(snapshot.diary.path) %>">日记</a>的
-        frontmatter 里写 <code>plan: ["09:00-11:00 写引言"]</code> 就会显示在这里。</p>
-    <% } %>
-
-    <% if (snapshot.tasks.top.length) { %>
+    <% if (snapshot.tasks && snapshot.tasks.top && snapshot.tasks.top.length) { %>
       <h2>待办 <a class="muted more" href="/tasks">全部</a></h2>
       <ul class="tasklist">
         <% snapshot.tasks.top.forEach(task => { %>
-          <li>
-            <span class="task-box">☐</span>
-            <span class="task-title"><%= task.title %></span>
-            <%- include('partials/task-actions', { task }) %>
-            <% if (task.due) { %>
-              <span class="chip <%= task.due < snapshot.date ? 'overdue' : (task.due === snapshot.date ? 'due-today' : '') %>">
-                <%= task.due < snapshot.date ? '逾期 ' : '' %><%= task.due %>
-              </span>
-            <% } %>
-            <a class="task-source muted" href="/note/<%= encodePath(task.path) %>"><%= task.noteTitle %></a>
-          </li>
+          <li><span class="task-box">☐</span><span class="task-title"><%= task.title %></span><%- include('partials/task-actions', { task }) %><% if (task.due) { %><span class="chip <%= task.due < snapshot.date ? 'overdue' : (task.due === snapshot.date ? 'due-today' : '') %>"><%= task.due < snapshot.date ? '逾期 ' : '' %><%= task.due %></span><% } %><a class="task-source muted" href="/note/<%= encodePath(task.path) %>"><%= task.noteTitle %></a></li>
         <% }) %>
       </ul>
     <% } %>
 
-    <% if (snapshot.deadlines.length) { %>
+    <% if (snapshot.deadlines && snapshot.deadlines.length) { %>
       <h2>临近截止 <a class="muted more" href="/deadlines">时间轴</a></h2>
       <ul class="notelist">
-        <% snapshot.deadlines.forEach(entry => { %>
-          <li>
-            <span class="chip <%= entry.overdue ? 'overdue' : '' %>"><%= entry.date %></span>
-            <a href="/note/<%= encodePath(entry.path) %>"><%= entry.label %></a>
-            <span class="muted"><%= entry.detail %></span>
-          </li>
-        <% }) %>
+        <% snapshot.deadlines.forEach(entry => { %><li><span class="chip <%= entry.overdue ? 'overdue' : '' %>"><%= entry.date %></span><a href="/note/<%= encodePath(entry.path) %>"><%= entry.label %></a><span class="muted"><%= entry.detail %></span></li><% }) %>
       </ul>
+    <% } %>
+
+    <% if (snapshot.review && (snapshot.review.due || snapshot.review.fresh)) { %>
+      <h2>复习队列</h2>
+      <p class="muted">今天有 <strong><%= snapshot.review.due || 0 %></strong> 张到期卡和 <strong><%= snapshot.review.fresh || 0 %></strong> 张新卡，完成后会记录到本地复习日志。</p>
     <% } %>
   </section>
 
   <aside class="col-side">
-    <%
-      const { stuckChapters, runningExperiments, openReviews } = snapshot.attention;
-      const needsAttention = stuckChapters.length + runningExperiments.length + openReviews.length;
-    %>
-    <% if (needsAttention) { %>
-      <h2>需要注意</h2>
+    <% const attention = snapshot.attention || {}; const planned = attention.plannedProjects || []; const running = attention.runningExperiments || []; %>
+    <% if (planned.length || running.length) { %>
+      <h2>研究行动</h2>
       <ul class="notelist">
-        <% openReviews.forEach(item => { %>
-          <li>
-            <a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a>
-            <span class="open-count"><%= item.reviewsOpen %> 条意见没回应</span>
-          </li>
-        <% }) %>
-        <% stuckChapters.forEach(item => { %>
-          <li><span class="chip">卡住</span><a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a></li>
-        <% }) %>
-        <% runningExperiments.forEach(item => { %>
-          <li><span class="chip">进行中</span><a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a></li>
-        <% }) %>
+        <% planned.forEach(item => { %><li><span class="chip">计划中</span><a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a></li><% }) %>
+        <% running.forEach(item => { %><li><span class="chip">进行中</span><a href="/note/<%= encodePath(item.path) %>"><%= item.title %></a></li><% }) %>
       </ul>
     <% } %>
 
-    <% if (snapshot.annotations.top.length) { %>
-      <h2>待加工标注 <a class="muted more" href="/library">全部</a></h2>
-      <ul class="notelist">
-        <% snapshot.annotations.top.forEach(annotation => { %>
-          <li>
-            <a href="/note/<%= encodePath(annotation.notePath) %>"><%= annotation.text %></a>
-            <% if (annotation.page) { %><span class="chip">p.<%= annotation.page %></span><% } %>
-            <span class="muted"><%= annotation.noteTitle %></span>
-          </li>
-        <% }) %>
-      </ul>
-    <% } %>
-
-    <% if (snapshot.diary.onThisDay.length) { %>
-      <h2>历年今日</h2>
-      <ul class="notelist">
-        <% snapshot.diary.onThisDay.forEach(entry => { %>
-          <li><span class="chip"><%= entry.label %></span><a href="/note/<%= encodePath(entry.path) %>"><%= entry.title %></a></li>
-        <% }) %>
-      </ul>
-    <% } %>
-
-    <h2>回顾</h2>
-    <p><a href="/retro">本周</a> · <a href="/retro?scope=month">本月</a> · <a href="/briefing">今日简报</a></p>
-
-    <% if (total === 0) { %>
-      <h2>vault 还是空的</h2>
-      <p class="muted">在 <code>notes/</code> 下建立 <code>.md</code> 文件<% if (!readOnly) { %>，或者直接<a href="/new">新建一篇</a><% } %>。</p>
-    <% } else { %>
-      <h2>最近改动</h2>
-      <ul class="notelist">
-        <% recent.forEach(note => { %>
-          <li><a href="/note/<%= encodePath(note.path) %>"><%= note.title %></a></li>
-        <% }) %>
-      </ul>
+    <% if (total === 0) { %><h2>vault 还是空的</h2><p class="muted">在 <code>notes/</code> 下建立 <code>.md</code> 文件<% if (!readOnly) { %>，或者直接<a href="/new">新建一篇</a><% } %>。</p><% } else if (recent && recent.length) { %>
+      <h2>最近改动</h2><ul class="notelist"><% recent.forEach(note => { %><li><a href="/note/<%= encodePath(note.path) %>"><%= note.title %></a></li><% }) %></ul>
     <% } %>
   </aside>
 </div>

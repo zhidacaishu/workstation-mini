@@ -15,7 +15,6 @@ test('显式设置派生出桌面内部运行配置', () => {
     syncEnabled: false,
     syncIntervalMinutes: 7,
     anthropicApiKey: ' key ',
-    mineruApiToken: ' mineru-token '
   });
 
   assert.equal(config.host, '127.0.0.1');
@@ -24,14 +23,12 @@ test('显式设置派生出桌面内部运行配置', () => {
   assert.equal(config.notesDir, path.join(vaultDir, 'notes'));
   assert.equal(config.reviewsDir, path.join(vaultDir, 'reviews'));
   assert.equal(config.attachmentsDir, path.join(vaultDir, 'attachments'));
-  assert.equal(config.mineruCacheDir, path.join(vaultDir, '.workstation', 'mineru'));
   assert.equal(config.dbPath, ':memory:');
   assert.equal(config.readOnly, true);
   assert.match(config.device, /^henry-laptop-[a-f0-9]{10}$/);
   assert.equal(config.syncEnabled, false);
   assert.equal(config.syncIntervalMinutes, 7);
   assert.equal(config.anthropicApiKey, 'key');
-  assert.equal(config.mineruApiToken, ' mineru-token ');
 });
 
 test('默认 vault 位于用户主目录且索引跟随 vault', () => {

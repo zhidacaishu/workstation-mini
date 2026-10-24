@@ -6,7 +6,7 @@ const { build } = require('../package.json');
 test('macOS 目标只出 arm64 DMG，且不参与更新分发', () => {
   assert.deepEqual(build.mac.target, [{ target: 'dmg', arch: ['arm64'] }]);
   assert.equal(build.mac.identity, '-');
-  assert.equal(build.mac.artifactName, 'research-workstation-${version}-mac-arm64-experimental.${ext}');
+  assert.equal(build.mac.artifactName, 'workstation-mini-${version}-mac-arm64.${ext}');
 
   // `publish: null` 是这里唯一让 macOS 真的不生成更新清单的开关。
   //
@@ -25,9 +25,9 @@ test('macOS 目标只出 arm64 DMG，且不参与更新分发', () => {
 
 test('Windows 目标保留 x64 NSIS 与自身的发布配置', () => {
   assert.deepEqual(build.win.target, [{ target: 'nsis', arch: ['x64'] }]);
-  // Windows 是唯一走自动更新的平台，顶层 publish 必须仍然对它生效。
+  // Mini 不包含发布/自动更新配置，构建产物由用户本地生成。
   assert.equal(build.win.publish, undefined);
-  assert.equal(build.publish[0].provider, 'generic');
+  assert.equal(build.publish, undefined);
 });
 
 test('两个平台的托盘资源都随包分发', () => {

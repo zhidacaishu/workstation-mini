@@ -68,16 +68,6 @@ test('frontmatter 里的日期型标题还原成原本写下的字面量', () =>
   assert.equal(parsed.title, '2026-08-06', '但标题必须还原成原来那串日期');
 });
 
-test('内置日记模板给标题加引号，从源头避开日期解析', () => {
-  const { renderNamedTemplate } = require('../src/templates');
-  const rendered = renderNamedTemplate('/nonexistent-vault', 'diary', { date: '2026-08-06', weekday: '周四' });
-  assert.match(rendered, /title: "2026-08-06"/);
-
-  const parsed = note.parseNote('diary/2026-08-06.md', rendered);
-  assert.equal(typeof parsed.data.title, 'string', '加引号后应保持字符串');
-  assert.equal(parsed.title, '2026-08-06');
-});
-
 test('日期字面量的还原不受本机时区影响', () => {
   // YAML 的纯日期按 UTC 午夜解析。用本地时区取值的话，负偏移时区（比如这台
   // 机器所在的 UTC-7）会把它渲染成前一天。

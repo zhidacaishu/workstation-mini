@@ -4,21 +4,6 @@ const path = require('node:path');
 // 内置模板只是兜底。vault 里放 templates/<名字>.md 就会覆盖它 ——
 // 模板属于个人习惯，应该跟着笔记一起同步，而不是烧在代码里。
 const BUILTIN = {
-  diary: `---
-title: "{{date}}"
-tags: [日记]
-mood:
-focus_minutes:
----
-
-# {{date}} {{weekday}}
-
-## 今天做了什么
-
-## 卡在哪
-
-## 明天第一件事
-`,
   note: `---
 title: {{title}}
 tags: []
@@ -33,8 +18,7 @@ const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '�
 /**
  * 本地时区的 YYYY-MM-DD。
  *
- * 不能用 toISOString()：它给的是 UTC，东八区在早上 8 点前会算成前一天，
- * 「今天的日记」会开错文件。
+ * 使用本地时间而不是 UTC，避免在东八区凌晨落到前一天。
  */
 function toLocalDate(date = new Date()) {
   const year = date.getFullYear();

@@ -4,23 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>科研工作台设置</title>
+  <title>Workstation Mini 设置</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body data-settings-state="loading">
   <aside class="sidebar">
     <div class="identity">
       <span class="mark" aria-hidden="true">研</span>
-      <div><strong>科研工作台</strong><small>本机设置</small></div>
+      <div><strong>Workstation Mini</strong><small>本机设置</small></div>
     </div>
     <p class="sidebar-label">设置分组</p>
     <nav aria-label="设置分组" data-settings-nav>
       <a href="#workspace">工作区</a>
       <a href="#sync">同步</a>
-      <a href="#blobs">大文件</a>
+      <a href="#practice">练习与错题</a>
       <a href="#ai">Anthropic</a>
-      <a href="#literature">文献集成</a>
-      <a href="#tools">外部工具</a>
       <a href="#system">系统</a>
     </nav>
     <p class="local-note">内部服务只监听随机的本机回环端口，不接受局域网或互联网访问。</p>
@@ -51,7 +49,7 @@
           <label class="field"><span>设备名</span><input name="device" type="text" autocomplete="off"><small>用于区分事件文件；中文等名称会自动转换为带短摘要的安全文件名，避免不同设备重名。</small></label>
           <label class="toggle"><input name="readOnly" type="checkbox"><span><strong>只读模式</strong><small>允许浏览、搜索和复习，阻止修改 Markdown。</small></span></label>
         </div>
-        <div class="recovery-entry"><div><strong>从备份恢复到新资料库</strong><p>从 Git 远端或本地备份复制，补齐大文件并重建 SQLite；当前资料库和来源均不会修改。</p></div><button type="button" id="open-recovery">开始恢复…</button></div>
+        <div class="recovery-entry"><div><strong>从备份恢复到新资料库</strong><p>从 Git 远端或本地备份复制并重建 SQLite；当前资料库和来源均不会修改。</p></div><button type="button" id="open-recovery">开始恢复…</button></div>
       </section>
 
       <section id="sync" class="settings-section">
@@ -67,55 +65,24 @@
         <button type="button" class="secondary" id="sync-now">立即同步</button>
       </section>
 
-      <section id="blobs" class="settings-section">
-        <div class="section-heading"><span>03</span><div><h2>大文件存储</h2><p>音频和附件由存储服务托管，不进 Git；配置后 <code>audio/</code> 与 <code>attachments/</code> 会被自动排除出版本库。</p></div></div>
-        <label class="field wide"><span>存储服务地址</span><input name="blobServerUrl" type="url" autocomplete="off" placeholder="https://blobs.example.com 或 http://127.0.0.1:4100"><small>留空则附件只存在本机，不会上传也不会从别处取回。</small></label>
-        <label class="field wide"><span>访问令牌 <em id="blob-token-status"></em></span><input name="blobServerToken" type="password" autocomplete="new-password" placeholder="留空则保留已保存的令牌"><small>使用系统安全存储加密，不会回填到设置页面。</small></label>
-        <label class="clear-secret"><input name="clearBlobServerToken" type="checkbox"> 清除已保存的令牌</label>
-        <div class="recovery-entry"><div><strong>检查缺失的大文件</strong><p>只下载当前资料库缺少的音频和附件，不覆盖已有文件，也不上传或删除远端内容。</p></div><button type="button" id="repair-blobs">检查并继续…</button></div>
+      <section id="practice" class="settings-section">
+        <div class="section-heading"><span>03</span><div><h2>练习与错题</h2><p>可选连接 academic-writing 检查器；没有配置时，手工练习与错题转卡仍可用。</p></div></div>
+        <label class="field wide"><span>检查器脚本</span><div class="path-control"><input name="checkDraftPath" type="text" autocomplete="off" placeholder="留空则关闭写作检查"><button type="button" data-choose-file="checkDraftPath">选择</button></div><small>选择本机的 check_draft.py；脚本只读取你明确提交检查的 Markdown。</small></label>
+        <label class="field wide"><span>Python 命令</span><input name="pythonPath" type="text" autocomplete="off" placeholder="python3"><small>默认使用 python3（Windows 默认 python）。</small></label>
       </section>
 
       <section id="ai" class="settings-section">
-        <div class="section-heading"><span>04</span><div><h2>Anthropic</h2><p>用于资料问答和生成候选卡片；本地检索不需要 API key。只有显式请求模型作答时，才会发送最终选中的最多 6 个笔记或 PDF 文字片段，不发送整份 PDF。</p></div></div>
+        <div class="section-heading"><span>04</span><div><h2>Anthropic</h2><p>用于生成候选卡片与练习提示；本地检索与复习不需要 API key。只有显式请求模型时，才会发送当前选中的笔记片段。</p></div></div>
         <label class="field wide"><span>API key <em id="anthropic-status"></em></span><input name="anthropicApiKey" type="password" autocomplete="new-password" placeholder="留空则保留已保存的 key"><small>使用系统安全存储加密，不会回填到设置页面。</small></label>
         <label class="clear-secret"><input name="clearAnthropicApiKey" type="checkbox"> 清除已保存的 API key</label>
       </section>
 
-      <section id="literature" class="settings-section">
-        <div class="section-heading"><span>05</span><div><h2>文献集成</h2><p>Zotero 运行在本机；journal-tracker 可选连接独立服务。</p></div></div>
-        <label class="field wide"><span>Zotero 本地 API</span><input name="zoteroApi" type="url" autocomplete="off"></label>
-        <label class="field wide"><span>Zotero 数据目录</span><div class="path-control"><input name="zoteroDataDir" type="text" autocomplete="off"><button type="button" data-choose-dir="zoteroDataDir">选择</button></div></label>
-        <label class="field wide"><span>MinerU API Token <em id="mineru-token-status"></em></span><input name="mineruApiToken" type="password" autocomplete="new-password" placeholder="留空则保留已保存的 Token"><small>逐篇确认后，Zotero PDF 会上传至 MinerU 精确解析 API（单篇最多 200 MB / 200 页）。Token 使用系统安全存储加密且不会回填。</small></label>
-        <label class="clear-secret"><input name="clearMineruApiToken" type="checkbox"> 清除已保存的 MinerU Token</label>
-        <div class="field-grid">
-          <label class="field"><span>journal-tracker 地址</span><input name="journalTrackerUrl" type="url" autocomplete="off"></label>
-          <label class="field"><span>邮箱</span><input name="journalTrackerEmail" type="email" autocomplete="username"></label>
-        </div>
-        <label class="field wide"><span>journal-tracker 密码 <em id="journal-password-status"></em></span><input name="journalTrackerPassword" type="password" autocomplete="new-password" placeholder="留空则保留已保存的密码"></label>
-        <label class="clear-secret"><input name="clearJournalTrackerPassword" type="checkbox"> 清除已保存的密码</label>
-      </section>
 
-      <section id="tools" class="settings-section">
-        <div class="section-heading"><span>06</span><div><h2>外部工具</h2><p>任何一项未配置都只会停用对应功能。</p></div></div>
-        <label class="field wide"><span>check_draft.py</span><div class="path-control"><input name="checkDraftPath" type="text" autocomplete="off"><button type="button" data-choose-file="checkDraftPath">选择</button></div></label>
-        <label class="field wide"><span>Python 命令或路径</span><input name="pythonPath" type="text" autocomplete="off"></label>
-        <label class="field wide"><span>whisper.cpp 可执行文件</span><div class="path-control"><input name="whisperPath" type="text" autocomplete="off"><button type="button" data-choose-file="whisperPath">选择</button></div></label>
-        <label class="field wide"><span>Whisper 模型</span><div class="path-control"><input name="whisperModel" type="text" autocomplete="off"><button type="button" data-choose-file="whisperModel">选择</button></div></label>
-        <label class="field wide"><span>博客仓库</span><div class="path-control"><input name="blogRepo" type="text" autocomplete="off"><button type="button" data-choose-dir="blogRepo">选择</button></div></label>
-      </section>
 
       <section id="system" class="settings-section">
-        <div class="section-heading"><span>07</span><div><h2>系统</h2><p>关闭主窗口时应用会隐藏，仍可从系统托盘或菜单栏恢复。</p></div></div>
+        <div class="section-heading"><span>05</span><div><h2>系统</h2><p>关闭主窗口时应用会隐藏，仍可从系统托盘或菜单栏恢复。</p></div></div>
         <div data-capability="launchAtLogin">
           <label class="toggle"><input name="launchAtLogin" type="checkbox"><span><strong>登录 Windows 后启动</strong><small>默认关闭；启用后会静默启动到托盘。</small></span></label>
-        </div>
-        <div data-capability="autoUpdate">
-          <label class="toggle"><input name="updatesEnabled" type="checkbox"><span><strong>自动检查并下载更新</strong><small>更新包放在大文件存储服务上，没配存储服务时不生效。安装只在真正退出、最后一次同步跑完之后进行。</small></span></label>
-          <p id="update-status" class="muted" role="status" aria-live="polite"></p>
-        </div>
-        <div class="field-grid">
-          <label class="toggle"><input name="remindersEnabled" type="checkbox"><span><strong>日程到点提醒</strong><small>默认关闭。开启后，日历里的时间块会在开始前弹一条系统通知，当天有截止时早上汇总一条。</small></span></label>
-          <label class="field"><span>提前提醒（分钟）</span><input name="reminderLeadMinutes" type="number" min="1" max="120" step="1" required></label>
         </div>
         <div class="button-row"><button type="button" class="secondary" id="open-vault">打开资料库</button><button type="button" class="secondary" id="open-config">打开配置目录</button></div>
       </section>

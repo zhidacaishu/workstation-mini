@@ -9,7 +9,6 @@
       items: [
         { label: '今日', href: '/', active: matches('/') },
         { label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
-        { label: '日历', href: '/calendar', active: matches('/calendar') },
         { label: '卡片', href: '/decks', active: matches('/decks', '/review') },
         { label: '待办', href: '/tasks', active: matches('/tasks') },
         { label: '错题', href: '/mistakes', active: matches('/mistakes') }
@@ -26,9 +25,7 @@
   const onMac = typeof isMac !== 'undefined' && isMac;
   const primaryModifier = onMac ? 'meta' : 'control';
   const paletteHint = onMac ? '\u2318K' : 'Ctrl K';
-  const pageMode = matches('/calendar')
-    ? 'page-canvas'
-    : matches('/review', '/edit', '/new')
+  const pageMode = matches('/review', '/edit', '/new')
       ? 'page-focus'
       : matches('/note')
         ? 'page-reading'
@@ -47,7 +44,6 @@
   <script src="/static/palette.js" defer></script>
   <script src="/static/review.js" defer></script>
   <% if (!readOnly) { %><script src="/static/selection-card.js" defer></script><% } %>
-  <% if (!readOnly) { %><script src="/static/attachments.js" defer></script><% } %>
 </head>
 <body class="<%= pageMode %><%= readOnly ? ' is-readonly' : '' %>" data-page-path="<%= routePath %>" data-primary-modifier="<%= primaryModifier %>"<% if (typeof note !== 'undefined' && note) { %> data-note-path="<%= note.path %>"<% } %>>
   <a class="skip-link" href="#main-content">跳到主要内容</a>

@@ -61,14 +61,6 @@
   function commandCatalog(query) {
     return [
       {
-        label: '今天的日记',
-        hint: '没有就按模板新建',
-        icon: '写入',
-        writes: true,
-        defaultVisible: true,
-        run: () => submitPost('/diary/today')
-      },
-      {
         label: '新建笔记',
         hint: query ? `路径 ${query}` : '',
         icon: '写入',
@@ -78,60 +70,10 @@
         run: () => navigate(`/new${query ? `?path=${encodeURIComponent(query)}` : ''}`)
       },
       {
-        label: '日记',
-        hint: '打点趋势与历年今日',
-        icon: '页面',
-        defaultVisible: true,
-        run: () => navigate('/diary')
-      },
-      {
-        label: '日历',
-        hint: '按月看截止、时间块与复习负荷',
-        icon: '页面',
-        defaultVisible: true,
-        run: () => navigate('/calendar')
-      },
-      {
         label: '截止日期',
         hint: '查看近期时间边界',
         icon: '工具',
         run: () => navigate('/deadlines')
-      },
-      {
-        label: '周期回顾',
-        hint: '复盘一段时间的进展',
-        icon: '回顾',
-        run: () => navigate('/retro')
-      },
-      {
-        label: '每日简报',
-        hint: '复制今日纯文本视图',
-        icon: '工具',
-        run: () => navigate('/briefing')
-      },
-      {
-        label: '每日回顾',
-        hint: '重新遇见旧笔记',
-        icon: '回顾',
-        run: () => navigate('/highlights')
-      },
-      {
-        label: '知识库体检',
-        hint: '检查断链与结构问题',
-        icon: '工具',
-        run: () => navigate('/health')
-      },
-      {
-        label: '影子跟读',
-        hint: '听力与口语练习',
-        icon: '工具',
-        run: () => navigate('/shadowing')
-      },
-      {
-        label: '发表到博客',
-        hint: '预览并导出公开文章',
-        icon: '工具',
-        run: () => navigate('/publish')
       },
       {
         label: query ? `全文搜索「${query}」` : '全文搜索',
