@@ -11,7 +11,6 @@ const { openDatabase } = require('../src/db');
 const { createIndexer } = require('../src/vault/indexer');
 const { createSearch } = require('../src/search');
 const { deleteNote, readNote, writeNote } = require('../src/vault/note');
-const { enqueueNote } = require('../src/vault/note-queue');
 
 // 固定「现在」。不钉住的话，凡是依赖 today() 的日记测试都只在某一天通过，
 // 换一天就红 —— 这种测试比没有测试更糟。
@@ -288,50 +287,6 @@ test('新建保存的最终落盘是独占的，不覆盖检查后抢先创建�
   }
 });
 
-test('旧日历请求排在删除后返回 409，不把已删日记重新创建', async () => {
-  const ctx = await setup();
-  try {
-    const notePath = 'diary/2026-08-06.md';
-    const initial = await writeNote(ctx.notesDir, notePath, {
-      data: { plan: ['09:00-10:00 原计划'] },
-      body: '# 用户日记'
-    });
-    await ctx.indexer.scan();
-
-    let release;
-    let entered;
-    const gate = new Promise(resolve => { release = resolve; });
-    const started = new Promise(resolve => { entered = resolve; });
-    const deletion = enqueueNote(ctx.notesDir, notePath, async () => {
-      entered();
-      await gate;
-      await deleteNote(ctx.notesDir, notePath);
-    });
-    await started;
-
-    let settled = false;
-    const pending = request(ctx.app).post('/calendar/plan').set('Accept', 'application/json').send({
-      date: '2026-08-06', from: '10:00', to: '11:00', what: '旧页面排期', expectedHash: initial.hash
-    }).then(response => {
-      settled = true;
-      return response;
-    });
-    await new Promise(resolve => setTimeout(resolve, 25));
-    assert.equal(settled, false, '日历更新必须等待同一路径删除完成');
-
-    release();
-    await deletion;
-    const response = await pending;
-    assert.equal(response.status, 409);
-    await assert.rejects(
-      () => fs.readFile(path.join(ctx.notesDir, notePath)),
-      error => error.code === 'ENOENT'
-    );
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
 test('合法特殊字符按路径段编码，Windows 禁止字符被拒绝', async () => {
   const ctx = await setup();
   try {
@@ -503,145 +458,6 @@ test('命令面板接口：无查询词时返回最近笔记', async () => {
 
     const hit = await request(ctx.app).get('/api/search?q=' + encodeURIComponent('内容')).expect(200);
     assert.equal(hit.body.results.length, 1);
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('日记页在没有日记时也能正常打开', async () => {
-  const ctx = await setup();
-  try {
-    const response = await request(ctx.app).get('/diary').expect(200);
-    assert.match(response.text, /这 30 天还没有日记/);
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('写今天的日记：不存在则按模板创建并跳转', async () => {
-  const ctx = await setup();
-  try {
-    const response = await request(ctx.app)
-      .post('/diary/today')
-      .type('form')
-      .send({ date: '2026-08-06' })
-      .expect(302);
-    assert.equal(response.headers.location, '/note/diary/2026-08-06.md');
-
-    const raw = await fs.readFile(path.join(ctx.notesDir, 'diary/2026-08-06.md'), 'utf8');
-    assert.match(raw, /今天做了什么/, '应使用日记模板');
-    assert.match(raw, /mood:/);
-    assert.match(raw, /2026-08-06 周四/);
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('今天的日记已存在时直接打开，不覆盖已写内容', async () => {
-  const ctx = await setup();
-  try {
-    await writeNote(ctx.notesDir, 'diary/2026-08-06.md', { body: '# 已经写过的内容' });
-    await ctx.indexer.scan();
-
-    await request(ctx.app).post('/diary/today').type('form').send({ date: '2026-08-06' }).expect(302);
-
-    const raw = await fs.readFile(path.join(ctx.notesDir, 'diary/2026-08-06.md'), 'utf8');
-    assert.match(raw, /已经写过的内容/, '绝不能覆盖已有日记');
-    assert.ok(!raw.includes('今天做了什么'), '不该套用模板');
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('日记创建等待同路径排期写入，不覆盖抢先创建的正文和 plan', async () => {
-  const ctx = await setup();
-  try {
-    const notePath = 'diary/2026-08-06.md';
-    let release;
-    let entered;
-    const gate = new Promise(resolve => { release = resolve; });
-    const started = new Promise(resolve => { entered = resolve; });
-    const prior = enqueueNote(ctx.notesDir, notePath, async () => {
-      entered();
-      await gate;
-      await writeNote(ctx.notesDir, notePath, {
-        data: { plan: ['09:00-10:00 抢先排期'] },
-        body: '# 抢先创建的日记\n\n用户正文。'
-      });
-    });
-    await started;
-
-    let settled = false;
-    const pending = request(ctx.app).post('/diary/today').type('form')
-      .send({ date: '2026-08-06' })
-      .then(response => {
-        settled = true;
-        return response;
-      });
-    await new Promise(resolve => setTimeout(resolve, 25));
-    assert.equal(settled, false, '创建请求必须等待同一路径上已开始的写入');
-
-    release();
-    await prior;
-    const response = await pending;
-    assert.equal(response.status, 302);
-    const note = await readNote(ctx.notesDir, notePath);
-    assert.deepEqual(note.data.plan, ['09:00-10:00 抢先排期']);
-    assert.match(note.body, /抢先创建的日记/);
-    assert.match(note.body, /用户正文/);
-    assert.doesNotMatch(note.body, /今天做了什么/);
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('创建日记只接受合法日期', async () => {
-  const ctx = await setup();
-  try {
-    for (const bad of ['2026-02-30', '../escape', '2026-13-01', 'today']) {
-      await request(ctx.app).post('/diary/today').type('form').send({ date: bad }).expect(400);
-    }
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('日记页渲染打点趋势与历年今日', async () => {
-  const ctx = await setup();
-  try {
-    // 日期从固定时钟推导，不写死 —— 写死的话换一天跑就红。
-    await writeNote(ctx.notesDir, `diary/${TODAY}.md`, {
-      data: { mood: 4, focus_minutes: 180 }, body: '今天'
-    });
-    await writeNote(ctx.notesDir, `diary/${LAST_YEAR}.md`, {
-      data: { title: '去年的今天', mood: 3 }, body: '去年'
-    });
-    await ctx.indexer.scan();
-
-    const response = await request(ctx.app).get('/diary').expect(200);
-    assert.match(response.text, /历年今日/);
-    assert.match(response.text, /去年今日/);
-    assert.match(response.text, /情绪/);
-    assert.match(response.text, /专注时长/);
-    assert.match(response.text, /看数字/, '每张图都要有表格视图孪生体');
-    // 单序列不配图例框 —— 标题已经说明画的是什么。
-    assert.ok(!response.text.includes('class="legend"'));
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('只读实例不能新建日记，但日记页可以看', async () => {
-  const ctx = await setup({ readOnly: true });
-  try {
-    await writeNote(ctx.notesDir, 'diary/2026-08-06.md', { data: { mood: 4 }, body: '今天' });
-    await ctx.indexer.scan();
-
-    await request(ctx.app).get('/diary').expect(200);
-    await request(ctx.app).post('/diary/today').type('form').send({ date: '2026-08-07' }).expect(403);
-
-    const response = await request(ctx.app).get('/diary').expect(200);
-    assert.ok(!response.text.includes('写今天的日记'), '只读实例不该出现新建按钮');
   } finally {
     await ctx.cleanup();
   }

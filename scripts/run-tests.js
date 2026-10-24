@@ -39,24 +39,17 @@ const miniCoreTests = [
   'vault.test.js',
   'watcher.test.js'
 ];
-const testFiles = desktopOnly
-  ? fs.readdirSync(path.join(__dirname, '..', 'tests'))
-      .filter(name => /^desktop.*\.test\.js$/.test(name))
-      .filter(name => ![
-        'desktop-pdf-smoke.test.js',
-        'desktop-reminders.test.js',
-        'desktop-recovery-activation.test.js',
-        'desktop-recovery-first-run-smoke.test.js',
-        'desktop-recovery-residue-smoke.test.js',
-        'desktop-recovery-validation.test.js',
-        'desktop-smoke.test.js',
-        'desktop-trusted-sender.test.js',
-        'desktop-updater.test.js',
-        'desktop-validation.test.js'
-      ].includes(name))
-      .sort()
-      .map(name => path.join('tests', name))
-  : miniCoreTests.map(name => path.join('tests', name));
+const desktopTests = [
+  'desktop-build-config.test.js',
+  'desktop-config.test.js',
+  'desktop-local-history-smoke.test.js',
+  'desktop-platform-policy.test.js',
+  'desktop-quit-coordinator.test.js',
+  'desktop-trusted-sender.test.js',
+  'desktop-vault-resolution.test.js'
+];
+const testFiles = (desktopOnly ? desktopTests : miniCoreTests)
+  .map(name => path.join('tests', name));
 
 function findExecutable(name) {
   for (const directory of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
