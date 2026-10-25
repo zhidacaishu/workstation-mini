@@ -20,10 +20,8 @@ function makeData(overrides = {}) {
     syncEnabled: true,
     syncIntervalMinutes: 15,
     launchAtLogin: false,
-    secrets: { anthropicApiKey: true },
     ...overrides
   };
-  if (overrides.secrets) settings.secrets = overrides.secrets;
   return {
     revision: Number(overrides.revision || 0),
     settings,
@@ -85,8 +83,6 @@ async function loadSettings(initial = makeData()) {
     const number = name === 'syncIntervalMinutes';
     fields.set(name, createElement({ name, type: checkbox ? 'checkbox' : number ? 'number' : 'text' }));
   }
-  fields.set('anthropicApiKey', createElement({ name: 'anthropicApiKey', type: 'password' }));
-  fields.set('clearAnthropicApiKey', createElement({ name: 'clearAnthropicApiKey', type: 'checkbox' }));
 
   const form = createElement({ id: 'settings-form' });
   form.elements = { namedItem: name => fields.get(name) || null };
@@ -106,7 +102,6 @@ async function loadSettings(initial = makeData()) {
   const openVault = createElement({ id: 'open-vault' });
   const openConfig = createElement({ id: 'open-config' });
   const openRecovery = createElement({ id: 'open-recovery' });
-  const anthropicStatus = createElement({ id: 'anthropic-status' });
   const launchCapability = createElement();
   launchCapability.dataset.capability = 'launchAtLogin';
   launchCapability.querySelectorAll = () => [fields.get('launchAtLogin')];
@@ -120,7 +115,7 @@ async function loadSettings(initial = makeData()) {
     ['sync-now', sync], ['sync-status', syncStatus], ['sync-status-title', syncStatusTitle],
     ['sync-status-detail', syncStatusDetail], ['abort-git-operation', abortGit],
     ['open-vault', openVault], ['open-config', openConfig],
-    ['open-recovery', openRecovery], ['anthropic-status', anthropicStatus]
+    ['open-recovery', openRecovery]
   ]);
   const body = { dataset: {} };
   const document = {
@@ -134,7 +129,7 @@ async function loadSettings(initial = makeData()) {
   let changed;
   let syncStatusChanged;
   let saveImpl = async update => {
-    current = makeData({ ...update.settings, secrets: current.settings.secrets });
+    current = makeData(update.settings);
     return clone(current);
   };
   let getCalls = 0;
@@ -207,7 +202,7 @@ test('macOS capabilities 隐藏不支持项并保留对应设置原值', async (
   await ui.form.dispatch('input');
   ui.setSave(async update => {
     assert.equal(update.settings.launchAtLogin, true);
-    const result = makeData({ ...update.settings, secrets: initial.settings.secrets });
+    const result = makeData(update.settings);
     result.capabilities = initial.capabilities;
     return result;
   });
@@ -296,7 +291,7 @@ test('恢复入口只打开独立窗口，不改变未保存设置状态', async
   assert.equal(ui.fields.get('device').value, 'local-draft');
 });
 
-test('设置页从 clean 进入 dirty，保存失败保留普通字段和秘密输入', async () => {
+test('设置页从 clean 进入 dirty，保存失败保留普通字段', async () => {
   const ui = await loadSettings();
   assert.equal(ui.body.dataset.settingsState, 'clean');
   assert.equal(ui.state.textContent, '已同步');
@@ -304,7 +299,6 @@ test('设置页从 clean 进入 dirty，保存失败保留普通字段和秘密�
   assert.equal(ui.save.disabled, true);
 
   ui.fields.get('device').value = 'desk';
-  ui.fields.get('anthropicApiKey').value = 'secret-value';
   await ui.form.dispatch('input');
 
   assert.equal(ui.body.dataset.settingsState, 'dirty');
@@ -318,23 +312,18 @@ test('设置页从 clean 进入 dirty，保存失败保留普通字段和秘密�
   assert.equal(ui.message.textContent, '无法写入设置');
   assert.equal(ui.message.classList.contains('is-error'), true);
   assert.equal(ui.fields.get('device').value, 'desk');
-  assert.equal(ui.fields.get('anthropicApiKey').value, 'secret-value');
   assert.equal(ui.save.disabled, false);
-  assert.deepEqual(ui.savedUpdates[0].secrets.anthropicApiKey, { action: 'set', value: 'secret-value' });
+  assert.deepEqual(Object.keys(ui.savedUpdates[0]).sort(), ['expectedRevision', 'settings']);
 });
 
-test('保存期间锁定竞争操作，成功后清空秘密并吸收自身变更通知', async () => {
+test('保存期间锁定竞争操作并吸收自身变更通知', async () => {
   const ui = await loadSettings();
   let resolveSave;
   ui.setSave(update => new Promise(resolve => {
-    resolveSave = () => resolve(makeData({
-      ...update.settings,
-      secrets: { anthropicApiKey: true }
-    }));
+    resolveSave = () => resolve(makeData(update.settings));
   }));
 
   ui.fields.get('device').value = 'desktop';
-  ui.fields.get('anthropicApiKey').value = 'new-key';
   await ui.form.dispatch('input');
   const saving = ui.form.dispatch('submit');
   await flush();
@@ -354,7 +343,6 @@ test('保存期间锁定竞争操作，成功后清空秘密并吸收自身变�
   assert.equal(ui.body.dataset.settingsState, 'clean');
   assert.equal(ui.message.textContent, '设置已保存。');
   assert.equal(ui.fields.get('device').value, 'desktop');
-  assert.equal(ui.fields.get('anthropicApiKey').value, '');
   assert.equal(ui.fields.get('device').disabled, false);
   assert.equal(ui.save.disabled, true);
   assert.ok(ui.getCalls() >= 2);
@@ -382,8 +370,7 @@ test('外部变化在 clean 时自动刷新，在 dirty 时保留本地值并合
 
   ui.setSave(async update => makeData({
     revision: 6,
-    ...update.settings,
-    secrets: { anthropicApiKey: true }
+    ...update.settings
   }));
   await ui.form.dispatch('submit');
 

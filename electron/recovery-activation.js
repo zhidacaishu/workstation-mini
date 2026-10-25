@@ -10,7 +10,7 @@ async function activateRecoveredVault({ recovery, currentSettings, replaceRuntim
   const activated = await recovery.activate();
   const nextSettings = recoveredSettings(currentSettings, activated.destinationPath);
   try {
-    await replaceRuntime(nextSettings, currentSettings, { initialBlobReconcile: false });
+    await replaceRuntime(nextSettings, currentSettings);
   } catch (error) {
     await recovery.failActivation().catch(() => {});
     throw error;

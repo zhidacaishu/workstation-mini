@@ -3,6 +3,8 @@ node_modules/
 dist/
 build/native/
 .env
+.env.*
+!.env.example
 *.log
 *.tmp-*
 
@@ -13,6 +15,7 @@ Thumbs.db
 # 本地测试用的 vault；真实资料库位于代码仓库之外
 vault-dev/
 tmp/
+workstation-ui-review.*/
 
 # 发布时生成的中间文件。安装包、blockmap 和 latest.yml 都在 dist/ 里，
 # 已被上面的规则挡住；这一条挡的是 Release workflow 拼出来的发布说明。

@@ -9,7 +9,6 @@ const {
   dialog,
   ipcMain,
   nativeTheme,
-  safeStorage,
   session,
   shell,
   nativeImage
@@ -23,8 +22,7 @@ const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinato
 const { createPlatformPolicy } = require('./platform-policy');
 const {
   validateRecoveryMode,
-  validateRecoveryStart,
-  validateRepairStart
+  validateRecoveryStart
 } = require('./recovery-validation');
 const { activateRecoveredVault } = require('./recovery-activation');
 const { normalizedDocumentUrl, isTrustedMainFrameSender } = require('./trusted-sender');
@@ -47,7 +45,7 @@ const { capabilities } = platformPolicy;
 // 窗口底色是渲染进程画出第一帧之前、以及缩放窗口时新暴露区域露出的颜色。
 // 界面本身支持 prefers-color-scheme，写死浅色的话深色模式下拖拽缩放会闪白边。
 // 取值和 styles.css / settings.css 里的 --canvas 保持一致。
-const WINDOW_BACKGROUND = { light: '#f5f6f3', dark: '#181e1b' };
+const WINDOW_BACKGROUND = { light: '#f4f6f9', dark: '#161c26' };
 
 function windowBackgroundColor() {
   return nativeTheme.shouldUseDarkColors ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light;
@@ -214,11 +212,9 @@ function chooseInitialVault() {
   });
 }
 
-async function startConfiguredRuntime(nextSettings = settings, runtimeOptions = {}) {
-  const secrets = configStore.runtimeSecrets(nextSettings);
-  const config = createRuntimeConfig(nextSettings, secrets, { isProduction: app.isPackaged });
-  // 别的设备删掉的附件和音频，本机这份进系统回收站而不是直接消失。
-  return startRuntime(config, { trashItem: target => shell.trashItem(target), ...runtimeOptions });
+async function startConfiguredRuntime(nextSettings = settings) {
+  const config = createRuntimeConfig(nextSettings, { isProduction: app.isPackaged });
+  return startRuntime(config);
 }
 
 function attachInternalSession() {
@@ -546,7 +542,6 @@ function recoveryFingerprint(mode) {
 
 function resetRecoveryService(mode) {
   const validatedMode = validateRecoveryMode(mode);
-  if (validatedMode === 'repair-blobs') throw new Error('Mini 不支持大文件恢复。');
   unsubscribeRecoveryState();
   const journal = createRecoveryJournal({
     journalPath: path.join(configStore.directory, 'recovery-session.json')
@@ -576,7 +571,6 @@ function ensureRecoveryService(mode) {
 async function showRecoveryWindow(mode = 'restore') {
   if (quitting) return;
   validateRecoveryMode(mode);
-  if (mode === 'repair-blobs') throw new Error('Mini 不支持大文件恢复。');
   const service = ensureRecoveryService(mode);
   if (mode !== recoveryMode && !RECOVERY_SWITCHABLE_PHASES.has(service.getState().phase)) {
     throw new Error('请先完成或取消当前恢复操作。');
@@ -682,7 +676,7 @@ async function canReplaceRuntime() {
   return false;
 }
 
-async function replaceRuntime(nextSettings, previousSettings, { initialBlobReconcile = true, unloadChecked = false } = {}) {
+async function replaceRuntime(nextSettings, previousSettings, { unloadChecked = false } = {}) {
   if (!unloadChecked && !await canReplaceRuntime()) {
     return { cancelled: true, reason: '主窗口有未保存的编辑或附件任务。' };
   }
@@ -704,7 +698,7 @@ async function replaceRuntime(nextSettings, previousSettings, { initialBlobRecon
       }
     }
     destroyMainWindow();
-    candidateRuntime = await startConfiguredRuntime(nextSettings, { initialBlobReconcile });
+    candidateRuntime = await startConfiguredRuntime(nextSettings);
     writeSettings(nextSettings);
     applyLoginItemSetting();
     setRuntime(candidateRuntime);
@@ -861,8 +855,7 @@ function registerIpc() {
         settings: {
           ...update?.settings,
           ...(!capabilities.launchAtLogin ? { launchAtLogin: previous.launchAtLogin } : {}),
-        },
-        secrets: update?.secrets
+        }
       };
       validateSettingsUpdate(supportedUpdate, previous);
       const next = configStore.applyUpdate(previous, supportedUpdate);
@@ -934,7 +927,6 @@ function registerIpc() {
   });
   ipcMain.handle('recovery:choose-local-source', async event => {
     assertRecoverySender(event);
-    if (recoveryMode === 'repair-blobs') throw new Error('当前模式不需要选择恢复来源。');
     const result = await dialog.showOpenDialog(recoveryWindow, {
       title: '选择资料库备份',
       defaultPath: app.getPath('home'),
@@ -947,7 +939,6 @@ function registerIpc() {
   });
   ipcMain.handle('recovery:choose-destination-parent', async event => {
     assertRecoverySender(event);
-    if (recoveryMode === 'repair-blobs') throw new Error('当前模式不需要选择目标目录。');
     const result = await dialog.showOpenDialog(recoveryWindow, {
       title: '选择新资料库所在位置',
       defaultPath: app.getPath('home'),
@@ -959,17 +950,12 @@ function registerIpc() {
   });
   ipcMain.handle('recovery:inspect-remote', async (event, remote) => {
     assertRecoverySender(event);
-    if (recoveryMode === 'repair-blobs') throw new Error('当前模式不需要 Git 远端。');
     if (typeof remote !== 'string' || remote.length > 2_048) throw new Error('Git 远端地址不合法。');
     await recoveryService.inspectRemote(remote);
     return { message: '远端可以读取，默认分支存在。', state: publicRecoveryState() };
   });
   ipcMain.handle('recovery:start', async (event, input) => {
     assertRecoverySender(event);
-    if (recoveryMode === 'repair-blobs') {
-      validateRepairStart(input);
-      return recoveryService.repairCurrentBlobs();
-    }
     const options = validateRecoveryStart(input, { mode: recoveryMode });
     return recoveryService.start({ ...options, device: settings.device });
   });
@@ -994,10 +980,7 @@ function registerIpc() {
         await activateRecoveredVault({
           recovery: recoveryService,
           currentSettings,
-          replaceRuntime: (next, previous, options) => replaceRuntime(next, previous, {
-            ...options,
-            unloadChecked: true
-          })
+          replaceRuntime: (next, previous) => replaceRuntime(next, previous, { unloadChecked: true })
         });
         return { cancelled: false };
       } catch (error) {
@@ -1096,7 +1079,7 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     platformPolicy.initializeApp(app);
 
-    configStore = createConfigStore({ userDataPath: app.getPath('userData'), safeStorage });
+    configStore = createConfigStore({ userDataPath: app.getPath('userData') });
     settings = configStore.load();
     // 合盖再打开之后，setInterval 的节奏已经乱了，中间那段时间的提醒也没跑。
     // 醒来立刻补一轮 —— tick 本身是按墙上时钟算的，补跑不会重复发。

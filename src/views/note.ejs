@@ -17,12 +17,14 @@
         <a class="button" href="/edit/<%= encodePath(note.path) %>">编辑</a>
         <details class="note-more">
           <summary class="button quiet">更多</summary>
-          <a href="/history?path=<%= encodeURIComponent(note.path) %>">版本历史与草稿</a>
-          <form action="/delete" method="post" data-confirm-delete>
-            <input type="hidden" name="path" value="<%= note.path %>">
-            <input type="hidden" name="expectedHash" value="<%= note.hash %>">
-            <button class="button danger" type="submit">删除笔记</button>
-          </form>
+          <div class="note-more-menu">
+            <a href="/history?path=<%= encodeURIComponent(note.path) %>">版本历史与草稿</a>
+            <form action="/delete" method="post" data-confirm-delete>
+              <input type="hidden" name="path" value="<%= note.path %>">
+              <input type="hidden" name="expectedHash" value="<%= note.hash %>">
+              <button class="button danger" type="submit">删除笔记</button>
+            </form>
+          </div>
         </details>
       </div>
     <% } %>

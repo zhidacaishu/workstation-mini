@@ -6,7 +6,7 @@
 </section>
 
 <% if (editorWarning) { %><p role="alert"><%= editorWarning %></p><% } %>
-<p><a href="/history?path=<%= encodeURIComponent(notePath) %>">查看此笔记的版本和未保存草稿</a></p>
+<p class="editor-history-link"><a href="/history?path=<%= encodeURIComponent(notePath) %>">查看版本与草稿</a></p>
 <form data-draft-id="<%= draftId %>" data-recovered="<%= recovered ? '1' : '0' %>" class="editform" action="/save" method="post" data-editor-form data-new-note="<%= isNew ? '1' : '0' %>">
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="isNew" value="<%= isNew ? '1' : '0' %>">

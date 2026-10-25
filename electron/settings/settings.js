@@ -53,30 +53,14 @@ function readPlainSettings() {
   return settings;
 }
 
-function secretChange(inputName, clearName) {
-  const value = field(inputName).value;
-  if (field(clearName).checked) return { action: 'clear' };
-  if (value) return { action: 'set', value };
-  return { action: 'keep' };
-}
-
-function secretIntent(inputName, clearName) {
-  return secretChange(inputName, clearName).action;
-}
-
 function snapshot() {
-  return JSON.stringify({
-    settings: readPlainSettings(),
-    secrets: {
-      anthropicApiKey: secretIntent('anthropicApiKey', 'clearAnthropicApiKey')
-    }
-  });
+  return JSON.stringify({ settings: readPlainSettings() });
 }
 
 function serverSignature(data) {
   const settings = {};
   for (const name of PLAIN_FIELDS) settings[name] = data.settings[name];
-  return JSON.stringify({ settings, secrets: data.settings.secrets });
+  return JSON.stringify({ settings });
 }
 
 function isDirty() {
@@ -217,10 +201,6 @@ function fill(data) {
     else input.value = data.settings[name] ?? '';
   }
 
-  field('anthropicApiKey').value = '';
-  field('clearAnthropicApiKey').checked = false;
-  document.getElementById('anthropic-status').textContent = data.settings.secrets.anthropicApiKey ? '已安全保存' : '未配置';
-
   runtimeRunning = Boolean(data.runtimeRunning);
   renderSyncStatus(data.syncStatus);
   savedVaultDir = String(data.settings.vaultDir || '');
@@ -244,10 +224,7 @@ function collect() {
   settings.syncIntervalMinutes = Number(settings.syncIntervalMinutes);
   return {
     expectedRevision: Number(externalData?.revision ?? revision),
-    settings,
-    secrets: {
-      anthropicApiKey: secretChange('anthropicApiKey', 'clearAnthropicApiKey')
-    }
+    settings
   };
 }
 
@@ -329,7 +306,7 @@ form.addEventListener('submit', async event => {
   if (!isDirty() || activeOperation) return;
 
   const update = collect();
-  beginOperation('save', '正在保存并重启内部服务…');
+  beginOperation('save', '正在保存设置…');
   try {
     const result = await api.save(update);
     if (result.conflict) {

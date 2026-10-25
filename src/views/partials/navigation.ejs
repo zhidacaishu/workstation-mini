@@ -3,6 +3,13 @@
     <section class="workspace-nav-group">
       <% group.items.forEach(item => { %>
         <a class="workspace-nav-link<%= item.active ? ' is-active' : '' %>" href="<%= item.href %>"<% if (item.active) { %> aria-current="page"<% } %>>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <% if (item.href === '/') { %><path d="m3 10 9-7 9 7v10H3Z M9 20v-7h6v7"/><% }
+            else if (item.href === '/search') { %><path d="M6 3h9l4 4v14H6Z M14 3v5h5 M9 12h7 M9 16h5"/><% }
+            else if (item.href === '/board/experiment') { %><path d="M9 3h6 M10 3v6l-6 10a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2L14 9V3 M8 15h8"/><% }
+            else if (item.href === '/plan') { %><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4 M17 3v4 M3 11h18 M8 15h2 M14 15h2"/><% }
+            else { %><rect x="5" y="7" width="15" height="14" rx="2"/><path d="M3 16V4a1 1 0 0 1 1-1h12 M10 14l2 2 4-4"/><% } %>
+          </svg>
           <span><%= item.label %></span>
         </a>
       <% }) %>

@@ -12,6 +12,7 @@ const {
   copyVault,
   validDirectoryName
 } = require('../src/recovery/service');
+const { validateRecoveryMode, validateRecoveryStart } = require('../electron/recovery-validation');
 
 async function setup(options = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-'));
@@ -21,7 +22,7 @@ async function setup(options = {}) {
   await fs.mkdir(path.join(source, 'notes'), { recursive: true });
   await fs.mkdir(destinationParent);
   await fs.writeFile(path.join(source, 'notes', 'one.md'), '# One\n');
-  const calls = { git: [], blob: [] };
+  const calls = { git: [] };
   const git = options.git || {
     async inspectRemote(remote) { calls.git.push(['inspect', remote]); return { display: 'https://example.com/…/vault.git' }; },
     async cloneRemote(remote, candidate) {
@@ -31,16 +32,12 @@ async function setup(options = {}) {
     },
     async inspectLocalRepository(candidate) { calls.git.push(['local', candidate]); return { isRepo: false }; }
   };
-  const blobRestore = options.blobRestore || {
-    async run({ vaultDir }) { calls.blob.push(['run', vaultDir]); return { failed: [], integrityUnavailable: false }; },
-    async retry({ vaultDir }) { calls.blob.push(['retry', vaultDir]); return { failed: [], integrityUnavailable: false }; }
-  };
   const openDb = options.openDb || (() => ({ close() {} }));
   const createIndex = options.createIndex || (() => ({
     async scan() {},
     getStatus() { return { phase: 'ready', failures: [], failureTotal: 0 }; }
   }));
-  const service = createRecoveryService({ journal, git, blobRestore, openDb, createIndex, ...options.serviceOptions });
+  const service = createRecoveryService({ journal, git, openDb, createIndex, ...options.serviceOptions });
   return {
     root, source, destinationParent, journal, service, calls,
     cleanup: () => fs.rm(root, { recursive: true, force: true })
@@ -53,7 +50,6 @@ async function prepareLocal(ctx, options = {}) {
   return ctx.service.start({
     sourceKind: 'local',
     directoryName: options.directoryName || 'restored',
-    restoreBlobs: Boolean(options.restoreBlobs),
     device: options.device || 'device-a'
   });
 }
@@ -65,18 +61,36 @@ test('目录 basename 严格拒绝穿越、保留名和超长输入', () => {
   }
 });
 
+test('恢复验证仅接受完整恢复，拒绝旧的大文件选项', () => {
+  assert.equal(validateRecoveryMode('restore'), 'restore');
+  assert.throws(() => validateRecoveryMode('repair-blobs'), /未知恢复模式/);
+  assert.throws(() => validateRecoveryStart({
+    sourceKind: 'local',
+    directoryName: 'restored',
+    restoreBlobs: true
+  }), /不支持远端大文件恢复/);
+});
+
 test('本地恢复复制来源但不修改来源，并排除 DB 与临时文件', async () => {
   const ctx = await setup();
   try {
     await fs.writeFile(path.join(ctx.source, 'workstation.db'), 'derived');
     await fs.writeFile(path.join(ctx.source, 'workstation.db-wal'), 'wal');
     await fs.writeFile(path.join(ctx.source, 'orphan.tmp-1-abc'), 'temp');
+    await fs.mkdir(path.join(ctx.source, 'attachments'), { recursive: true });
+    await fs.mkdir(path.join(ctx.source, 'audio'), { recursive: true });
+    const attachment = Buffer.from([0, 255, 1, 2, 3]);
+    const audio = Buffer.from([82, 73, 70, 70, 4, 0, 0, 0]);
+    await fs.writeFile(path.join(ctx.source, 'attachments', 'reference.bin'), attachment);
+    await fs.writeFile(path.join(ctx.source, 'audio', 'recording.wav'), audio);
     const before = crypto.createHash('sha256').update(await fs.readFile(path.join(ctx.source, 'notes', 'one.md'))).digest('hex');
 
     const ready = await prepareLocal(ctx);
     assert.equal(ready.phase, 'ready-to-activate');
     const candidate = path.join(ctx.destinationParent, `.workstation-recovery-${ready.sessionId}`, 'candidate');
     assert.equal(await fs.readFile(path.join(candidate, 'notes', 'one.md'), 'utf8'), '# One\n');
+    assert.deepEqual(await fs.readFile(path.join(candidate, 'attachments', 'reference.bin')), attachment);
+    assert.deepEqual(await fs.readFile(path.join(candidate, 'audio', 'recording.wav')), audio);
     await assert.rejects(() => fs.access(path.join(candidate, 'workstation.db-wal')));
     await assert.rejects(() => fs.access(path.join(candidate, 'orphan.tmp-1-abc')));
     const after = crypto.createHash('sha256').update(await fs.readFile(path.join(ctx.source, 'notes', 'one.md'))).digest('hex');
@@ -124,52 +138,18 @@ test('本地来源含 symlink 时失败且不会跟随复制', async t => {
   }
 });
 
-test('Git candidate 的 managed Blob symlink 在下载前被拒绝', async t => {
-  let blobCalled = false;
-  let outside;
-  const ctx = await setup({
-    git: {
-      async inspectRemote(remote) {
-        return { display: remote };
-      },
-      async cloneRemote(remote, candidate) {
-        await fs.mkdir(path.join(candidate, 'notes'), { recursive: true });
-        await fs.writeFile(path.join(candidate, 'notes', 'git.md'), '# Git\n');
-        outside = path.join(path.dirname(path.dirname(candidate)), 'outside-blobs');
-        await fs.mkdir(outside);
-        await fs.symlink(
-          outside,
-          path.join(candidate, 'attachments'),
-          process.platform === 'win32' ? 'junction' : 'dir'
-        );
-      }
-    },
-    blobRestore: {
-      async run() {
-        blobCalled = true;
-        return { failed: [], integrityUnavailable: false };
-      }
-    }
-  });
+test('服务在创建 staging 前拒绝旧的大文件选项', async () => {
+  const ctx = await setup();
   try {
-    try {
-      await ctx.service.inspectRemote('https://example.com/team/vault.git');
-      ctx.service.selectDestinationParent(ctx.destinationParent);
-      await assert.rejects(() => ctx.service.start({
-        sourceKind: 'git',
-        directoryName: 'restored',
-        restoreBlobs: true
-      }), /符号链接/);
-    } catch (error) {
-      if (error.code === 'EPERM') {
-        t.skip('本机不允许创建目录链接。');
-        return;
-      }
-      throw error;
-    }
-    assert.equal(blobCalled, false);
-    assert.deepEqual(await fs.readdir(outside), []);
-    assert.equal(ctx.service.getState().phase, 'failed');
+    ctx.service.selectLocalSource(ctx.source);
+    ctx.service.selectDestinationParent(ctx.destinationParent);
+    await assert.rejects(() => ctx.service.start({
+      sourceKind: 'local',
+      directoryName: 'restored',
+      restoreBlobs: true
+    }), /不支持远端大文件恢复/);
+    assert.deepEqual(await fs.readdir(ctx.destinationParent), []);
+    assert.equal(ctx.service.getState().phase, 'idle');
   } finally {
     await ctx.cleanup();
   }
@@ -416,73 +396,6 @@ test('失败恢复可安全丢弃旧 staging 后从头重试', async () => {
     assert.equal(attempts, 2);
     const wrappers = (await fs.readdir(ctx.destinationParent)).filter(name => name.startsWith('.workstation-recovery-'));
     assert.equal(wrappers.length, 1);
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('repair-blobs 固定当前 vault 且永不创建 staging 或激活', async () => {
-  const ctx = await setup();
-  try {
-    const repair = createRecoveryService({
-      journal: ctx.journal,
-      mode: 'repair-blobs',
-      currentVaultDir: ctx.source,
-      blobRestore: {
-        async run({ vaultDir }) {
-          assert.equal(vaultDir, ctx.source);
-          return { failed: [{ path: 'audio/x.m4a', retryable: true }], integrityUnavailable: false };
-        },
-        async retry({ vaultDir }) {
-          assert.equal(vaultDir, ctx.source);
-          return { failed: [], integrityUnavailable: false };
-        }
-      }
-    });
-    const partial = await repair.repairCurrentBlobs();
-    assert.equal(partial.phase, 'completed');
-    assert.equal(partial.outcome, 'partial');
-    assert.equal(partial.canActivate, false);
-    await assert.rejects(() => repair.activate());
-    const complete = await repair.retryStage();
-    assert.equal(complete.outcome, 'complete');
-    assert.deepEqual((await fs.readdir(ctx.destinationParent)), []);
-  } finally {
-    await ctx.cleanup();
-  }
-});
-
-test('repair-blobs 在 managed Blob symlink 存在时不进入 Blob facade', async t => {
-  let blobCalled = false;
-  const ctx = await setup();
-  try {
-    const outside = path.join(ctx.root, 'outside-current-blobs');
-    await fs.mkdir(outside);
-    try {
-      await fs.symlink(
-        outside,
-        path.join(ctx.source, 'attachments'),
-        process.platform === 'win32' ? 'junction' : 'dir'
-      );
-    } catch (error) {
-      t.skip(`本机不允许创建目录链接：${error.code}`);
-      return;
-    }
-    const repair = createRecoveryService({
-      journal: ctx.journal,
-      mode: 'repair-blobs',
-      currentVaultDir: ctx.source,
-      blobRestore: {
-        async run() {
-          blobCalled = true;
-          return { failed: [], integrityUnavailable: false };
-        }
-      }
-    });
-
-    await assert.rejects(() => repair.repairCurrentBlobs(), /符号链接/);
-    assert.equal(blobCalled, false);
-    assert.deepEqual(await fs.readdir(outside), []);
   } finally {
     await ctx.cleanup();
   }

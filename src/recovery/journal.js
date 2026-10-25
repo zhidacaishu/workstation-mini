@@ -7,6 +7,7 @@ const { replaceFile } = require('../vault/atomic');
 const JOURNAL_VERSION = 1;
 const OWNER_FILE = 'owner.json';
 const CANDIDATE_DIR = 'candidate';
+// 仍识别旧模式的日志，以便安全检查和清理历史残留；不再提供大文件修复。
 const MODES = new Set(['restore', 'repair-blobs']);
 const PHASES = new Set(['prepared', 'candidate-present', 'renamed']);
 const SESSION_PATTERN = /^[A-Za-z0-9-]{1,100}$/;

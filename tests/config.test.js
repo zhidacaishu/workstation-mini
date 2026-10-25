@@ -14,7 +14,6 @@ test('显式设置派生出桌面内部运行配置', () => {
     device: 'Henry 的 Laptop',
     syncEnabled: false,
     syncIntervalMinutes: 7,
-    anthropicApiKey: ' key ',
   });
 
   assert.equal(config.host, '127.0.0.1');
@@ -28,7 +27,7 @@ test('显式设置派生出桌面内部运行配置', () => {
   assert.match(config.device, /^henry-laptop-[a-f0-9]{10}$/);
   assert.equal(config.syncEnabled, false);
   assert.equal(config.syncIntervalMinutes, 7);
-  assert.equal(config.anthropicApiKey, 'key');
+  assert.equal(Object.hasOwn(config, 'anthropicApiKey'), false);
 });
 
 test('旧写作检查器配置不再进入运行时', () => {

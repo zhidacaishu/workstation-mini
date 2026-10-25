@@ -26,6 +26,21 @@ async function setup(t, readOnly = false) {
   return { app, vaultDir };
 }
 
+test('未接入的 AI、图谱、回顾模块和旧计划模板已移除', async () => {
+  for (const relative of [
+    'src/llm.js', 'src/graph.js', 'src/highlights.js',
+    'src/views/tasks.ejs', 'src/views/calendar.ejs', 'src/views/deadlines.ejs'
+  ]) {
+    await assert.rejects(fs.access(path.join(__dirname, '..', relative)), { code: 'ENOENT' });
+  }
+  const manifest = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.equal(manifest.dependencies['@anthropic-ai/sdk'], undefined);
+  const lock = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package-lock.json'), 'utf8'));
+  assert.equal(lock.packages[''].dependencies['@anthropic-ai/sdk'], undefined);
+  assert.equal(lock.packages['node_modules/@anthropic-ai/sdk'], undefined);
+  assert.deepEqual(Object.keys(require('../src/templates')).sort(), ['WEEKDAYS', 'toLocalDate']);
+});
+
 test('错题页面、写入接口和静态脚本均已移除，只读模式也不再挂载', async t => {
   for (const readOnly of [false, true]) {
     const { app } = await setup(t, readOnly);

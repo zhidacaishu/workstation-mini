@@ -23,19 +23,16 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function emptyState(mode = 'restore') {
+function emptyState() {
   return {
     sessionId: '',
-    mode,
+    mode: 'restore',
     source: null,
     destination: null,
     phase: 'idle',
     outcome: null,
     progress: { current: 0, total: 0, unit: 'files', currentPath: '' },
     warnings: [],
-    missingBlobs: [],
-    missingBlobTotal: 0,
-    missingBlobsTruncated: false,
     indexFailures: [],
     indexFailureTotal: 0,
     indexFailuresTruncated: false,
@@ -177,34 +174,17 @@ function indexPublic(status) {
   };
 }
 
-function blobState(result, indexFailureTotal = 0) {
-  const failures = result.failed || [];
-  return {
-    outcome: failures.length || result.integrityUnavailable || indexFailureTotal ? 'partial' : 'complete',
-    missingBlobs: failures.slice(0, PUBLIC_LIMIT),
-    missingBlobTotal: failures.length,
-    missingBlobsTruncated: failures.length > PUBLIC_LIMIT,
-    canRetry: failures.some(item => item.retryable)
-  };
-}
-
 function createRecoveryService({
   journal,
   git = createGitRecovery(),
-  blobRestore = null,
   openDb = openDatabase,
   createIndex = createIndexer,
   renameIntoPlace = renameExclusive,
-  now = () => new Date().toISOString(),
-  mode = 'restore',
-  currentVaultDir = ''
+  now = () => new Date().toISOString()
 } = {}) {
   if (!journal) throw new Error('恢复服务缺少 journal。');
-  if (!['restore', 'repair-blobs'].includes(mode)) throw new Error('恢复模式不合法。');
-  const fixedVaultDir = currentVaultDir ? path.resolve(currentVaultDir) : '';
-  let serviceMode = mode;
-  let state = emptyState(serviceMode);
-  let session = fixedVaultDir ? { currentVaultDir: fixedVaultDir } : null;
+  let state = emptyState();
+  let session = null;
   const operations = new Set();
   const listeners = new Set();
 
@@ -246,7 +226,7 @@ function createRecoveryService({
   }
 
   function selectLocalSource(sourcePath) {
-    if (serviceMode !== 'restore' || !selectable()) throw new Error('当前不能选择恢复来源。');
+    if (!selectable()) throw new Error('当前不能选择恢复来源。');
     session ||= {};
     session.localSource = path.resolve(sourcePath);
     emit({ source: { kind: 'local', display: session.localSource } });
@@ -254,14 +234,14 @@ function createRecoveryService({
   }
 
   function selectDestinationParent(parentPath) {
-    if (serviceMode !== 'restore' || !selectable()) throw new Error('当前不能选择恢复目标。');
+    if (!selectable()) throw new Error('当前不能选择恢复目标。');
     session ||= {};
     session.destinationParent = path.resolve(parentPath);
     return getState();
   }
 
   async function inspectRemoteInternal(remote, options) {
-    if (serviceMode !== 'restore' || !['idle', 'failed', 'cancelled'].includes(state.phase)
+    if (!['idle', 'failed', 'cancelled'].includes(state.phase)
       || session?.stagingRoot) throw new Error('当前不能检查 Git 远端。');
     emit({ phase: 'inspecting-source', canCancel: true, canRetry: false, error: null });
     const controller = new AbortController();
@@ -332,12 +312,14 @@ function createRecoveryService({
   }
 
   function start(options = {}) {
-    if (serviceMode !== 'restore') throw new Error('大文件修复不使用资料库恢复流程。');
     if (!selectable()) throw new Error('已有恢复操作或残留尚未处理。');
     return track(() => runRestore(options));
   }
 
   async function runRestore(options) {
+    if (Object.hasOwn(options, 'restoreBlobs')) {
+      throw new Error('Mini 不支持远端大文件恢复。');
+    }
     const sourceKind = options.sourceKind;
     if (!session?.destinationParent) throw new Error('请先选择目标父目录。');
     const destinationParent = session.destinationParent;
@@ -370,13 +352,12 @@ function createRecoveryService({
     const restoreOptions = {
       sourceKind,
       directoryName,
-      restoreBlobs: Boolean(options.restoreBlobs),
       device: String(options.device || '')
     };
     const sessionId = crypto.randomUUID();
     const controller = new AbortController();
     session = { ...session, sessionId, controller, destinationPath, sourceKind, restoreOptions };
-    state = { ...emptyState('restore'), sessionId };
+    state = { ...emptyState(), sessionId };
     emit({
       source: selectedSource,
       destination: { display: destinationPath, exists: false },
@@ -415,18 +396,6 @@ function createRecoveryService({
       emit({ phase: 'validating-vault' });
       await validateVaultRoot(owned.candidatePath, { scanSymlinks: sourceKind === 'git' });
 
-      let blobResult = { failed: [], integrityUnavailable: false };
-      if (options.restoreBlobs) {
-        if (!blobRestore) throw new Error('当前没有可用的大文件恢复客户端。');
-        stage = 'blobs';
-        emit({ phase: 'restoring-blobs' });
-        blobResult = await blobRestore.run({
-          vaultDir: owned.candidatePath,
-          signal: controller.signal,
-          onProgress: progress => emit({ progress })
-        });
-      }
-
       stage = 'index';
       emit({ phase: 'building-index' });
       const indexStatus = await buildIndex(owned.candidatePath);
@@ -442,12 +411,9 @@ function createRecoveryService({
         fsp.lstat(owned.candidatePath)
       ]);
       session.activationIdentity = { stagingIdentity, candidateIdentity };
-      if (blobResult.integrityUnavailable) {
-        warnings.push({ code: 'integrity-unavailable', message: '远端未提供内容摘要，本次大文件恢复只能按大小核对。' });
-      }
       emit({
         phase: 'ready-to-activate',
-        ...blobState(blobResult, indexed.total),
+        outcome: indexed.total ? 'partial' : 'complete',
         warnings,
         indexFailures: indexed.failures,
         indexFailureTotal: indexed.total,
@@ -477,67 +443,17 @@ function createRecoveryService({
     }
   }
 
-  async function repairCurrentBlobsInternal() {
-    if (serviceMode !== 'repair-blobs' || !fixedVaultDir) throw new Error('大文件修复缺少固定的当前资料库。');
-    if (!blobRestore) throw new Error('当前没有可用的大文件恢复客户端。');
-    if (!['idle', 'cancelled', 'failed'].includes(state.phase)) throw new Error('大文件修复已经开始。');
-    await validateVaultRoot(fixedVaultDir, { scanSymlinks: true });
-    const controller = new AbortController();
-    session = { currentVaultDir: fixedVaultDir, controller };
-    state = emptyState('repair-blobs');
-    emit({
-      source: { kind: 'current-vault', display: fixedVaultDir },
-      destination: { display: fixedVaultDir, exists: true },
-      phase: 'restoring-blobs',
-      canCancel: true
-    });
-    try {
-      const result = await blobRestore.run({
-        vaultDir: fixedVaultDir,
-        signal: controller.signal,
-        onProgress: progress => emit({ progress })
-      });
-      const warnings = result.integrityUnavailable
-        ? [{ code: 'integrity-unavailable', message: '远端未提供内容摘要，本次只能按大小核对。' }]
-        : [];
-      emit({
-        phase: 'completed',
-        ...blobState(result),
-        warnings,
-        canCancel: false,
-        canActivate: false
-      });
-      return getState();
-    } catch (error) {
-      const cancelled = controller.signal.aborted || error?.name === 'AbortError';
-      emit({
-        phase: cancelled ? 'cancelled' : 'failed',
-        canCancel: false,
-        canRetry: false,
-        error: cancelled ? null : safeFailure(error, 'blobs')
-      });
-      throw error;
-    }
-  }
-
-  function repairCurrentBlobs() {
-    assertNoOperation();
-    return track(repairCurrentBlobsInternal);
-  }
-
   async function cancelInternal(pending) {
     if (!session?.controller || !state.canCancel || state.phase === 'activating') return { cancelled: false };
     emit({ phase: 'cancelling', canCancel: false });
     session.controller.abort();
     await pending.catch(() => {});
     if (session.stagingRoot) await journal.discardOwnedStaging();
-    const preservedMode = state.mode;
     const source = state.source;
     const destination = state.destination;
-    state = emptyState(preservedMode);
+    state = emptyState();
     emit({ phase: 'cancelled', source, destination });
-    if (preservedMode === 'restore') session = null;
-    else session = { currentVaultDir: fixedVaultDir };
+    session = null;
     return { cancelled: true };
   }
 
@@ -547,52 +463,20 @@ function createRecoveryService({
   }
 
   async function retryStageInternal() {
-    if (!state.canRetry) throw new Error('当前没有可重试的阶段。');
-    if (state.mode === 'restore' && state.phase === 'failed') {
-      if (!session?.restoreOptions) throw new Error('当前恢复不能在进程内重试。');
-      const options = { ...session.restoreOptions };
-      if (session.stagingRoot) await journal.discardOwnedStaging();
-      const retained = {
-        localSource: session.localSource,
-        destinationParent: session.destinationParent,
-        remote: session.remote
-      };
-      session = retained;
-      state = { ...emptyState('restore'), source: clone(state.source) };
-      return runRestore(options);
+    if (!state.canRetry || state.phase !== 'failed' || !session?.restoreOptions) {
+      throw new Error('当前没有可重试的阶段。');
     }
-    if (!blobRestore) throw new Error('当前没有可重试的大文件。');
-    const repair = state.mode === 'repair-blobs';
-    if ((!repair && state.phase !== 'ready-to-activate') || (repair && state.phase !== 'completed')) {
-      throw new Error('当前没有可重试的大文件。');
-    }
-    const controller = new AbortController();
-    session.controller = controller;
-    emit({ phase: 'restoring-blobs', canRetry: false, canCancel: true, canActivate: false });
-    try {
-      const result = await blobRestore.retry({
-        vaultDir: repair ? fixedVaultDir : session.candidatePath,
-        signal: controller.signal,
-        onProgress: progress => emit({ progress })
-      });
-      emit({
-        phase: repair ? 'completed' : 'ready-to-activate',
-        ...blobState(result, state.indexFailureTotal),
-        canCancel: !repair,
-        canActivate: !repair
-      });
-      return getState();
-    } catch (error) {
-      const cancelled = controller.signal.aborted || error?.name === 'AbortError';
-      emit({
-        phase: cancelled ? 'cancelled' : 'failed',
-        canCancel: false,
-        canRetry: false,
-        canActivate: false,
-        error: cancelled ? null : safeFailure(error, 'blobs')
-      });
-      throw error;
-    }
+    const options = { ...session.restoreOptions };
+    if (session.stagingRoot) await journal.discardOwnedStaging();
+    const retained = {
+      localSource: session.localSource,
+      destinationParent: session.destinationParent,
+      remote: session.remote
+    };
+    const source = clone(state.source);
+    session = retained;
+    state = { ...emptyState(), source };
+    return runRestore(options);
   }
 
   function retryStage() {
@@ -661,7 +545,7 @@ function createRecoveryService({
   }
 
   async function activateInternal() {
-    if (serviceMode !== 'restore' || state.phase !== 'ready-to-activate' || !state.canActivate) {
+    if (state.phase !== 'ready-to-activate' || !state.canActivate) {
       throw new Error('恢复结果还不能激活。');
     }
     emit({ phase: 'activating', canCancel: false, canRetry: false, canActivate: false });
@@ -777,7 +661,7 @@ function createRecoveryService({
         destinationPath: found.record.destinationPath,
         renamed: found.record.phase === 'renamed'
       };
-      state = emptyState(found.record.mode);
+      state = emptyState();
       emit({
         phase: 'residue',
         destination: { display: found.record.destinationPath, exists: found.destinationExists },
@@ -803,24 +687,21 @@ function createRecoveryService({
     }
     return track(async () => {
       const result = await journal.discardOwnedStaging();
-      state = emptyState(serviceMode);
-      session = fixedVaultDir ? { currentVaultDir: fixedVaultDir } : null;
+      state = emptyState();
+      session = null;
       emit({ phase: 'idle' });
       return result;
     });
   }
 
-  function reset(nextMode = serviceMode) {
-    if (!['restore', 'repair-blobs'].includes(nextMode)) throw new Error('恢复模式不合法。');
+  function reset() {
     if (operations.size || !['idle', 'cancelled', 'failed', 'completed'].includes(state.phase)) {
       throw new Error('当前恢复状态不能重置。');
     }
     return track(async () => {
       if (await journal.inspect()) throw new Error('仍有恢复残留，请先检查或安全清理。');
-      if (nextMode === 'repair-blobs' && !fixedVaultDir) throw new Error('大文件修复缺少固定的当前资料库。');
-      serviceMode = nextMode;
-      state = emptyState(serviceMode);
-      session = fixedVaultDir ? { currentVaultDir: fixedVaultDir } : null;
+      state = emptyState();
+      session = null;
       emit({ phase: 'idle' });
       return getState();
     });
@@ -837,7 +718,6 @@ function createRecoveryService({
     selectDestinationParent,
     inspectRemote,
     start,
-    repairCurrentBlobs,
     cancel,
     retryStage,
     activate,

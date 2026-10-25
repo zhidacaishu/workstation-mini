@@ -116,9 +116,15 @@ test('计划中的任务仍使用原更新接口改日期与完成状态', async
 test('旧入口直接渲染统一计划页，月历备注保留版本保护', async t => {
   const ctx = await setup(t);
   await seedTasks(ctx);
-  for (const url of ['/tasks', '/calendar', '/deadlines']) {
-    const response = await request(ctx.app).get(url).expect(200);
-    assert.match(response.text, /计划/);
+  for (const [legacy, unified] of [
+    ['/tasks', '/plan'],
+    ['/calendar', '/plan?view=calendar'],
+    ['/deadlines', '/plan?filter=deadlines']
+  ]) {
+    const response = await request(ctx.app).get(legacy).expect(200);
+    const current = await request(ctx.app).get(unified).expect(200);
+    const withoutPagePath = html => html.replace(/data-page-path="[^"]*"/, 'data-page-path="/plan"');
+    assert.equal(withoutPagePath(response.text), withoutPagePath(current.text));
   }
 
   const created = await request(ctx.app).post('/plan/notes').set('Accept', 'application/json').send({

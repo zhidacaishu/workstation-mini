@@ -90,7 +90,7 @@ async function loadRecovery(initialState, overrides = {}) {
   const ids = [
     'recovery-form', 'first-run', 'source-panel', 'destination-panel', 'status-panel',
     'phase-label', 'title', 'outcome', 'remote', 'remote-result', 'local-source-path',
-    'destination-parent', 'directory-name', 'restore-blobs', 'status-title', 'status-message',
+    'destination-parent', 'directory-name', 'status-title', 'status-message',
     'current-path', 'progress', 'start', 'cancel', 'retry', 'activate', 'discard-staging',
     'open-current-vault', 'action-note', 'warnings', 'git-source', 'local-source', 'inspect-remote',
     'choose-local-source', 'choose-destination', 'create-vault', 'open-existing-vault',
@@ -98,7 +98,6 @@ async function loadRecovery(initialState, overrides = {}) {
   ];
   const elements = new Map(ids.map(id => [id, createElement({ id })]));
   elements.get('directory-name').value = 'workstation-vault-restored';
-  elements.get('restore-blobs').checked = true;
 
   const progressBar = createElement();
   const progressElement = elements.get('progress');
@@ -112,10 +111,8 @@ async function loadRecovery(initialState, overrides = {}) {
   elements.get('warnings').querySelector = selector => selector === 'ul' ? warningsList : null;
   elements.get('warnings').list = warningsList;
 
-  const blobFailures = reportBlock('blob-failures');
   const indexFailures = reportBlock('index-failures');
   const fatal = fatalBlock();
-  elements.set('blob-failures', blobFailures);
   elements.set('index-failures', indexFailures);
   elements.set('fatal-error', fatal);
 
@@ -123,7 +120,7 @@ async function loadRecovery(initialState, overrides = {}) {
   const form = elements.get('recovery-form');
   form.elements = { sourceKind };
   const controls = [
-    elements.get('remote'), elements.get('directory-name'), elements.get('restore-blobs'),
+    elements.get('remote'), elements.get('directory-name'),
     elements.get('inspect-remote'), elements.get('choose-local-source'),
     elements.get('choose-destination'), elements.get('start'), elements.get('cancel'),
     elements.get('retry'), elements.get('activate'), elements.get('discard-staging'),
@@ -131,7 +128,7 @@ async function loadRecovery(initialState, overrides = {}) {
   ];
   form.querySelectorAll = selector => selector === 'input, button' ? controls : [];
 
-  const stages = ['source', 'destination', 'blobs', 'index', 'activate'].map(stage => {
+  const stages = ['source', 'destination', 'index', 'activate'].map(stage => {
     const item = createElement();
     item.dataset.stage = stage;
     return item;
@@ -236,7 +233,7 @@ async function loadRecovery(initialState, overrides = {}) {
     form,
     sourceKind,
     elements,
-    blobFailures,
+    stages,
     indexFailures,
     fatal,
     calls,
@@ -269,14 +266,14 @@ test('首次启动提供三个语义操作，恢复入口调用 beginRestore', a
   assert.equal(ui.body.dataset.phase, 'idle');
 });
 
-test('恢复模式切换会清除仅存在 renderer 的目录选择状态', async () => {
+test('恢复完成后重新进入设置会清除仅存在 renderer 的目录选择状态', async () => {
   const ui = await loadRecovery({ mode: 'restore', phase: 'idle' });
   ui.sourceKind.value = 'local';
   await ui.elements.get('choose-local-source').dispatch('click');
   await ui.elements.get('choose-destination').dispatch('click');
   assert.equal(ui.elements.get('start').disabled, false);
 
-  ui.emit({ mode: 'repair-blobs', phase: 'idle' });
+  ui.emit({ mode: 'restore', phase: 'completed' });
   ui.emit({ mode: 'restore', phase: 'idle' });
 
   assert.equal(ui.elements.get('local-source-path').textContent, '尚未选择本地备份目录');
@@ -303,17 +300,23 @@ test('Git 地址只有与最近成功检查值一致时才允许开始', async (
   assert.match(ui.elements.get('remote-result').textContent, /重新检查/);
 });
 
-test('当前资料库大文件修复只向主进程提交空语义参数', async () => {
-  const ui = await loadRecovery({ mode: 'repair-blobs', phase: 'idle' }, {
-    start: () => ({ mode: 'repair-blobs', phase: 'completed', outcome: 'complete' })
-  });
+test('恢复界面没有大文件控件且只提交完整恢复 payload', async () => {
+  const ui = await loadRecovery({ mode: 'restore', phase: 'idle' });
+  ui.sourceKind.value = 'local';
+  await ui.elements.get('choose-local-source').dispatch('click');
+  await ui.elements.get('choose-destination').dispatch('click');
 
   await ui.form.dispatch('submit');
   await flushUntil(() => ui.calls.starts.length === 1);
 
-  assert.deepEqual(ui.calls.starts[0], {});
-  assert.equal(ui.elements.get('source-panel').hidden, true);
-  assert.equal(ui.elements.get('destination-panel').hidden, true);
+  assert.equal(ui.elements.has('restore-blobs'), false);
+  assert.deepEqual(ui.stages.map(stage => stage.dataset.stage), ['source', 'destination', 'index', 'activate']);
+  assert.deepEqual(ui.calls.starts[0], {
+    sourceKind: 'local',
+    directoryName: 'workstation-vault-restored'
+  });
+  assert.equal(ui.elements.get('source-panel').hidden, false);
+  assert.equal(ui.elements.get('destination-panel').hidden, false);
 });
 
 test('长操作 pending 时仍可取消，原操作拒绝不覆盖权威 cancelled 状态', async () => {
@@ -346,21 +349,18 @@ test('长操作 pending 时仍可取消，原操作拒绝不覆盖权威 cancell
   assert.equal(ui.fatal.hidden, true);
 });
 
-test('partial 文案和操作可见性与恢复报告一致', async () => {
+test('partial 索引报告保持激活操作，不提供大文件重试', async () => {
   const partial = {
     mode: 'restore',
     phase: 'ready-to-activate',
     outcome: 'partial',
-    canRetry: true,
+    canRetry: false,
     canActivate: true,
     canCancel: true,
-    missingBlobs: [{ path: 'audio/missing.m4a', reason: '下载失败' }],
-    missingBlobTotal: 1,
     indexFailures: [{ path: 'notes/bad.md', reason: '格式无效' }],
     indexFailureTotal: 1
   };
   const ui = await loadRecovery(partial, {
-    retryStage: () => ({ ...partial, outcome: 'complete', canRetry: false, missingBlobs: [], missingBlobTotal: 0 }),
     activate: () => ({ ...partial, phase: 'activating', canActivate: false, canCancel: false })
   });
 
@@ -368,19 +368,12 @@ test('partial 文案和操作可见性与恢复报告一致', async () => {
   assert.equal(ui.elements.get('title').textContent, '恢复结果已经可以检查');
   assert.equal(ui.elements.get('status-message').textContent, '确认报告后再切换到新资料库。');
   assert.equal(ui.elements.get('outcome').textContent, '部分恢复');
-  assert.match(ui.elements.get('action-note').textContent, /部分大文件或 Markdown 未恢复/);
-  assert.equal(ui.blobFailures.hidden, false);
-  assert.match(ui.blobFailures.list.children[0].textContent, /audio\/missing\.m4a.*下载失败/);
+  assert.match(ui.elements.get('action-note').textContent, /部分 Markdown 未建立索引/);
   assert.equal(ui.indexFailures.hidden, false);
   assert.match(ui.indexFailures.list.children[0].textContent, /notes\/bad\.md.*格式无效/);
-  assert.equal(ui.elements.get('retry').hidden, false);
+  assert.equal(ui.elements.get('retry').hidden, true);
   assert.equal(ui.elements.get('activate').hidden, false);
 
-  await ui.elements.get('retry').dispatch('click');
-  assert.equal(ui.calls.retry, 1);
-  assert.equal(ui.elements.get('retry').hidden, true);
-
-  ui.emit(partial);
   await ui.elements.get('activate').dispatch('click');
   assert.equal(ui.calls.activate, 1);
   assert.equal(ui.body.dataset.phase, 'activating');
@@ -493,7 +486,7 @@ test('completed 文案和操作可见性要求用户复核后手工启用同步'
   assert.equal(ui.elements.get('title').textContent, '新资料库已经打开');
   assert.match(ui.elements.get('status-message').textContent, /自动 Git 同步仍关闭/);
   assert.equal(ui.elements.get('outcome').textContent, '完整恢复');
-  assert.match(ui.elements.get('action-note').textContent, /再手工启用同步/);
+  assert.match(ui.elements.get('action-note').textContent, /Git 远端和本机设置/);
   assert.equal(ui.elements.get('start').hidden, true);
   assert.equal(ui.elements.get('cancel').hidden, true);
   assert.equal(ui.elements.get('retry').hidden, true);
@@ -503,9 +496,12 @@ test('completed 文案和操作可见性要求用户复核后手工启用同步'
 
 test('pending 与进度状态维护 aria-busy 和 progressbar 属性', async () => {
   const running = deferred();
-  const ui = await loadRecovery({ mode: 'repair-blobs', phase: 'idle' }, {
+  const ui = await loadRecovery({ mode: 'restore', phase: 'idle' }, {
     start: () => running.promise
   });
+  ui.sourceKind.value = 'local';
+  await ui.elements.get('choose-local-source').dispatch('click');
+  await ui.elements.get('choose-destination').dispatch('click');
 
   assert.equal(ui.elements.get('progress').attributes['aria-valuemin'], '0');
   assert.equal(ui.elements.get('progress').attributes['aria-valuemax'], '100');
@@ -517,17 +513,17 @@ test('pending 与进度状态维护 aria-busy 和 progressbar 属性', async () 
   assert.equal(ui.elements.get('start').disabled, true);
 
   ui.emit({
-    mode: 'repair-blobs',
-    phase: 'restoring-blobs',
+    mode: 'restore',
+    phase: 'copying',
     canCancel: true,
-    progress: { current: 2, total: 5, unit: '个文件', currentPath: 'audio/two.m4a' }
+    progress: { current: 2, total: 5, unit: '个文件', currentPath: 'attachments/reference.bin' }
   });
   assert.equal(ui.elements.get('progress').attributes['aria-valuenow'], '40');
   assert.equal(ui.elements.get('progress').attributes['aria-valuetext'], '2 / 5 个文件');
-  assert.equal(ui.elements.get('current-path').textContent, 'audio/two.m4a');
+  assert.equal(ui.elements.get('current-path').textContent, 'attachments/reference.bin');
   assert.equal(ui.elements.get('current-path').hidden, false);
 
-  running.resolve({ mode: 'repair-blobs', phase: 'completed', outcome: 'complete' });
+  running.resolve({ mode: 'restore', phase: 'completed', outcome: 'complete' });
   await flushUntil(() => !('aria-busy' in ui.form.attributes));
   assert.equal(ui.form.attributes['aria-busy'], undefined);
 });

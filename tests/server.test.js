@@ -70,10 +70,10 @@ test('工作区壳提供当前导航、主内容与命令面板语义', async ()
     assert.match(home.text, /id="toast-region"[^>]+aria-live="polite"/);
 
     const search = await request(ctx.app).get('/search').expect(200);
-    assert.match(search.text, /class="workspace-nav-link is-active" href="\/search" aria-current="page">\s*<span>笔记<\/span>/);
+    assert.match(search.text, /class="workspace-nav-link is-active" href="\/search" aria-current="page">\s*<svg[^>]*aria-hidden="true">[\s\S]*?<\/svg>\s*<span>笔记<\/span>/);
 
     const board = await request(ctx.app).get('/board/experiment').expect(200);
-    assert.match(board.text, /class="workspace-nav-link is-active" href="\/board\/experiment" aria-current="page">\s*<span>研究项目<\/span>/);
+    assert.match(board.text, /class="workspace-nav-link is-active" href="\/board\/experiment" aria-current="page">\s*<svg[^>]*aria-hidden="true">[\s\S]*?<\/svg>\s*<span>研究项目<\/span>/);
 
     const health = await request(ctx.app).get('/health').expect(200);
     assert.match(health.text, /<details class="workspace-tools" open>/);
@@ -118,7 +118,7 @@ test('编辑页输出 dirty guard 所需的渐进增强契约', async () => {
     assert.match(response.text, /name="path" value="research\/draft\.md"/);
     assert.match(response.text, /name="expectedHash" value=""/);
     assert.match(response.text, /name="isNew" value="1"/);
-    assert.match(response.text, /class="workspace-nav-link is-active" href="\/search" aria-current="page">\s*<span>笔记<\/span>/);
+    assert.match(response.text, /class="workspace-nav-link is-active" href="\/search" aria-current="page">\s*<svg[^>]*aria-hidden="true">[\s\S]*?<\/svg>\s*<span>笔记<\/span>/);
   } finally {
     await ctx.cleanup();
   }

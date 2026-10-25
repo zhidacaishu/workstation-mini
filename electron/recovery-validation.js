@@ -4,24 +4,20 @@ const { validDirectoryName } = require('../src/recovery/service');
 const SOURCE_KINDS = new Set(['git', 'local']);
 
 function validateRecoveryMode(value) {
-  if (!['first-run', 'restore', 'repair-blobs'].includes(value)) {
+  if (!['first-run', 'restore'].includes(value)) {
     throw new Error('未知恢复模式。');
   }
   return value;
-}
-
-function validateRepairStart(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 0) {
-    throw new Error('当前资料库修复不接受参数。');
-  }
-  return {};
 }
 
 function validateRecoveryStart(value, { mode = 'restore' } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('恢复选项无效。');
   }
-  const allowed = new Set(['sourceKind', 'remote', 'directoryName', 'restoreBlobs']);
+  if (Object.hasOwn(value, 'restoreBlobs')) {
+    throw new Error('Mini 不支持远端大文件恢复。');
+  }
+  const allowed = new Set(['sourceKind', 'remote', 'directoryName']);
   if (Object.keys(value).some(key => !allowed.has(key))) {
     throw new Error('恢复选项包含不允许的字段。');
   }
@@ -35,9 +31,8 @@ function validateRecoveryStart(value, { mode = 'restore' } = {}) {
     sourceKind: value.sourceKind,
     ...(remote ? { remote } : {}),
     directoryName,
-    restoreBlobs: value.restoreBlobs === true,
     mode: mode === 'first-run' ? 'restore' : validateRecoveryMode(mode)
   };
 }
 
-module.exports = { validateRecoveryMode, validateRecoveryStart, validateRepairStart };
+module.exports = { validateRecoveryMode, validateRecoveryStart };

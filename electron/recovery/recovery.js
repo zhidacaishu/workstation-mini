@@ -13,7 +13,6 @@ const remoteResult = document.getElementById('remote-result');
 const localSourcePath = document.getElementById('local-source-path');
 const destinationParent = document.getElementById('destination-parent');
 const directoryName = document.getElementById('directory-name');
-const restoreBlobs = document.getElementById('restore-blobs');
 const statusTitle = document.getElementById('status-title');
 const statusMessage = document.getElementById('status-message');
 const currentPath = document.getElementById('current-path');
@@ -41,7 +40,6 @@ const PHASE_COPY = {
   copying: ['复制文本', '复制本地备份', '来源目录保持原样。'],
   'validating-git': ['检查 Git', '确认克隆结果可安全使用', '正在检查分支、上游、远端和工作区状态。'],
   'validating-vault': ['检查结构', '确认资料库结构', '正在验证 Markdown 与资料库目录。'],
-  'restoring-blobs': ['补齐大文件', '只下载缺失的大文件', '已有文件不会被覆盖。'],
   'building-index': ['重建索引', '从 Markdown 建立新索引', '坏文件会单独报告，不会抹掉已成功的结果。'],
   'ready-to-activate': ['等待切换', '恢复结果已经可以检查', '确认报告后再切换到新资料库。'],
   activating: ['正在切换', '短暂切换到新资料库', '此阶段不能取消，请不要关闭应用。'],
@@ -53,9 +51,8 @@ const PHASE_COPY = {
 };
 
 const STAGE_PHASES = {
-  source: ['idle', 'inspecting-source', 'cloning', 'copying', 'validating-git'],
+  source: ['idle', 'inspecting-source', 'cloning', 'copying', 'validating-git', 'validating-vault'],
   destination: ['preparing-staging'],
-  blobs: ['validating-vault', 'restoring-blobs'],
   index: ['building-index'],
   activate: ['ready-to-activate', 'activating', 'completed', 'failed', 'residue']
 };
@@ -116,14 +113,13 @@ function renderWarnings(warnings = []) {
 function renderControls() {
   const phase = state.phase || 'idle';
   const setup = ['idle', 'cancelled', 'failed'].includes(phase) && !state.residue;
-  const repairMode = state.mode === 'repair-blobs';
   const remote = remoteInput.value.trim();
   const sourceReady = sourceKind() === 'git' ? Boolean(remote) && remote === inspectedRemote : localSourceSelected;
-  const canStart = repairMode || (sourceReady && destinationSelected && directoryName.value.trim());
+  const canStart = sourceReady && destinationSelected && directoryName.value.trim();
 
   startButton.hidden = !setup;
   startButton.disabled = operationPending || !canStart;
-  startButton.textContent = repairMode ? '检查并补齐缺失大文件' : '开始复制与验证';
+  startButton.textContent = '开始复制与索引验证';
   cancelButton.hidden = !state.canCancel;
   cancelButton.disabled = false;
   retryButton.hidden = !state.canRetry;
@@ -173,8 +169,8 @@ function render(next = {}) {
   const firstRunMode = state.mode === 'first-run' && ['idle', 'cancelled', 'failed'].includes(phase);
   firstRun.hidden = !firstRunMode;
   form.hidden = firstRunMode && !state.error && !state.reason;
-  sourcePanel.hidden = state.mode === 'repair-blobs' || !setup;
-  destinationPanel.hidden = state.mode === 'repair-blobs' || !setup;
+  sourcePanel.hidden = !setup;
+  destinationPanel.hidden = !setup;
   statusPanel.hidden = setup && !state.error && !state.reason;
 
   const unit = state.progress?.unit || '';
@@ -190,7 +186,6 @@ function render(next = {}) {
   outcome.hidden = !state.outcome;
   outcome.textContent = state.outcome === 'complete' ? '完整恢复' : state.outcome === 'partial' ? '部分恢复' : '';
   renderWarnings(state.warnings || []);
-  renderList('blob-failures', state.missingBlobs, state.missingBlobTotal, item => `${item.path} — ${item.message || item.reason || item.code}`);
   renderList('index-failures', state.indexFailures, state.indexFailureTotal, item => `${item.path} — ${item.reason || item.code}`);
 
   const fatal = document.getElementById('fatal-error');
@@ -201,9 +196,9 @@ function render(next = {}) {
   }
 
   if (phase === 'ready-to-activate' && state.outcome === 'partial') {
-    actionNote.textContent = '部分大文件或 Markdown 未恢复；切换后可从设置继续补齐。';
+    actionNote.textContent = '部分 Markdown 未建立索引；请复核报告后再切换。';
   } else if (phase === 'completed') {
-    actionNote.textContent = '请复核设备名、Git 远端、大文件服务和本机秘密，再手工启用同步。';
+    actionNote.textContent = '请复核设备名、Git 远端和本机设置，再手工启用同步。';
   } else if (phase === 'residue' && state.residue?.owned !== true) {
     actionNote.textContent = '此残留不属于当前应用会话，不能自动清理；请人工检查恢复目录和记录。';
   } else {
@@ -280,11 +275,10 @@ document.getElementById('choose-destination').addEventListener('click', () => ru
 
 form.addEventListener('submit', event => {
   event.preventDefault();
-  run(() => api.start(state.mode === 'repair-blobs' ? {} : {
+  run(() => api.start({
     sourceKind: sourceKind(),
     remote: sourceKind() === 'git' ? remoteInput.value.trim() : undefined,
-    directoryName: directoryName.value.trim(),
-    restoreBlobs: restoreBlobs.checked
+    directoryName: directoryName.value.trim()
   }));
 });
 

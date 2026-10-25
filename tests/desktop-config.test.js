@@ -10,22 +10,14 @@ const { createConfigStore, normalizeSettings } = require('../electron/config-sto
 const { createRuntimeConfig } = require('../electron/runtime-config');
 const { validateSettingsUpdate } = require('../electron/settings-validation');
 
-function fakeSafeStorage() {
-  return {
-    isEncryptionAvailable: () => true,
-    encryptString: value => Buffer.from(`encrypted:${value}`, 'utf8'),
-    decryptString: value => value.toString('utf8').replace(/^encrypted:/, '')
-  };
-}
-
 test('新安装默认关闭同步，旧设置缺字段时保留历史开启行为', async () => {
   const freshPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-fresh-settings-'));
   const legacyPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-legacy-settings-'));
   try {
-    const fresh = createConfigStore({ userDataPath: freshPath, safeStorage: fakeSafeStorage() });
+    const fresh = createConfigStore({ userDataPath: freshPath });
     assert.equal(fresh.load().syncEnabled, false);
 
-    const legacy = createConfigStore({ userDataPath: legacyPath, safeStorage: fakeSafeStorage() });
+    const legacy = createConfigStore({ userDataPath: legacyPath });
     await fs.mkdir(legacy.directory, { recursive: true });
     await fs.writeFile(legacy.filePath, JSON.stringify({ schemaVersion: 1, vaultDir: 'C:\\vault' }), 'utf8');
     assert.equal(legacy.load().syncEnabled, true);
@@ -40,7 +32,7 @@ test('新安装默认关闭同步，旧设置缺字段时保留历史开启行�
 test('桌面设置原子保存并保留上一版快照', async () => {
   const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-settings-'));
   try {
-    const store = createConfigStore({ userDataPath, safeStorage: fakeSafeStorage() });
+    const store = createConfigStore({ userDataPath });
     store.write({ ...normalizeSettings(), vaultDir: 'C:\\vault-one' });
     store.write({ ...store.load(), vaultDir: 'C:\\vault-two' });
 
@@ -55,7 +47,7 @@ test('桌面设置原子保存并保留上一版快照', async () => {
 test('比应用更新的设置版本不会被旧版静默覆写', async () => {
   const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-newer-settings-'));
   try {
-    const store = createConfigStore({ userDataPath, safeStorage: fakeSafeStorage() });
+    const store = createConfigStore({ userDataPath });
     await fs.mkdir(store.directory, { recursive: true });
     await fs.writeFile(store.filePath, JSON.stringify({ schemaVersion: 99, vaultDir: 'C:\\future' }), 'utf8');
     await fs.writeFile(store.backupPath, JSON.stringify({ schemaVersion: 1, vaultDir: 'C:\\old' }), 'utf8');
@@ -66,62 +58,47 @@ test('比应用更新的设置版本不会被旧版静默覆写', async () => {
   }
 });
 
-test('秘密只以密文保存，公开设置只返回配置状态', async () => {
-  const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-secrets-'));
+test('旧版 AI 密文设置会被忽略并在下一次保存时移除，不读取安全存储', async () => {
+  const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-legacy-ai-'));
   try {
-    const store = createConfigStore({ userDataPath, safeStorage: fakeSafeStorage() });
-    const current = store.load();
-    const next = store.applyUpdate(current, {
-      settings: { vaultDir: 'C:\\vault' },
-      secrets: {
-        anthropicApiKey: { action: 'set', value: 'sk-ant-secret' },
-      }
+    const store = createConfigStore({
+      userDataPath,
+      safeStorage: { decryptString() { throw new Error('不应读取旧密文'); } }
     });
-    store.write(next);
+    await fs.mkdir(store.directory, { recursive: true });
+    await fs.writeFile(store.filePath, JSON.stringify({
+      schemaVersion: 4,
+      vaultDir: 'C:\\vault',
+      secrets: { anthropicApiKey: 'legacy-encrypted-value' }
+    }), 'utf8');
 
-    const raw = await fs.readFile(store.filePath, 'utf8');
-    assert.doesNotMatch(raw, /sk-ant-secret/);
-    assert.deepEqual(store.runtimeSecrets(next), { anthropicApiKey: 'sk-ant-secret' });
-    assert.deepEqual(store.publicSettings(next).secrets, { anthropicApiKey: true });
+    const settings = store.load();
+    assert.equal(Object.hasOwn(settings, 'secrets'), false);
+    store.write(settings);
+    const saved = JSON.parse(await fs.readFile(store.filePath, 'utf8'));
+    assert.equal(Object.hasOwn(saved, 'secrets'), false);
+    assert.equal(Object.hasOwn(saved, 'anthropicApiKey'), false);
   } finally {
     await fs.rm(userDataPath, { recursive: true, force: true });
   }
 });
 
-test('空秘密更新保留旧值，清除必须显式操作', () => {
-  const store = createConfigStore({ userDataPath: 'C:\\tmp', safeStorage: fakeSafeStorage() });
-  const configured = store.applyUpdate(normalizeSettings(), {
-    settings: { vaultDir: 'C:\\vault' },
-    secrets: { anthropicApiKey: { action: 'set', value: 'secret' } }
-  });
-  const kept = store.applyUpdate(configured, {
-    settings: { vaultDir: 'C:\\vault' },
-    secrets: { anthropicApiKey: { action: 'keep' } }
-  });
-  assert.equal(kept.secrets.anthropicApiKey, configured.secrets.anthropicApiKey);
-
-  const cleared = store.applyUpdate(kept, {
-    settings: { vaultDir: 'C:\\vault' },
-    secrets: { anthropicApiKey: { action: 'clear' } }
-  });
-  assert.equal(cleared.secrets.anthropicApiKey, undefined);
-});
-
-test('旧检查器配置字段在归一化时被丢弃，且不再接受更新', () => {
+test('旧检查器和 AI 设置字段在归一化时被丢弃，且不再接受更新', () => {
   const normalized = normalizeSettings({
     vaultDir: ' /vault ',
     checkDraftPath: ' /tools/check_draft.py ',
-    pythonPath: ' python3 '
+    pythonPath: ' python3 ',
+    anthropicApiKey: 'legacy-value',
+    secrets: { anthropicApiKey: 'legacy-encrypted-value' }
   });
   assert.deepEqual(normalized, {
-    schemaVersion: 4,
+    schemaVersion: 5,
     vaultDir: '/vault',
     device: '',
     readOnly: false,
     syncEnabled: false,
     syncIntervalMinutes: 15,
-    launchAtLogin: false,
-    secrets: {}
+    launchAtLogin: false
   });
   assert.throws(() => validateSettingsUpdate({
     settings: { vaultDir: '/vault', checkDraftPath: '/tools/check_draft.py' }
@@ -129,6 +106,9 @@ test('旧检查器配置字段在归一化时被丢弃，且不再接受更新',
   assert.throws(() => validateSettingsUpdate({
     settings: { vaultDir: '/vault', pythonPath: 'python3' }
   }), /未知设置字段：pythonPath/);
+  assert.throws(() => validateSettingsUpdate({
+    settings: { vaultDir: '/vault' }, secrets: {}
+  }), /未知设置数据字段：secrets/);
 });
 
 test('设置归一化把同步间隔限制为有效整数范围', () => {
@@ -140,8 +120,8 @@ test('设置归一化把同步间隔限制为有效整数范围', () => {
 
 test('运行配置总是生成新的内部令牌并固定回环随机端口', () => {
   const settings = normalizeSettings({ vaultDir: path.resolve('vault') });
-  const one = createRuntimeConfig(settings, {});
-  const two = createRuntimeConfig(settings, {});
+  const one = createRuntimeConfig(settings);
+  const two = createRuntimeConfig(settings);
   assert.equal(one.host, '127.0.0.1');
   assert.equal(one.port, 0);
   assert.equal(one.internalToken.length, 64);
@@ -168,7 +148,7 @@ test('设置落盘遇到 Windows 瞬时占用时重试，而不是让保存失�
   };
 
   try {
-    const store = createConfigStore({ userDataPath: userData, safeStorage: fakeSafeStorage() });
+    const store = createConfigStore({ userDataPath: userData });
     const written = store.write({ ...normalizeSettings(), device: 'busy-box' });
     assert.equal(written.device, 'busy-box');
     assert.equal(attempts, 4, '前三次应被当成瞬时占用重试');
@@ -195,7 +175,7 @@ test('设置落盘遇到非瞬时错误立刻失败且不留临时文件', async
   };
 
   try {
-    const store = createConfigStore({ userDataPath: userData, safeStorage: fakeSafeStorage() });
+    const store = createConfigStore({ userDataPath: userData });
     assert.throws(() => store.write({ ...normalizeSettings(), device: 'doomed' }), /磁盘只读/);
     assert.equal(attempts, 1, '非瞬时错误不该重试');
     assert.deepEqual(await fs.readdir(store.directory), []);

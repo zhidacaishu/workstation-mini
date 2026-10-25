@@ -38,7 +38,7 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       await fs.mkdir(settings, { recursive: true });
       await fs.writeFile(path.join(vault, 'notes', 'task.md'), '# Task\n\n- [ ] write paper @2026-10-05\n');
       await fs.writeFile(path.join(settings, 'settings.json'), JSON.stringify({
-      schemaVersion: 1, vaultDir: vault, device: 'history-smoke', syncEnabled: false, secrets: {}
+      schemaVersion: 1, vaultDir: vault, device: 'history-smoke', syncEnabled: false
       }));
     });
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
@@ -51,6 +51,22 @@ test('draft survives restart; history restores deleted note; tasks edit source i
     await page.waitForSelector('.workspace-sidebar', { timeout: 15000 });
     page.on('pageerror', error => errors.push(error.message));
     let origin = new URL(page.url()).origin;
+    await phase('verify-simplified-settings-and-recovery', async () => {
+      const settingsOpened = app.waitForEvent('window');
+      await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById('show-settings').click());
+      const settingsPage = await settingsOpened;
+      await settingsPage.waitForLoadState('domcontentloaded');
+      assert.equal(await settingsPage.locator('#ai, [name="anthropicApiKey"]').count(), 0);
+      const recoveryOpened = app.waitForEvent('window');
+      await settingsPage.locator('#open-recovery').click();
+      const recoveryPage = await recoveryOpened;
+      await recoveryPage.waitForLoadState('domcontentloaded');
+      assert.equal(await recoveryPage.locator('#restore-blobs, [data-stage="blobs"]').count(), 0);
+      assert.equal(await recoveryPage.locator('#stages li').count(), 4);
+      await recoveryPage.screenshot({ path: path.join(root, 'recovery.png') });
+      await recoveryPage.close();
+      await settingsPage.close();
+    });
     await phase('autosave-draft', async () => {
       await page.goto(origin + '/edit/task.md', { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.locator('[name="body"]').fill('# My recovered draft\n\n- [ ] write paper @2026-10-05\n');
