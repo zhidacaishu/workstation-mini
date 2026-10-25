@@ -1,17 +1,18 @@
 <%- include('partials/head') %>
 
-<section class="hero">
-  <span class="eyebrow">资料分区</span>
-  <h1><%= section %></h1>
-  <p class="muted"><%= notes.length %> 篇</p>
-</section>
+<header class="page-head">
+  <div>
+    <h1><%= ui.sectionName(section) %></h1>
+    <p class="page-meta"><%= notes.length %> 篇</p>
+  </div>
+</header>
 
-<ul class="notelist">
+<ul class="library-list">
   <% notes.forEach(note => { %>
-    <li>
-      <a href="/note/<%= encodePath(note.path) %>"><%= note.title %></a>
-      <span class="muted path"><%= note.path %></span>
-    </li>
+    <li><a class="library-document" href="/note/<%= encodePath(note.path) %>">
+      <span class="library-document-content"><strong><%= note.title %></strong></span>
+      <span class="library-document-meta"><span class="path"><%= note.path %></span></span>
+    </a></li>
   <% }) %>
 </ul>
 

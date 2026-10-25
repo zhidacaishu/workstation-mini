@@ -2,24 +2,59 @@
 <%
   const count = value => value == null ? '未知' : value;
   const needsGitRecovery = report.git.recoveryRequired || report.recovery.syncRecovery;
+  const gitLabel = needsGitRecovery ? '需要恢复' : report.git.error ? '状态未知' : report.git.isRepository ? (report.git.dirty ? '有未提交改动' : '干净') : '不是仓库';
+  const gitWarn = Boolean(needsGitRecovery || report.git.error);
+  const indexWarn = Boolean(report.index.fatal || report.index.failureTotal || report.index.statErrors.length || (report.vault.indexLag && report.vault.indexLag !== 0));
+  const linkWarn = Boolean(report.links.brokenCount);
+  const reviewWarn = Boolean(report.reviews.malformedLines || report.reviews.duplicateEventIds);
+  const vaultWarn = !report.vault.exists || !report.vault.notesDirExists;
+  const issues = [vaultWarn, indexWarn, gitWarn, linkWarn, reviewWarn].filter(Boolean).length;
 %>
-<section class="hero"><span class="eyebrow">只读诊断</span><h1>资料库健康</h1><p class="muted">Markdown 是源文件，SQLite 是派生索引；如需手动删除重建，请先退出应用并确认源文件可读。</p></section>
-<section class="card health-grid">
-  <h2>资料源与索引</h2>
-  <p>vault <strong><%= report.vault.exists ? '可用' : '不存在' %></strong>；notes/ <strong><%= report.vault.notesDirExists ? '可用' : '不存在' %></strong>。</p>
-  <p>Markdown <strong><%= report.vault.noteFiles %></strong> 篇，索引 <strong><%= count(report.vault.indexedNotes) %></strong> 篇，差异 <strong><%= count(report.vault.indexLag) %></strong>。</p>
-  <% if (report.index.fatal) { %>
-    <p role="alert">索引错误：<%= report.index.fatal.reason %>（<%= report.index.fatal.code %>）</p>
-  <% } %>
-  <% if (report.index.statErrors.length) { %>
-    <p role="alert">索引统计读取失败，笔记数或断链数未知；其余诊断仍可查看。</p>
-  <% } %>
-  <p>索引状态：<strong><%= report.index.phase %></strong>，失败 <strong><%= report.index.failureTotal %></strong> 项。</p>
-</section>
-<section class="card"><h2>恢复与同步</h2><p>本地历史/草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条；Git <strong><%= needsGitRecovery ? '需要恢复' : report.git.error ? '状态未知' : report.git.isRepository ? (report.git.dirty ? '有未提交改动' : '干净') : '不是仓库' %></strong>。</p><p>断链 <strong><%= count(report.links.brokenCount) %></strong> 个；复习日志坏行 <strong><%= report.reviews.malformedLines %></strong>，重复事件 <strong><%= report.reviews.duplicateEventIds %></strong>。</p></section>
+<header class="page-head">
+  <div>
+    <h1>资料库健康</h1>
+    <p class="page-meta">只读诊断</p>
+  </div>
+  <p class="health-summary<%= issues ? ' is-warn' : ' is-ok' %>"><span class="status-mark" aria-hidden="true"></span><%= issues ? `${issues} 项需要留意` : '一切正常' %></p>
+</header>
+
+<% if (report.index.fatal) { %>
+  <p class="notice is-warn" role="alert">索引错误：<%= report.index.fatal.reason %>（<%= report.index.fatal.code %>）</p>
+<% } %>
+<% if (report.index.statErrors.length) { %>
+  <p class="notice is-warn" role="alert">索引统计读取失败，笔记数或断链数未知；其余诊断仍可查看。</p>
+<% } %>
+
+<div class="health-grid">
+  <section class="health-tile<%= vaultWarn ? ' is-warn' : '' %>">
+    <h2>资料源</h2>
+    <p class="health-value"><strong><%= report.vault.noteFiles %></strong> 篇 Markdown</p>
+    <p class="health-detail">vault <strong><%= report.vault.exists ? '可用' : '不存在' %></strong> · notes/ <strong><%= report.vault.notesDirExists ? '可用' : '不存在' %></strong></p>
+  </section>
+  <section class="health-tile<%= indexWarn ? ' is-warn' : '' %>">
+    <h2>索引</h2>
+    <p class="health-value"><strong><%= count(report.vault.indexedNotes) %></strong> 篇已索引</p>
+    <p class="health-detail">状态 <strong><%= report.index.phase %></strong> · 差异 <strong><%= count(report.vault.indexLag) %></strong> · 失败 <strong><%= report.index.failureTotal %></strong> 项</p>
+  </section>
+  <section class="health-tile<%= gitWarn ? ' is-warn' : '' %>">
+    <h2>版本控制</h2>
+    <p class="health-value">Git <strong><%= gitLabel %></strong></p>
+    <p class="health-detail">本地历史与草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条</p>
+  </section>
+  <section class="health-tile<%= linkWarn ? ' is-warn' : '' %>">
+    <h2>双链</h2>
+    <p class="health-value"><strong><%= count(report.links.brokenCount) %></strong> 个断链</p>
+  </section>
+  <section class="health-tile<%= reviewWarn ? ' is-warn' : '' %>">
+    <h2>复习日志</h2>
+    <p class="health-value"><strong><%= report.reviews.malformedLines %></strong> 行损坏</p>
+    <p class="health-detail">重复事件 <strong><%= report.reviews.duplicateEventIds %></strong></p>
+  </section>
+</div>
+
 <% if (needsGitRecovery) { %>
-<section class="card" role="alert">
-  <h2>Git 操作需要恢复</h2>
+<section class="notice is-warn" role="alert">
+  <strong>Git 操作需要恢复</strong>
   <p>存在未完成的 Git 操作或未合并条目，请先处理冲突或恢复操作，再继续同步。</p>
   <% if (report.git.recoveryRequired) { %>
     <p>恢复标记：<%= report.git.recoveryRequired.markers.join('、') || '未合并索引' %>；未合并索引条目：<%= report.git.recoveryRequired.unmerged %>。</p>
@@ -29,5 +64,7 @@
   <% } %>
 </section>
 <% } %>
-<% if (report.index.failures.length) { %><section class="card"><h2>索引失败项</h2><ul><% report.index.failures.forEach(item => { %><li><code><%= item.path %></code>：<%= item.reason %></li><% }) %></ul></section><% } %>
+<% if (report.index.failures.length) { %>
+  <section class="panel health-failures"><h2>索引失败项</h2><ul><% report.index.failures.forEach(item => { %><li><code><%= item.path %></code><span><%= item.reason %></span></li><% }) %></ul></section>
+<% } %>
 <%- include('partials/foot') %>

@@ -13,9 +13,9 @@
       <span class="mark" aria-hidden="true">研</span>
       <div><strong>科研工作台</strong><small>本机设置</small></div>
     </div>
-    <p class="sidebar-label">设置分组</p>
     <nav aria-label="设置分组" data-settings-nav>
       <a href="#workspace">工作区</a>
+      <a href="#appearance">外观</a>
       <a href="#sync">同步</a>
       <a href="#system">系统</a>
     </nav>
@@ -44,6 +44,16 @@
           <label class="toggle"><input name="readOnly" type="checkbox"><span><strong>只读模式</strong><small>允许浏览、搜索和复习，阻止修改 Markdown。</small></span></label>
         </div>
         <div class="recovery-entry"><div><strong>从备份恢复到新资料库</strong><p>当前资料库和备份均不会修改。</p></div><button type="button" id="open-recovery">开始恢复…</button></div>
+      </section>
+
+      <section id="appearance" class="settings-section">
+        <div class="section-heading"><div><h2>外观</h2></div></div>
+        <fieldset class="theme-switch">
+          <legend class="visually-hidden">主题</legend>
+          <label><input type="radio" name="theme" value="system"><span>跟随系统</span></label>
+          <label><input type="radio" name="theme" value="light"><span>浅色</span></label>
+          <label><input type="radio" name="theme" value="dark"><span>深色</span></label>
+        </fieldset>
       </section>
 
       <section id="sync" class="settings-section">

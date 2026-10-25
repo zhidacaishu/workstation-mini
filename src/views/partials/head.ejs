@@ -3,28 +3,23 @@
   const matches = (...prefixes) => prefixes.some(prefix => (
     prefix === '/' ? routePath === '/' : routePath === prefix || routePath.startsWith(`${prefix}/`)
   ));
-  const navGroups = [
-    {
-      label: '工作台',
-      items: [
-        { label: '今日', href: '/', active: matches('/') },
-        { label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
-        { label: '研究项目', href: '/board/experiment', active: matches('/board', '/item') },
-        { label: '计划', href: '/plan', active: matches('/plan', '/tasks', '/calendar', '/deadlines') },
-        { label: '复习', href: '/decks', active: matches('/decks', '/review') }
-      ]
-    }
+  const counts = typeof navCounts === 'object' && navCounts ? navCounts : { overdue: 0, review: 0 };
+  const navItems = [
+    { key: 'today', label: '今日', href: '/', active: matches('/') },
+    { key: 'notes', label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
+    { key: 'projects', label: '研究项目', href: '/board/experiment', active: matches('/board', '/item') },
+    { key: 'plan', label: '计划', href: '/plan', active: matches('/plan', '/tasks', '/calendar', '/deadlines'), badge: counts.overdue, badgeTone: 'warn', badgeLabel: '项逾期' },
+    { key: 'review', label: '复习', href: '/decks', active: matches('/decks', '/review'), badge: counts.review, badgeLabel: '张到期' }
   ];
   const toolItems = [
-    { label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
-    { label: '资料库健康', href: '/health', active: matches('/health') }
+    { key: 'history', label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
+    { key: 'health', label: '资料库健康', href: '/health', active: matches('/health') }
   ];
-  const toolsActive = toolItems.some(item => item.active);
   // isMac 由 src/app.js 注入。前端按 data-primary-modifier 决定认哪个修饰键，
   // 提示文案也跟着走 —— macOS 上写「Ctrl K」既是错的，也和实际能用的键不符。
   const onMac = typeof isMac !== 'undefined' && isMac;
   const primaryModifier = onMac ? 'meta' : 'control';
-  const paletteHint = onMac ? '\u2318K' : 'Ctrl K';
+  const paletteHint = onMac ? '⌘K' : 'Ctrl K';
   const pageMode = matches('/review', '/edit', '/new')
       ? 'page-focus'
       : matches('/note')
@@ -37,6 +32,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><%= title %> · 科研工作台</title>
+  <link rel="stylesheet" href="/static/fonts/geist/wght.css">
+  <link rel="stylesheet" href="/static/fonts/geist-mono/wght.css">
+  <link rel="stylesheet" href="/static/fonts/noto-sans-sc/wght.css">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/drafts.js" defer></script>
   <script src="/static/task-actions.js" defer></script>
@@ -48,35 +46,33 @@
 <body class="<%= pageMode %><%= readOnly ? ' is-readonly' : '' %>" data-page-path="<%= routePath %>" data-primary-modifier="<%= primaryModifier %>"<% if (typeof note !== 'undefined' && note) { %> data-note-path="<%= note.path %>"<% } %>>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app-shell">
-    <aside class="workspace-sidebar">
-      <a class="workspace-brand" href="/" aria-label="科研工作台首页">
+    <aside class="workspace-sidebar" aria-label="应用导航">
+      <a class="workspace-brand" href="/" aria-label="科研工作台首页" title="科研工作台">
         <span class="workspace-mark" aria-hidden="true">研</span>
-        <span><strong>科研工作台</strong><small>Workstation Mini</small></span>
       </a>
 
-      <%- include('navigation', { navGroups, toolItems, toolsActive }) %>
+      <button type="button" class="palette-trigger workspace-search" data-palette-open aria-haspopup="dialog" aria-controls="palette" aria-keyshortcuts="<%= onMac ? 'Meta+K' : 'Control+K' %>" title="搜索与命令（<%= paletteHint %>）">
+        <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span>搜索</span>
+      </button>
+
+      <%- include('navigation', { navItems, toolItems }) %>
 
       <div class="workspace-sidebar-footer">
-        <% if (!readOnly && !matches('/search', '/new', '/edit')) { %>
-          <a class="button workspace-create" href="/new">新建笔记 <span aria-hidden="true">＋</span></a>
-        <% } else if (readOnly) { %>
-          <span class="readonly-status" title="可浏览、搜索和复习，不能修改笔记"><span aria-hidden="true"></span>只读模式</span>
+        <% if (readOnly) { %>
+          <span class="readonly-status" title="可浏览、搜索和复习，不能修改笔记">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            <span>只读</span>
+          </span>
+        <% } else { %>
+          <a class="workspace-create" href="/new" aria-label="新建笔记" title="新建笔记">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </a>
         <% } %>
       </div>
     </aside>
 
     <div class="workspace-main">
-      <header class="workspace-toolbar">
-        <div class="workspace-context"><span class="workspace-location">工作区</span><span aria-hidden="true">/</span><strong><%= title %></strong></div>
-        <form class="topsearch" action="/search" method="get" role="search">
-          <span class="search-glyph" aria-hidden="true"></span>
-          <input type="search" name="q" placeholder="搜索资料库…" value="<%= typeof query !== 'undefined' ? query : '' %>" aria-label="搜索笔记">
-          <kbd>/</kbd>
-        </form>
-        <button type="button" class="palette-trigger toolbar-command" data-palette-open aria-label="打开命令面板" aria-haspopup="dialog" aria-controls="palette">
-          <span>命令</span><kbd><%= paletteHint %></kbd>
-        </button>
-      </header>
       <section class="index-banner" id="index-banner" role="status" aria-live="polite" aria-atomic="false" hidden>
         <p class="index-banner-message" id="index-banner-message"></p>
         <ul class="index-banner-failures" id="index-banner-failures" hidden></ul>

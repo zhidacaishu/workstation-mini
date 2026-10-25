@@ -473,11 +473,13 @@
     if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
     if (hasOpenDialog() || isInteractiveTarget(document.activeElement)) return;
 
-    const search = document.querySelector('.topsearch input[type="search"]')
-      || document.querySelector('input[type="search"]');
-    if (!search) return;
-
+    // 资料库页有自己的搜索框，就聚焦它；其余页面没有输入框，直接唤起命令面板。
+    const search = document.querySelector('.library-search input[type="search"]');
     event.preventDefault();
+    if (!search) {
+      document.querySelector('[data-palette-open]')?.click();
+      return;
+    }
     search.focus();
     search.select();
   });

@@ -100,7 +100,7 @@ function parseWikilinks(markdown) {
  * 光写文件名（`2026-08-06`）。文件名有重名时不猜——只保留完整路径那条，
  * 重名的 basename 映射整个丢弃，让它变成未解析链接，而不是随机指向某一篇。
  */
-function buildResolver(notePaths) {
+function buildResolver(notePaths, titles = null) {
   const byFullPath = new Map();
   const byBasename = new Map();
   const ambiguousBasenames = new Set();
@@ -118,10 +118,20 @@ function buildResolver(notePaths) {
   }
   for (const name of ambiguousBasenames) byBasename.delete(name);
 
-  return function resolve(target) {
+  function resolve(target) {
     const normalized = stripExtension(toPosix(target));
     return byFullPath.get(normalized) || byBasename.get(normalized) || '';
-  };
+  }
+  // 可选：给出「路径 → 标题」时，渲染层可以把没写别名的双链显示成标题。
+  resolve.titleOf = notePath => (titles && titles.get(notePath)) || '';
+  return resolve;
+}
+
+/** 从索引构建带标题的解析器；索引不提供标题时退回只解析路径。 */
+function buildIndexResolver(db) {
+  if (typeof db.listNoteTitles !== 'function') return buildResolver(db.listPaths());
+  const rows = db.listNoteTitles();
+  return buildResolver(rows.map(row => row.path), new Map(rows.map(row => [row.path, row.title])));
 }
 
 /**
@@ -159,6 +169,7 @@ function renderWikilinks(markdown, resolve, escapeHtml) {
 module.exports = {
   parseWikilinks,
   buildResolver,
+  buildIndexResolver,
   renderWikilinks,
   maskCode,
   headingFragment,

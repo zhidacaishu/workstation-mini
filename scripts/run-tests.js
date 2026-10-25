@@ -47,6 +47,7 @@ const miniCoreTests = [
   'settingsClient.test.js',
   'server.test.js',
   'sync.test.js',
+  'uiRedesign.test.js',
   'vault.test.js',
   'watcher.test.js'
 ];
@@ -54,6 +55,7 @@ const desktopTests = [
   'desktop-build-config.test.js',
   'desktop-config.test.js',
   'desktop-local-history-smoke.test.js',
+  'desktop-ui-layout.test.js',
   'desktop-platform-policy.test.js',
   'desktop-quit-coordinator.test.js',
   'desktop-trusted-sender.test.js',

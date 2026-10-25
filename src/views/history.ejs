@@ -1,26 +1,47 @@
 <%- include('partials/head') %>
-<section class="hero">
-  <h1>版本历史与草稿</h1>
-  <p>保存前的旧版本、删除的笔记和自动保存的草稿都在这里。先预览，再载入编辑器确认保存。</p>
-  <p class="muted">记录仅保存在本机资料库，不依赖 Git，也不随 Git 同步；无法替代另一块磁盘上的备份。</p>
-  <% if (notePath) { %><p><code><%= notePath %></code> · <a href="/history">查看全部记录</a></p><% } %>
-</section>
-<% if (selected) { %>
-  <section class="card">
-    <h2>预览：<%= selected.path %></h2>
-    <p><%= selected.at %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %></p>
-    <pre class="history-preview"><%= selected.raw %></pre>
-    <% if (!readOnly) { %><a class="button primary" href="/recover/<%= selected.id %>">载入编辑器</a><% } %>
+<%
+  const kindLabel = record => record.kind === 'draft' ? '草稿' : record.reason === 'delete' ? '已删除' : '版本';
+  const kindClass = record => record.kind === 'draft' ? 'is-draft' : record.reason === 'delete' ? 'is-deleted' : 'is-version';
+%>
+<header class="page-head">
+  <div>
+    <h1>历史与草稿</h1>
+    <p class="page-meta">只保存在本机，不随 Git 同步。</p>
+  </div>
+  <% if (notePath) { %><p class="history-filter"><span class="chip"><%= notePath %></span><a href="/history">查看全部</a></p><% } %>
+</header>
+
+<div class="history-layout<%= selected ? ' has-preview' : '' %>">
+  <section class="panel history-records" aria-label="记录">
+    <% if (!records.length) { %>
+      <div class="empty-state"><p>还没有记录。修改或删除笔记时会自动保存旧版本。</p></div>
+    <% } else { %>
+      <ul class="history-list notelist">
+        <% records.forEach(record => { const active = selected && selected.id === record.id; %>
+          <li>
+            <a href="/history?path=<%= encodeURIComponent(notePath) %>&id=<%= record.id %>"<% if (active) { %> aria-current="true" class="is-active"<% } %>>
+              <span class="history-path"><%= record.path %></span>
+              <span class="history-meta"><span class="history-kind <%= kindClass(record) %>"><%= kindLabel(record) %></span><time datetime="<%= record.at %>"><%= ui.dateTimeLabel(record.at) %></time></span>
+            </a>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
   </section>
-<% } %>
-<% if (!records.length) { %><p class="muted">还没有版本或草稿。首次修改已有笔记或删除笔记时会保存旧版本。</p><% } %>
-<ul class="notelist">
-  <% records.forEach(record => { %>
-    <li>
-      <a href="/history?path=<%= encodeURIComponent(notePath) %>&id=<%= record.id %>"><%= record.path %></a>
-      <span class="chip"><%= record.kind === 'draft' ? '草稿' : record.reason === 'delete' ? '已删除' : '版本' %></span>
-      <time><%= record.at %></time>
-    </li>
-  <% }) %>
-</ul>
+
+  <% if (selected) { %>
+    <section class="panel history-preview-panel" aria-labelledby="history-preview-title">
+      <header class="history-preview-head">
+        <div>
+          <h2 id="history-preview-title"><%= selected.path %></h2>
+          <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %></p>
+        </div>
+        <% if (!readOnly) { %><a class="button primary" href="/recover/<%= selected.id %>">载入编辑器</a><% } %>
+      </header>
+      <pre class="history-preview"><%= selected.raw %></pre>
+    </section>
+  <% } else if (records.length) { %>
+    <section class="panel history-placeholder empty-state"><p>选择一条记录预览</p></section>
+  <% } %>
+</div>
 <%- include('partials/foot') %>

@@ -3,7 +3,7 @@ const express = require('express');
 const { createReviewService } = require('../reviewService');
 const { RATING_LABELS } = require('../review');
 const { renderMarkdown } = require('../markdown');
-const { buildResolver } = require('../vault/wikilink');
+const { buildIndexResolver } = require('../vault/wikilink');
 const { isSafeRelativePath } = require('../vault/paths');
 const { CARD_TYPES, DEFAULT_TYPE, appendCard } = require('../cards');
 const { httpError, blockWhenReadOnly } = require('./http');
@@ -11,7 +11,7 @@ const { httpError, blockWhenReadOnly } = require('./http');
 function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now }) {
   const router = express.Router();
   const service = createReviewService({ vaultDir: config.vaultDir, device: config.device, now });
-  const resolver = () => buildResolver(db.listPaths());
+  const resolver = () => buildIndexResolver(db);
 
   // 只读模式拦的是「改笔记」，不是「记复习」。
   // 复习事件按设备追加到独立 JSONL，不会改动 Markdown 正文，

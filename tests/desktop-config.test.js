@@ -98,7 +98,8 @@ test('旧检查器和 AI 设置字段在归一化时被丢弃，且不再接受�
     readOnly: false,
     syncEnabled: false,
     syncIntervalMinutes: 15,
-    launchAtLogin: false
+    launchAtLogin: false,
+    theme: 'system'
   });
   assert.throws(() => validateSettingsUpdate({
     settings: { vaultDir: '/vault', checkDraftPath: '/tools/check_draft.py' }
@@ -183,4 +184,12 @@ test('设置落盘遇到非瞬时错误立刻失败且不留临时文件', async
     fsSync.renameSync = rename;
     await fs.rm(userData, { recursive: true, force: true });
   }
+});
+
+test('外观设置只接受跟随系统、浅色、深色，旧配置默认跟随系统', () => {
+  assert.equal(normalizeSettings({ vaultDir: '/vault' }).theme, 'system');
+  assert.equal(normalizeSettings({ vaultDir: '/vault', theme: 'dark' }).theme, 'dark');
+  assert.equal(normalizeSettings({ vaultDir: '/vault', theme: 'sepia' }).theme, 'system');
+  assert.doesNotThrow(() => validateSettingsUpdate({ settings: { vaultDir: '/vault', theme: 'light' } }));
+  assert.throws(() => validateSettingsUpdate({ settings: { vaultDir: '/vault', theme: 'sepia' } }), /外观/);
 });

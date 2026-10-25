@@ -4,8 +4,10 @@ const path = require('node:path');
 const { replaceFileSync } = require('../src/vault/atomic');
 
 const SCHEMA_VERSION = 5;
-const PLAIN_FIELDS = ['vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'launchAtLogin'];
-const DEFAULT_SETTINGS = Object.freeze({ schemaVersion: SCHEMA_VERSION, vaultDir: '', device: '', readOnly: false, syncEnabled: false, syncIntervalMinutes: 15, launchAtLogin: false });
+const PLAIN_FIELDS = ['vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'launchAtLogin', 'theme'];
+// 外观：跟随系统、固定浅色或固定深色。旧版本没有这个字段，读到时按跟随系统处理。
+const THEMES = Object.freeze(['system', 'light', 'dark']);
+const DEFAULT_SETTINGS = Object.freeze({ schemaVersion: SCHEMA_VERSION, vaultDir: '', device: '', readOnly: false, syncEnabled: false, syncIntervalMinutes: 15, launchAtLogin: false, theme: 'system' });
 
 function atomicWrite(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -20,6 +22,7 @@ function normalizeSettings(value = {}) {
   settings.syncIntervalMinutes = Number.isFinite(interval) ? Math.min(Math.max(Math.trunc(interval), 1), 1440) : 15;
   settings.readOnly = Boolean(settings.readOnly); settings.syncEnabled = Boolean(settings.syncEnabled); settings.launchAtLogin = Boolean(settings.launchAtLogin);
   for (const key of ['vaultDir', 'device']) settings[key] = typeof settings[key] === 'string' ? settings[key].trim() : '';
+  settings.theme = THEMES.includes(settings.theme) ? settings.theme : 'system';
   return settings;
 }
 function createConfigStore({ userDataPath }) {
@@ -48,4 +51,4 @@ function createConfigStore({ userDataPath }) {
   }
   return { directory, filePath, backupPath, load, write, publicSettings, applyUpdate, normalizeSettings };
 }
-module.exports = { createConfigStore, normalizeSettings, DEFAULT_SETTINGS, SCHEMA_VERSION, PLAIN_FIELDS };
+module.exports = { createConfigStore, normalizeSettings, DEFAULT_SETTINGS, SCHEMA_VERSION, PLAIN_FIELDS, THEMES };

@@ -444,6 +444,11 @@ function openDatabase(dbPath, { logger = console } = {}) {
       return statements.allPaths.all().map(row => row.path);
     },
 
+    /** 渲染双链时用来把 [[路径]] 显示成笔记标题。 */
+    listNoteTitles() {
+      return db.prepare('SELECT path, title_raw AS title FROM notes').all();
+    },
+
     getNote(notePath) {
       return statements.getNote.get(notePath);
     },
@@ -506,8 +511,9 @@ function openDatabase(dbPath, { logger = console } = {}) {
 
     outboundLinks(notePath) {
       return db.prepare(`
-        SELECT to_target AS target, to_path AS path
-        FROM links WHERE from_path = ? ORDER BY to_target
+        SELECT links.to_target AS target, links.to_path AS path, notes.title_raw AS title
+        FROM links LEFT JOIN notes ON notes.path = links.to_path
+        WHERE links.from_path = ? ORDER BY links.to_target
       `).all(notePath);
     },
 

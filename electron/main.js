@@ -45,10 +45,28 @@ const { capabilities } = platformPolicy;
 // 窗口底色是渲染进程画出第一帧之前、以及缩放窗口时新暴露区域露出的颜色。
 // 界面本身支持 prefers-color-scheme，写死浅色的话深色模式下拖拽缩放会闪白边。
 // 取值和 styles.css / settings.css 里的 --canvas 保持一致。
-const WINDOW_BACKGROUND = { light: '#f4f6f9', dark: '#161c26' };
+const WINDOW_BACKGROUND = { light: '#f4f5f7', dark: '#0c0e11' };
 
 function windowBackgroundColor() {
   return nativeTheme.shouldUseDarkColors ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light;
+}
+
+// 外观设置交给 nativeTheme：它会改写所有窗口里的 prefers-color-scheme，
+// 主窗口、设置和恢复的样式表无需各自再做一套切换逻辑。
+const THEME_SOURCES = new Set(['system', 'light', 'dark']);
+
+function applyThemeSetting() {
+  nativeTheme.themeSource = THEME_SOURCES.has(settings?.theme) ? settings.theme : 'system';
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.setBackgroundColor(windowBackgroundColor());
+  }
+}
+
+function onlyThemeChanged(previous, next) {
+  if (previous?.theme === next?.theme) return false;
+  const { theme: _previousTheme, ...restPrevious } = previous || {};
+  const { theme: _nextTheme, ...restNext } = next || {};
+  return JSON.stringify(restPrevious) === JSON.stringify(restNext);
 }
 
 let configStore;
@@ -120,6 +138,7 @@ function notifyRecoveryStateChanged(state = recoveryService?.getState()) {
 function writeSettings(nextSettings) {
   settings = configStore.write(nextSettings);
   settingsRevision += 1;
+  applyThemeSetting();
   return settings;
 }
 
@@ -859,6 +878,12 @@ function registerIpc() {
       };
       validateSettingsUpdate(supportedUpdate, previous);
       const next = configStore.applyUpdate(previous, supportedUpdate);
+      // 只换外观时不必重启内部服务，也不打断主窗口里正在进行的编辑。
+      if (onlyThemeChanged(previous, next)) {
+        writeSettings(next);
+        notifySettingsChanged();
+        return runtimeState();
+      }
       if (!previous.syncEnabled && next.syncEnabled) {
         const { response } = await dialog.showMessageBox(settingsWindow, {
           type: 'warning',
@@ -1081,6 +1106,7 @@ if (!gotLock) {
 
     configStore = createConfigStore({ userDataPath: app.getPath('userData') });
     settings = configStore.load();
+    applyThemeSetting();
     // 合盖再打开之后，setInterval 的节奏已经乱了，中间那段时间的提醒也没跑。
     // 醒来立刻补一轮 —— tick 本身是按墙上时钟算的，补跑不会重复发。
     registerIpc();

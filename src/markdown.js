@@ -98,6 +98,55 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   return defaultImage(tokens, idx, options, env, self);
 };
 
+// 待办行 `- [ ] 写引言 @2026-10-26` 在阅读页显示成勾选框和日期标签，而不是原始语法。
+// 只改显示：Markdown 原文不变，勾选仍在计划页或今日页完成。
+const TASK_PREFIX = /^\[( |x|X)\]\s+/;
+const TASK_DUE = /@(\d{4})-(\d{2})-(\d{2})\b/g;
+
+md.core.ruler.push('task_items', state => {
+  const tokens = state.tokens;
+  for (let index = 2; index < tokens.length; index += 1) {
+    const inline = tokens[index];
+    if (inline.type !== 'inline' || tokens[index - 1].type !== 'paragraph_open' || tokens[index - 2].type !== 'list_item_open') continue;
+    const children = inline.children || [];
+    const first = children[0];
+    const match = first?.type === 'text' ? first.content.match(TASK_PREFIX) : null;
+    if (!match) continue;
+    const done = match[1].toLowerCase() === 'x';
+    first.content = first.content.slice(match[0].length);
+    tokens[index - 2].attrJoin('class', done ? 'task-item is-done' : 'task-item');
+
+    const box = new state.Token('html_inline', '', 0);
+    box.content = `<span class="task-box${done ? ' is-done' : ''}" role="img" aria-label="${done ? '已完成' : '待办'}"></span>`;
+    const rebuilt = [box];
+    for (const child of children) {
+      if (child.type !== 'text' || !TASK_DUE.test(child.content)) {
+        rebuilt.push(child);
+        continue;
+      }
+      TASK_DUE.lastIndex = 0;
+      let cursor = 0;
+      for (const due of child.content.matchAll(TASK_DUE)) {
+        if (due.index > cursor) {
+          const text = new state.Token('text', '', 0);
+          text.content = child.content.slice(cursor, due.index);
+          rebuilt.push(text);
+        }
+        const time = new state.Token('html_inline', '', 0);
+        time.content = `<time class="task-due" datetime="${due[1]}-${due[2]}-${due[3]}">${Number(due[2])}/${Number(due[3])}</time>`;
+        rebuilt.push(time);
+        cursor = due.index + due[0].length;
+      }
+      if (cursor < child.content.length) {
+        const text = new state.Token('text', '', 0);
+        text.content = child.content.slice(cursor);
+        rebuilt.push(text);
+      }
+    }
+    inline.children = rebuilt;
+  }
+});
+
 // 行锚必须在预解析 token 流上统一分配。嵌套块（blockquote 里的 paragraph、
 // list_item 里的 paragraph）经常共享起始源行；若各 renderer 临时加 id，会生成重复
 // DOM id。每一行只让最具体、跨度最小的可见 block claim 一次。
@@ -202,6 +251,12 @@ function replaceWikilinks(markdown, resolve, notePath = '') {
 
     const fragment = wikilinkFragment(match[2]);
     const resolved = resolve(target);
+    // 没写别名的 [[路径]] 显示目标笔记的标题而不是文件路径；指向小节时带上小节名。
+    const title = resolved && !match[3] && typeof resolve.titleOf === 'function'
+      ? String(resolve.titleOf(resolved) || '').trim()
+      : '';
+    const heading = (match[2] || '').trim();
+    const label = title ? escapeMarkdownText(heading ? `${title} › ${heading}` : title) : display;
     const href = resolved
       ? `/note/${encodePath(resolved)}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`
       : `/new?path=${encodeURIComponent(target)}`;
@@ -209,7 +264,7 @@ function replaceWikilinks(markdown, resolve, notePath = '') {
     replacements.push({
       start: match.index,
       end: match.index + match[0].length,
-      text: `[${display}](${href})`
+      text: `[${label}](${href})`
     });
   }
 

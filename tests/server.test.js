@@ -76,7 +76,8 @@ test('工作区壳提供当前导航、主内容与命令面板语义', async ()
     assert.match(board.text, /class="workspace-nav-link is-active" href="\/board\/experiment" aria-current="page">\s*<svg[^>]*aria-hidden="true">[\s\S]*?<\/svg>\s*<span>研究项目<\/span>/);
 
     const health = await request(ctx.app).get('/health').expect(200);
-    assert.match(health.text, /<details class="workspace-tools" open>/);
+    assert.match(health.text, /<nav class="workspace-tools" aria-label="资料库工具">/);
+    assert.match(health.text, /class="workspace-tool-link is-active" href="\/health" title="资料库健康" aria-current="page"/);
     assert.match(health.text, /资料库健康/);
   } finally {
     await ctx.cleanup();

@@ -1,13 +1,26 @@
 <%- include('partials/head') %>
 <%
-  const filters = [
-    ['all', '待办'], ['today', '今天到期'], ['overdue', '逾期'],
-    ['undated', '未安排'], ['deadlines', '截止事项'], ['done', '已完成']
-  ];
+  // 「待办」视图已经按逾期、今天、接下来、未安排分组，筛选只保留三个入口；
+  // 从今日页带着 overdue 等参数进来时，临时显示当前那一项。
+  const allFilters = { all: '待办', today: '今天到期', overdue: '逾期', undated: '未安排', deadlines: '截止事项', done: '已完成' };
+  const filters = ['all', 'deadlines', 'done'].concat(['all', 'deadlines', 'done'].includes(filter) ? [] : [filter])
+    .filter(key => allFilters[key]).map(key => [key, allFilters[key]]);
+  const monthLabel = `${Number(month.slice(0, 4))} 年 ${Number(month.slice(5))} 月`;
 %>
-<header class="plan-header">
-  <h1>计划</h1>
-  <nav class="plan-view-switch" aria-label="计划视图">
+<header class="page-head plan-header<%= view === 'list' ? ' is-narrow' : '' %>">
+  <div class="plan-title">
+    <% if (view === 'calendar') { %>
+      <nav class="plan-month-nav" aria-label="月份导航">
+        <a class="icon-button" href="/plan?view=calendar&month=<%= previousMonth %>" aria-label="上个月"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></a>
+        <h1><%= monthLabel %></h1>
+        <a class="icon-button" href="/plan?view=calendar&month=<%= nextMonth %>" aria-label="下个月"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></a>
+        <a class="button small" href="/plan?view=calendar">今天</a>
+      </nav>
+    <% } else { %>
+      <h1>计划</h1>
+    <% } %>
+  </div>
+  <nav class="segmented plan-view-switch" aria-label="计划视图">
     <a href="/plan?view=list&filter=<%= filter %>"<% if (view === 'list') { %> aria-current="page"<% } %>>列表</a>
     <a href="/plan?view=calendar&month=<%= month %>&date=<%= selected %>"<% if (view === 'calendar') { %> aria-current="page"<% } %>>月历</a>
   </nav>
@@ -16,51 +29,49 @@
 <div data-plan-view="<%= view %>">
 <% if (view === 'list') { %>
   <nav class="plan-filters" aria-label="筛选计划">
-    <% filters.forEach(([key, label]) => { %><a href="/plan?view=list&filter=<%= key %>"<% if (filter === key) { %> aria-current="page"<% } %>><%= label %><% if (counts[key]) { %><span><%= counts[key] %></span><% } %></a><% }) %>
+    <% filters.forEach(([key, label]) => { %><a href="/plan?view=list&filter=<%= key %>"<% if (filter === key) { %> aria-current="page"<% } %>><%= label %></a><% }) %>
   </nav>
   <div class="plan-list">
     <% if (!groups.some(group => group.tasks.length || group.projects.length)) { %>
-      <section class="plan-empty empty"><h2><%= filter === 'done' ? '还没有已完成的待办' : filter === 'all' ? '没有未完成的待办' : '暂无事项' %></h2><% if (filter === 'all' && !readOnly) { %><a class="button" href="/new">新建笔记</a><% } %></section>
+      <section class="plan-empty empty empty-state"><h2><%= filter === 'done' ? '还没有已完成的待办' : filter === 'all' ? '没有未完成的待办' : '暂无事项' %></h2><% if (filter === 'all') { %><p>在任意笔记里写 <code>- [ ] 待办 @<%= today %></code> 就会出现在这里。</p><% } %></section>
     <% } %>
     <% groups.forEach(group => { if (!group.tasks.length && !group.projects.length) return; %>
       <section class="plan-group" aria-labelledby="plan-group-<%= group.key %>">
         <h2 id="plan-group-<%= group.key %>" class="<%= group.key === 'overdue' ? 'is-overdue' : '' %>"><%= group.label %><span><%= group.tasks.length + group.projects.length %></span></h2>
         <ul class="plan-task-list">
           <% group.tasks.forEach(task => { %><%- include('partials/plan-task', { task }) %><% }) %>
-          <% group.projects.forEach(project => { %><li class="plan-project"><span class="plan-project-mark" aria-hidden="true"></span><div class="plan-task-content"><a href="/note/<%= encodePath(project.path) %>"><%= project.label %></a><span>项目期限</span></div><time datetime="<%= project.date %>" class="<%= project.overdue ? 'is-overdue' : '' %>"><%= project.date %></time></li><% }) %>
+          <% group.projects.forEach(project => { %><li class="plan-project"><span class="plan-project-mark" aria-hidden="true"></span><div class="plan-task-content"><a href="/note/<%= encodePath(project.path) %>"><%= project.label %></a><span>项目期限</span></div><time datetime="<%= project.date %>" class="<%= project.overdue ? 'is-overdue' : '' %>"><%= ui.shortDate(project.date, today) %></time></li><% }) %>
         </ul>
       </section>
     <% }) %>
   </div>
 <% } else { %>
-  <nav class="plan-month-nav" aria-label="月份导航">
-    <div><a class="button quiet small" href="/plan?view=calendar&month=<%= previousMonth %>" aria-label="上个月">‹</a><h2><%= Number(month.slice(0, 4)) %> 年 <%= Number(month.slice(5)) %> 月</h2><a class="button quiet small" href="/plan?view=calendar&month=<%= nextMonth %>" aria-label="下个月">›</a></div>
-    <a class="button small" href="/plan?view=calendar">今天</a>
-  </nav>
   <div class="plan-calendar-layout">
-    <section class="calgrid plan-calendar-grid" aria-label="<%= month %> 月历">
-      <div class="calgrid-head" aria-hidden="true"><% weekdays.forEach(day => { %><span><%= day %></span><% }) %></div>
-      <div class="calgrid-body">
-        <% weeks.forEach(week => week.forEach((date, dayIndex) => {
-          const dayNote = notes.get(date);
-          const text = dayNote?.parseError ? '备注需修复' : dayNote?.body || '';
-          const entries = entriesByDate.get(date) || [];
-        %>
-          <a class="calday<%= date.startsWith(month) ? '' : ' is-outside' %><%= dayIndex >= 5 ? ' is-weekend' : '' %><%= date === today ? ' is-today' : '' %><%= date === selected ? ' is-selected' : '' %>" href="/plan?view=calendar&month=<%= date.slice(0, 7) %>&date=<%= date %>" data-calendar-day="<%= date %>" aria-label="<%= date %><%= text.trim() ? '，有备注' : '' %><%= entries.length ? '，' + entries.length + ' 个截止事项' : '' %>"<% if (date === selected) { %> aria-current="date"<% } %>>
-            <span class="calday-num"><%= Number(date.slice(8)) %></span>
-            <span class="calendar-note-preview" data-calendar-preview><%= text.trim() %></span>
-            <span class="calday-items"><% entries.slice(0, 2).forEach(entry => { %><span class="calpill<%= entry.kind === 'project' ? ' is-project' : '' %><%= entry.overdue ? ' is-overdue' : '' %>" title="<%= entry.source %>：<%= entry.label %>"><%= entry.label %></span><% }) %><% if (entries.length > 2) { %><span class="calpill is-more">+<%= entries.length - 2 %></span><% } %></span>
-          </a>
-        <% })) %>
+    <section class="plan-calendar" aria-label="<%= monthLabel %>月历">
+      <div class="calgrid plan-calendar-grid">
+        <div class="calgrid-head" aria-hidden="true"><% weekdays.forEach((day, index) => { %><span<% if (index >= 5) { %> class="is-weekend"<% } %>><%= day %></span><% }) %></div>
+        <div class="calgrid-body">
+          <% weeks.forEach(week => week.forEach((date, dayIndex) => {
+            const dayNote = notes.get(date);
+            const text = dayNote?.parseError ? '备注需修复' : dayNote?.body || '';
+            const entries = entriesByDate.get(date) || [];
+          %>
+            <a class="calday<%= date.startsWith(month) ? '' : ' is-outside' %><%= dayIndex >= 5 ? ' is-weekend' : '' %><%= date === today ? ' is-today' : '' %><%= date === selected ? ' is-selected' : '' %>" href="/plan?view=calendar&month=<%= date.slice(0, 7) %>&date=<%= date %>" data-calendar-day="<%= date %>" aria-label="<%= date %><%= text.trim() ? '，有备注' : '' %><%= entries.length ? '，' + entries.length + ' 个截止事项' : '' %>"<% if (date === selected) { %> aria-current="date"<% } %>>
+              <span class="calday-num"><%= Number(date.slice(8)) %></span>
+              <span class="calendar-note-preview" data-calendar-preview><%= text.trim() %></span>
+              <span class="calday-items"><% entries.slice(0, 2).forEach(entry => { %><span class="calpill<%= entry.kind === 'project' ? ' is-project' : '' %><%= entry.overdue ? ' is-overdue' : '' %>" title="<%= entry.source %>：<%= entry.label %>"><%= entry.label %></span><% }) %><% if (entries.length > 2) { %><span class="calpill is-more">+<%= entries.length - 2 %></span><% } %></span>
+            </a>
+          <% })) %>
+        </div>
       </div>
-      <% if (undatedCount) { %><a class="plan-undated-link" href="/plan?view=list&filter=undated">未安排日期 <span><%= undatedCount %></span></a><% } %>
+      <% if (undatedCount) { %><a class="plan-undated-link" href="/plan?view=list&filter=undated">另有 <%= undatedCount %> 项未安排日期</a><% } %>
     </section>
 
-    <aside class="plan-day-detail" aria-labelledby="calendar-day-title">
-      <header><h2 id="calendar-day-title"><%= Number(selected.slice(5, 7)) %>月<%= Number(selected.slice(8)) %>日<span><%= selectedWeekday %></span></h2></header>
+    <aside class="plan-day-detail panel" aria-labelledby="calendar-day-title">
+      <header><h2 id="calendar-day-title"><%= Number(selected.slice(5, 7)) %> 月 <%= Number(selected.slice(8)) %> 日</h2><span><%= selectedWeekday %><%= selected === today ? ' · 今天' : '' %></span></header>
       <section class="plan-day-section" aria-labelledby="plan-day-tasks-title">
         <h3 id="plan-day-tasks-title">当天到期</h3>
-        <% if (!selectedTasks.length && !selectedProjects.length) { %><p class="plan-day-empty">无截止事项</p><% } else { %>
+        <% if (!selectedTasks.length && !selectedProjects.length) { %><p class="plan-day-empty">没有到期事项</p><% } else { %>
           <ul class="plan-task-list">
             <% selectedTasks.forEach(task => { %><%- include('partials/plan-task', { task }) %><% }) %>
             <% selectedProjects.forEach(project => { %><li class="plan-project"><span class="plan-project-mark" aria-hidden="true"></span><div class="plan-task-content"><a href="/note/<%= encodePath(project.path) %>"><%= project.label %></a><span>项目期限</span></div></li><% }) %>
@@ -75,11 +86,11 @@
           <form class="calendar-note-form" action="/plan/notes" method="post" data-calendar-form>
             <input type="hidden" name="date" value="<%= selected %>"><input type="hidden" name="month" value="<%= month %>"><input type="hidden" name="expectedHash" value="<%= selectedNote?.hash || '' %>">
             <label id="plan-note-label" for="calendar-note">当天备注</label>
-            <textarea id="calendar-note" name="text" rows="5" placeholder="写点什么…"><%= selectedNote?.body || '' %></textarea>
+            <textarea id="calendar-note" name="text" rows="4" placeholder="写点什么…"><%= selectedNote?.body || '' %></textarea>
             <div class="plan-note-actions"><button class="button primary small" type="submit">保存备注</button><p class="calendar-note-status" data-calendar-status role="status" aria-live="polite"></p></div>
           </form>
         <% } %>
-        <div class="calendar-note-links"><a data-calendar-note-link href="/note/<%= encodePath(selectedPath) %>"<% if (!selectedNote || selectedNote.parseError) { %> hidden<% } %>>打开笔记</a><a href="/history?path=<%= encodeURIComponent(selectedPath) %>">历史</a></div>
+        <a class="calendar-note-open" data-calendar-note-link href="/note/<%= encodePath(selectedPath) %>"<% if (!selectedNote || selectedNote.parseError) { %> hidden<% } %>>打开备注笔记</a>
       </section>
     </aside>
   </div>

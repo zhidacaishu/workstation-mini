@@ -1,4 +1,12 @@
 (() => {
+  // 今日页的待办只有一个勾选框：勾上即提交，改期留给计划页。
+  document.addEventListener('change', event => {
+    const toggle = event.target;
+    if (!toggle?.matches?.('[data-task-toggle]')) return;
+    const form = toggle.form;
+    if (form?.matches?.('[data-task-quick]')) form.requestSubmit();
+  });
+
   document.addEventListener('submit', async event => {
     const form = event.target;
     if (!form.matches('[data-task-form]')) return;

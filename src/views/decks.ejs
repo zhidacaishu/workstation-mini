@@ -1,27 +1,30 @@
 <%- include('partials/head') %>
+<div class="narrow">
 
-<section class="hero">
-  <h1>卡片</h1>
-  <p class="muted">共 <%= total %> 张 · 到期 <%= due %> 张 · 新卡 <%= fresh %> 张</p>
+<header class="page-head">
+  <div>
+    <h1>复习</h1>
+    <p class="page-meta">共 <%= total %> 张 · 到期 <%= due %> 张 · 新卡 <%= fresh %> 张</p>
+  </div>
   <% if (due + fresh > 0) { %>
-    <div class="actions"><a class="button primary" href="/review">开始复习</a></div>
+    <a class="button primary" href="/review">开始复习 <span class="button-count"><%= sessionCount %></span></a>
   <% } %>
-</section>
+</header>
 
 <% if (typeof failures !== 'undefined' && failures.length) { %>
-  <section class="card" role="alert"><h2>部分卡组无法读取</h2><p>其它卡组仍可复习。请修复以下文件后刷新：</p><ul>
+  <section class="notice is-warn" role="alert"><strong>部分卡组无法读取</strong><p>其它卡组仍可复习。请修复以下文件后刷新：</p><ul>
     <% failures.forEach(failure => { %><li><code><%= failure.path %></code>：<%= failure.message %></li><% }) %>
   </ul></section>
 <% } %>
 <% if (typeof ambiguousHistory !== 'undefined' && ambiguousHistory) { %>
-  <p role="alert">检测到旧版卡片 ID 冲突。无法归属的旧记录已保留，但不计入排期；新的评分独立记录。</p>
+  <p class="notice is-warn" role="alert">检测到旧版卡片 ID 冲突。无法归属的旧记录已保留，但不计入排期；新的评分独立记录。</p>
 <% } %>
 <% if (decks.length === 0) { %>
-  <section class="card empty">
+  <section class="panel empty-state">
     <h2>还没有卡片</h2>
-    <p>在笔记中选中文字即可建卡。</p>
+    <p>在笔记里选中一段文字，点「建卡片」。</p>
     <details class="format-help"><summary>手动编写卡组</summary>
-    <p><code>cards/</code> 下的 Markdown 文件以 <code>##</code> 标题作为正面，正文作为背面。</p>
+    <p><code>cards/</code> 下的 Markdown 文件以 <code>##</code> 标题作为正面，正文作为背面；正文写 <code>{{挖空}}</code> 会变成挖空卡。</p>
     <pre><code>---
 deck: 英语生词
 type: en-word
@@ -30,31 +33,32 @@ type: en-word
 ## heterogeneity
 
 异质性；个体差异。</code></pre>
-    <p class="muted"><code>{{挖空}}</code> 可创建挖空卡。</p>
     </details>
   </section>
 <% } else { %>
-  <table class="decktable">
-    <thead>
-      <tr><th>卡组</th><th>到期</th><th>新卡</th><th>已学</th><th>总数</th><th></th></tr>
-    </thead>
-    <tbody>
-      <% decks.forEach(row => { %>
-        <tr>
-          <td><%= row.deck %></td>
-          <td class="<%= row.due > 0 ? 'due-count' : 'muted' %>"><%= row.due %></td>
-          <td class="<%= row.fresh > 0 ? '' : 'muted' %>"><%= row.fresh %></td>
-          <td class="muted"><%= row.learned %></td>
-          <td class="muted"><%= row.total %></td>
-          <td>
-            <% if (row.due + row.fresh > 0) { %>
-              <a href="/review?deck=<%= encodeURIComponent(row.deck) %>">复习</a>
-            <% } %>
-          </td>
-        </tr>
-      <% }) %>
-    </tbody>
-  </table>
+  <div class="table-panel panel">
+    <table class="decktable">
+      <thead>
+        <tr><th scope="col">卡组</th><th scope="col" class="num">到期</th><th scope="col" class="num">新卡</th><th scope="col">已学</th><th scope="col"><span class="visually-hidden">操作</span></th></tr>
+      </thead>
+      <tbody>
+        <% decks.forEach(row => { const ratio = row.total ? Math.round((row.learned / row.total) * 100) : 0; %>
+          <tr>
+            <th scope="row"><%= row.deck %></th>
+            <td class="num<%= row.due > 0 ? ' due-count' : ' is-zero' %>"><%= row.due %></td>
+            <td class="num<%= row.fresh > 0 ? '' : ' is-zero' %>"><%= row.fresh %></td>
+            <td><span class="deck-progress"><span class="deck-progress-bar"><span style="width: <%= ratio %>%"></span></span><span class="deck-progress-label"><%= row.learned %> / <%= row.total %></span></span></td>
+            <td class="deck-action">
+              <% if (row.due + row.fresh > 0) { %>
+                <a class="button small" href="/review?deck=<%= encodeURIComponent(row.deck) %>">复习</a>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
 <% } %>
 
+</div>
 <%- include('partials/foot') %>

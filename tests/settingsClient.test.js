@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const PLAIN_FIELDS = [
-  'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'launchAtLogin'
+  'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'launchAtLogin', 'theme'
 ];
 
 function clone(value) {
@@ -20,6 +20,7 @@ function makeData(overrides = {}) {
     syncEnabled: true,
     syncIntervalMinutes: 15,
     launchAtLogin: false,
+    theme: 'system',
     ...overrides
   };
   return {
@@ -214,7 +215,7 @@ test('macOS capabilities 隐藏不支持项并保留对应设置原值', async (
 
 test('设置测试控件与实际页面保持一致', async () => {
   const html = await fs.readFile(path.join(__dirname, '..', 'electron', 'settings', 'index.html'), 'utf8');
-  const names = [...html.matchAll(/<input\b[^>]*\bname="([^"]+)"/g)].map(match => match[1]);
+  const names = [...new Set([...html.matchAll(/<input\b[^>]*\bname="([^"]+)"/g)].map(match => match[1]))];
   const ui = await loadSettings();
   assert.deepEqual([...ui.fields.keys()].sort(), names.sort());
 });
@@ -244,7 +245,7 @@ test('设置表单不依赖已移除的检查器控件，保存时只提交当�
   await ui.form.dispatch('submit');
   assert.equal(ui.body.dataset.settingsState, 'clean');
   assert.deepEqual(Object.keys(ui.savedUpdates[0].settings).sort(), [
-    'device', 'launchAtLogin', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'vaultDir'
+    'device', 'launchAtLogin', 'readOnly', 'syncEnabled', 'syncIntervalMinutes', 'theme', 'vaultDir'
   ]);
 });
 

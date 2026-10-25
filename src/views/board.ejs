@@ -1,52 +1,74 @@
 <%- include('partials/head') %>
-
-<section class="hero">
-  <h1><%= workflow.label %></h1>
-  <p class="muted">共 <%= total %> 个<%= workflow.noun %></p>
-</section>
+<%
+  const statusIcon = {
+    planned: '<span class="status-mark is-planned" aria-hidden="true"></span>',
+    running: '<span class="status-mark is-running" aria-hidden="true"></span>',
+    done: '<svg class="status-icon is-done" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>',
+    abandoned: '<svg class="status-icon is-abandoned" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m6.5 17.5 11-11"/></svg>'
+  };
+%>
+<header class="page-head">
+  <div>
+    <h1><%= workflow.label %></h1>
+    <p class="page-meta">共 <%= total %> 个<%= workflow.noun %></p>
+  </div>
+  <% if (!readOnly) { %><a class="button" href="/new?path=<%= encodeURIComponent(`${workflow.section}/new-project`) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
+</header>
 
 <% if (total === 0) { %>
-  <section class="card empty">
+  <section class="panel empty-state board-onboarding">
     <h2>还没有<%= workflow.noun %></h2>
-    <p>在 vault 的 <code>notes/<%= workflow.section %>/</code> 下建 <code>.md</code> 文件，
-      frontmatter 里写 <code>status</code> 就会出现在这里：</p>
+    <p>研究项目就是 <code>notes/<%= workflow.section %>/</code> 下带 <code>status</code> 字段的普通笔记。</p>
     <pre><code>---
 title: 基线模型
 status: <%= workflow.initial %>
 <% workflow.fields.forEach(field => { %><%= field %>:
 <% }) %>---</code></pre>
-    <p class="muted">条目就是普通笔记——能搜到、能被 <code>[[双链]]</code> 引用、有反向链接。</p>
   </section>
 <% } else { %>
   <div class="board" data-board data-workflow="<%= workflow.key %>">
     <% columns.forEach(column => { %>
-      <section class="board-col <%= column.muted ? 'is-muted' : '' %> <%= column.warn ? 'is-warn' : '' %>" data-board-column data-status="<%= column.key %>">
-        <h2><span><%= column.label %></span> <span class="count" data-column-count><%= column.items.length %></span></h2>
+      <section class="board-col <%= column.muted ? 'is-muted' : '' %> <%= column.warn ? 'is-warn' : '' %>" data-board-column data-status="<%= column.key %>" aria-labelledby="board-col-<%= column.key %>">
+        <h2 id="board-col-<%= column.key %>"><%- statusIcon[column.key] || statusIcon.planned %><span><%= column.label %></span><span class="count" data-column-count><%= column.items.length %></span></h2>
         <div class="board-items" data-board-items>
-          <p class="board-empty"<% if (column.items.length) { %> hidden<% } %>>暂无条目</p>
+          <p class="board-empty"<% if (column.items.length) { %> hidden<% } %>>空</p>
 
-        <% column.items.forEach(item => { %>
+        <% column.items.forEach(item => {
+          const deadline = ui.toDateString(item.data.deadline);
+          const active = item.status !== 'done' && item.status !== 'abandoned';
+          const overdue = active && deadline && deadline < today;
+          const dataset = ui.fieldText(item.data.dataset);
+          const next = ui.fieldText(item.data.next);
+          const result = ui.fieldText(item.data.result || item.data.conclusion);
+        %>
           <article class="board-card" data-board-card data-path="<%= item.path %>" data-status="<%= item.status %>" data-hash="<%= item.hash %>">
             <a class="board-title" href="/note/<%= encodePath(item.path) %>"><%= item.title %></a>
 
-            <% if (item.data.deadline) { %>
-              <p class="board-meta <%= String(item.data.deadline).slice(0,10) < today ? 'overdue' : '' %>">
-                截止 <%= String(item.data.deadline).slice(0, 10) %>
+            <% if (dataset || deadline) { %>
+              <p class="board-meta">
+                <% if (dataset) { %><span class="board-dataset"><%= dataset %></span><% } %>
+                <% if (deadline) { %><span class="board-deadline<%= overdue ? ' is-overdue' : active && deadline === today ? ' is-today' : '' %>"><%= overdue ? '已逾期 · ' : '截止 ' %><%= ui.shortDate(deadline, today) %></span><% } %>
               </p>
             <% } %>
-            <% if (item.data.dataset) { %><p class="board-meta"><%= item.data.dataset %></p><% } %>
-            <% if (item.data.next) { %><p class="board-next"><%= item.data.next %></p><% } %>
+            <% if (item.status === 'done' && result) { %>
+              <p class="board-next"><span>结果</span><%= result %></p>
+            <% } else if (next) { %>
+              <p class="board-next"><span>下一步</span><%= next %></p>
+            <% } %>
 
             <% if (!readOnly) { %>
               <form class="statusform" action="/board/status" method="post">
                 <input type="hidden" name="workflow" value="<%= workflow.key %>">
                 <input type="hidden" name="path" value="<%= item.path %>">
                 <input type="hidden" name="expectedHash" value="<%= item.hash %>">
-                <select name="status" data-auto-submit aria-label="改变状态">
-                  <% workflow.statuses.forEach(status => { %>
-                    <option value="<%= status.key %>" <%= status.key === item.status ? 'selected' : '' %>><%= status.label %></option>
-                  <% }) %>
-                </select>
+                <label class="select-field small">
+                  <span class="visually-hidden">改变状态</span>
+                  <select name="status" data-auto-submit aria-label="改变状态">
+                    <% workflow.statuses.forEach(status => { %>
+                      <option value="<%= status.key %>" <%= status.key === item.status ? 'selected' : '' %>><%= status.label %></option>
+                    <% }) %>
+                  </select>
+                </label>
               </form>
             <% } %>
           </article>

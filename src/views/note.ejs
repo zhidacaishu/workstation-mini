@@ -1,74 +1,87 @@
 <%- include('partials/head') %>
-
-<div class="note-layout">
-<article class="note">
-  <header class="note-header">
-    <h1><%= note.title %></h1>
-    <p class="muted path"><%= note.path %></p>
-    <% if (note.tags.length) { %>
-      <ul class="chiplist inline">
-        <% note.tags.forEach(tag => { %>
-          <li><a class="chip" href="/search?tag=<%= encodeURIComponent(tag) %>"><%= tag %></a></li>
-        <% }) %>
-      </ul>
-    <% } %>
-    <% if (!readOnly) { %>
-      <div class="actions">
-        <a class="button" href="/edit/<%= encodePath(note.path) %>">编辑</a>
-        <details class="note-more">
-          <summary class="button quiet">更多</summary>
-          <div class="note-more-menu">
-            <a href="/history?path=<%= encodeURIComponent(note.path) %>">版本历史与草稿</a>
-            <form action="/delete" method="post" data-confirm-delete>
-              <input type="hidden" name="path" value="<%= note.path %>">
-              <input type="hidden" name="expectedHash" value="<%= note.hash %>">
-              <button class="button danger" type="submit">删除笔记</button>
-            </form>
+<%
+  const isProject = note.section === 'experiments' && note.data && note.data.status;
+  const projectFields = isProject
+    ? ['dataset', 'params', 'seed', 'commit'].map(key => [key, ui.fieldText(note.data[key])]).filter(([, value]) => value)
+    : [];
+  const outcome = isProject ? ['result', 'conclusion'].map(key => [key === 'result' ? '结果' : '结论', ui.fieldText(note.data[key])]).filter(([, value]) => value) : [];
+  const deadline = isProject ? ui.toDateString(note.data.deadline) : '';
+  const active = isProject && note.data.status !== 'done' && note.data.status !== 'abandoned';
+  const next = isProject ? ui.fieldText(note.data.next) : '';
+  const hasLinks = backlinks.length > 0 || pending.length > 0;
+%>
+<div class="note-layout<%= hasLinks ? '' : ' is-single' %>">
+  <article class="note">
+    <header class="note-header">
+      <div class="note-title-row">
+        <h1><%= note.title %></h1>
+        <% if (!readOnly) { %>
+          <div class="note-actions">
+            <a class="button" href="/edit/<%= encodePath(note.path) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4"/></svg>编辑</a>
+            <details class="note-more">
+              <summary class="button icon-button" aria-label="更多操作" title="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></summary>
+              <div class="note-more-menu">
+                <a href="/history?path=<%= encodeURIComponent(note.path) %>">版本历史与草稿</a>
+                <form action="/delete" method="post" data-confirm-delete>
+                  <input type="hidden" name="path" value="<%= note.path %>">
+                  <input type="hidden" name="expectedHash" value="<%= note.hash %>">
+                  <button class="menu-danger" type="submit">删除笔记</button>
+                </form>
+              </div>
+            </details>
           </div>
-        </details>
+        <% } %>
       </div>
+      <div class="note-meta">
+        <% if (note.section) { %><a class="note-section" href="/search?section=<%= encodeURIComponent(note.section) %>"><%= ui.sectionName(note.section) %></a><% } %>
+        <% note.tags.forEach(tag => { %><a class="note-tag" href="/search?tag=<%= encodeURIComponent(tag) %>">#<%= tag %></a><% }) %>
+        <% if (note.mtimeMs) { %><span><%= ui.modifiedLabel(note.mtimeMs, today) %>修改</span><% } %>
+      </div>
+    </header>
+
+    <% if (isProject) { %>
+      <section class="project-summary" aria-label="项目信息">
+        <p class="project-summary-head">
+          <span class="status-label is-<%= note.data.status %>"><span class="status-mark" aria-hidden="true"></span><%= ui.PROJECT_STATUS[note.data.status] || note.data.status %></span>
+          <% if (deadline) { %><span class="research-deadline<%= active && deadline < today ? ' is-overdue' : '' %>">截止 <%= ui.shortDate(deadline, today) %><% if (active) { %> · <%= ui.dueRelative(deadline, today) %><% } %></span><% } %>
+        </p>
+        <% if (next && active) { %><p class="research-next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span><%= next %></span></p><% } %>
+        <% outcome.forEach(([label, value]) => { %><p class="project-outcome"><span><%= label %></span><%= value %></p><% }) %>
+        <% if (projectFields.length) { %>
+          <dl class="project-fields">
+            <% projectFields.forEach(([key, value]) => { %><div><dt><%= key %></dt><dd><%= value %></dd></div><% }) %>
+          </dl>
+        <% } %>
+      </section>
     <% } %>
-  </header>
 
-  <div class="prose"><%- html %></div>
-</article>
+    <div class="prose"><%- html %></div>
+  </article>
 
-<aside class="panel">
-  <section>
-    <h2>反向链接 <span class="count"><%= backlinks.length %></span></h2>
-    <% if (backlinks.length === 0) { %>
-      <p class="muted">还没有笔记链到这里。</p>
-    <% } %>
-    <ul class="notelist">
-      <% backlinks.forEach(link => { %>
-        <li><a href="/note/<%= encodePath(link.path) %>"><%= link.title %></a></li>
-      <% }) %>
-    </ul>
-  </section>
-
-  <% if (outbound.length) { %>
-    <section>
-      <h2>指向 <span class="count"><%= outbound.length %></span></h2>
-      <ul class="notelist">
-        <% outbound.forEach(link => { %>
-          <li><a href="/note/<%= encodePath(link.path) %>"><%= link.target %></a></li>
-        <% }) %>
-      </ul>
-    </section>
+  <% if (hasLinks) { %>
+    <aside class="note-links" aria-label="笔记链接">
+      <% if (backlinks.length) { %>
+        <section>
+          <h2>反向链接 <span class="count"><%= backlinks.length %></span></h2>
+          <ul class="notelist">
+            <% backlinks.forEach(link => { %>
+              <li><a href="/note/<%= encodePath(link.path) %>"><%= link.title %></a></li>
+            <% }) %>
+          </ul>
+        </section>
+      <% } %>
+      <% if (pending.length) { %>
+        <section>
+          <h2>待建 <span class="count"><%= pending.length %></span></h2>
+          <ul class="notelist is-pending">
+            <% pending.forEach(link => { %>
+              <li><a class="wikilink-missing" href="/new?path=<%= encodeURIComponent(link.target) %>" title="<%= readOnly ? link.target : '新建这篇笔记' %>"><%= link.target %></a></li>
+            <% }) %>
+          </ul>
+        </section>
+      <% } %>
+    </aside>
   <% } %>
-
-  <% if (pending.length) { %>
-    <section>
-      <h2>待建 <span class="count"><%= pending.length %></span></h2>
-      <p class="muted">链到了还没写的笔记。</p>
-      <ul class="notelist">
-        <% pending.forEach(link => { %>
-          <li><a class="wikilink-missing" href="/new?path=<%= encodeURIComponent(link.target) %>"><%= link.target %></a></li>
-        <% }) %>
-      </ul>
-    </section>
-  <% } %>
-</aside>
 </div>
 
 <%- include('partials/foot') %>

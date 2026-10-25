@@ -101,13 +101,16 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
     }
 
     const decks = [...byDeck.values()].sort((a, b) => b.due - a.due || a.deck.localeCompare(b.deck));
+    const due = decks.reduce((sum, deck) => sum + deck.due, 0);
+    const fresh = decks.reduce((sum, deck) => sum + deck.fresh, 0);
     return {
       decks,
       failures,
       ambiguousHistory: all.some(card => all.some(other => other !== card && other.legacyId === card.legacyId)),
       total: all.length,
-      due: decks.reduce((sum, d) => sum + d.due, 0),
-      fresh: decks.reduce((sum, d) => sum + d.fresh, 0)
+      due,
+      fresh,
+      sessionCount: due + Math.min(fresh, DEFAULT_NEW_LIMIT)
     };
   }
 

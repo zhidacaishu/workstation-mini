@@ -351,3 +351,44 @@ test('按卡组筛选复习', async () => {
     await ctx.cleanup();
   }
 });
+
+test('开始复习计数应用全局新卡上限，并保留全部到期卡', async () => {
+  const cardBody = (deck, count) => ['---', 'deck: ' + deck, '---', '',
+    ...Array.from({ length: count }, (_, index) => '## Question ' + index + '\n\nAnswer\n')].join('\n');
+  const ctx = await setup({ cards: {
+    'first.md': cardBody('第一组', 15),
+    'second.md': cardBody('第二组', 10)
+  } });
+  try {
+    const initial = await request(ctx.app).get('/review').expect(200);
+    const queueOf = html => JSON.parse(decodeURIComponent(html.match(/data-queue="([^"]*)"/)[1]));
+    const firstCard = queueOf(initial.text)[0];
+    await request(ctx.app).post('/review/answer').send({
+      cardId: firstCard.id, rating: 1, eventId: 'forgotten-card'
+    }).expect(200);
+
+    const logPath = path.join(ctx.vaultDir, 'reviews', ctx.reviewFiles()[0]);
+    const event = ctx.reviewLines()[0];
+    event.ts = new Date(FIXED_NOW.getTime() - 86400000).toISOString();
+    await fs.writeFile(logPath, JSON.stringify(event) + '\n');
+
+    const decks = await request(ctx.app).get('/decks').expect(200);
+    const session = await request(ctx.app).get('/review').expect(200);
+    const actualQueue = queueOf(session.text);
+    const buttonCount = Number(decks.text.match(/class="button-count">(\d+)/)[1]);
+    assert.equal(buttonCount, 21, '1 张到期卡 + 本轮最多 20 张新卡');
+    assert.equal(buttonCount, actualQueue.length);
+    assert.match(decks.text, /新卡 24 张/, '全量新卡统计不能被本轮上限截断');
+    assert.match(decks.text, /<th scope="col">已学<\/th>/);
+    assert.doesNotMatch(decks.text, /已掌握/);
+    assert.match(decks.text, /class="deck-progress-label">1 \/ 15/,
+      '评分为“忘了”的卡片只计入已学，不应宣称已掌握');
+
+    const home = await request(ctx.app).get('/').expect(200);
+    assert.match(home.text, /今日复习<\/span><strong>21<\/strong>/);
+    const scoped = await request(ctx.app).get('/review?deck=' + encodeURIComponent('第二组')).expect(200);
+    assert.equal(queueOf(scoped.text).length, 10, '卡组内不足 20 张时全部载入');
+  } finally {
+    await ctx.cleanup();
+  }
+});

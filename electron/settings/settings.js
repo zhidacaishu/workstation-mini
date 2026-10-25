@@ -14,7 +14,7 @@ const capabilityElements = [...document.querySelectorAll('[data-capability]')];
 
 const PLAIN_FIELDS = [
   'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes',
-  'launchAtLogin'
+  'launchAtLogin', 'theme'
 ];
 
 let phase = 'loading';
@@ -47,6 +47,8 @@ function readPlainSettings() {
   const settings = {};
   for (const name of PLAIN_FIELDS) {
     const input = field(name);
+    if (!input) continue;
+    // theme 是一组单选：namedItem 返回 RadioNodeList，直接读写 value 即可。
     settings[name] = input.type === 'checkbox' ? input.checked : input.value;
   }
   settings.syncIntervalMinutes = Number(settings.syncIntervalMinutes);

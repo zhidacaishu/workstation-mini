@@ -1,78 +1,101 @@
 <%- include('partials/head') %>
 <%
+  const date = snapshot.date;
   const attention = snapshot.attention || {};
-  const projects = [...(attention.runningExperiments || []), ...(attention.plannedProjects || [])].slice(0, 2);
+  // 首页只放一个最该推进的项目：进行中优先，其次是计划中的。
+  const featured = [...(attention.runningExperiments || []), ...(attention.plannedProjects || [])][0];
   const review = snapshot.review || {};
   const reviewCount = (review.due || 0) + (review.fresh || 0);
   const tasks = snapshot.tasks || {};
-  const upcoming = projectDeadlines;
-  const sectionNames = { experiments: '研究项目', research: '研究笔记', calendar: '月历备注', learning: '学习笔记', reading: '阅读笔记', inbox: '收件箱' };
+  const topTasks = (tasks.top || []).slice(0, 5);
+  // 月历备注已经在计划页里，不再挤进「最近的笔记」。
+  const recentNotes = (recent || []).filter(item => item.section !== 'calendar' && (!featured || item.path !== featured.path)).slice(0, 4);
+  const traceOf = project => [
+    ui.fieldText(project.data.dataset),
+    ui.fieldText(project.data.params),
+    project.data.seed !== undefined && project.data.seed !== null && project.data.seed !== '' ? `seed ${ui.fieldText(project.data.seed)}` : '',
+    ui.fieldText(project.data.commit)
+  ].filter(Boolean).join(' · ');
 %>
 
 <header class="desk-header">
-  <div>
-    <h1>今日工作台</h1>
-    <p class="desk-intro">接着上次的思路，推进下一步。</p>
-  </div>
-  <p class="desk-date"><%= snapshot.date.replaceAll('-', ' / ') %><span><%= snapshot.weekday || '' %></span></p>
+  <h1><%= Number(date.slice(5, 7)) %> 月 <%= Number(date.slice(8, 10)) %> 日</h1>
+  <span class="desk-weekday"><%= snapshot.weekday || '' %></span>
 </header>
+
+<nav class="desk-metrics" aria-label="今日概览">
+  <a class="desk-metric" href="/plan?view=list&filter=all"><span class="desk-metric-label">待办</span><strong><%= tasks.open || 0 %></strong></a>
+  <a class="desk-metric<%= tasks.overdue ? ' is-warn' : '' %>" href="/plan?view=list&filter=overdue"><span class="desk-metric-label">逾期</span><strong><%= tasks.overdue || 0 %></strong></a>
+  <a class="desk-metric is-action" href="<%= reviewCount ? '/review' : '/decks' %>"><span class="desk-metric-label">今日复习</span><strong><%= reviewCount %></strong><% if (reviewCount) { %><span class="desk-metric-go" aria-hidden="true">开始 →</span><% } %></a>
+</nav>
 
 <div class="desk-layout">
   <div class="desk-main">
-    <section class="desk-section" aria-labelledby="continue-title">
-      <div class="desk-section-heading"><h2 id="continue-title">继续研究</h2><a href="/board/experiment">全部项目</a></div>
-      <% if (projects.length) { %>
-        <div class="research-stack">
-          <% projects.forEach((project, index) => { %>
-            <article class="research-entry<%= index === 0 ? ' is-featured' : '' %>">
-              <div class="research-context"><span class="research-status<%= project.status === 'running' ? ' is-running' : '' %>"><%= project.statusLabel %></span><% if (project.data.dataset) { %><span><%= project.data.dataset %></span><% } %></div>
-              <h3><a href="/note/<%= encodePath(project.path) %>"><%= project.title %></a></h3>
-              <% if (project.data.next) { %><p class="research-next"><span>下一步</span><%= project.data.next %></p><% } %>
-              <% if (index === 0) { %><a class="research-open" href="/note/<%= encodePath(project.path) %>">继续这个项目</a><% } %>
-            </article>
-          <% }) %>
-        </div>
+    <section class="panel desk-research" aria-labelledby="continue-title">
+      <div class="section-head"><h2 id="continue-title">继续研究</h2><a href="/board/experiment">全部项目</a></div>
+      <% if (featured) { const deadline = ui.toDateString(featured.data.deadline); const trace = traceOf(featured); %>
+        <article class="research-entry is-featured">
+          <div class="research-context">
+            <span class="status-label is-<%= featured.status %>"><span class="status-mark" aria-hidden="true"></span><%= featured.statusLabel %></span>
+            <% if (deadline) { %><span class="research-deadline<%= deadline < date ? ' is-overdue' : '' %>">截止 <%= ui.shortDate(deadline, date) %> · <%= ui.dueRelative(deadline, date) %></span><% } %>
+          </div>
+          <h3><a href="/note/<%= encodePath(featured.path) %>"><%= featured.title %></a></h3>
+          <% if (featured.data.next) { %>
+            <p class="research-next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span><%= ui.fieldText(featured.data.next) %></span></p>
+          <% } %>
+          <% if (trace) { %><p class="research-trace"><%= trace %></p><% } %>
+        </article>
       <% } else { %>
-        <div class="desk-empty"><h3>暂无进行中的项目</h3><a class="button" href="/board/experiment">查看研究项目</a></div>
+        <div class="empty-state">
+          <p>还没有进行中的研究项目。</p>
+          <% if (!readOnly) { %><a class="button" href="/new?path=experiments/new-project">新建项目</a><% } %>
+        </div>
       <% } %>
     </section>
 
-    <section class="desk-section" aria-labelledby="recent-title">
-      <div class="desk-section-heading"><h2 id="recent-title">最近的笔记</h2><a href="/search">打开资料库</a></div>
-      <% if (recent && recent.length) { %>
+    <section class="desk-recent" aria-labelledby="recent-title">
+      <div class="section-head"><h2 id="recent-title">最近的笔记</h2><a href="/search">全部笔记</a></div>
+      <% if (recentNotes.length) { %>
         <ul class="desk-notes">
-          <% recent.filter(note => !projects.some(project => project.path === note.path)).slice(0, 3).forEach(note => { %>
-            <li><a href="/note/<%= encodePath(note.path) %>"><span class="document-mark" aria-hidden="true"></span><span><strong><%= note.title %></strong><small><%= sectionNames[note.section] || note.section || '未分区' %></small></span></a></li>
+          <% recentNotes.forEach(item => { %>
+            <li><a href="/note/<%= encodePath(item.path) %>"><span class="desk-note-title"><%= item.title %></span><span class="desk-note-meta"><%= ui.modifiedLabel(item.mtimeMs, date) %></span></a></li>
           <% }) %>
         </ul>
       <% } else { %>
-        <div class="desk-empty"><h3>还没有笔记</h3><% if (!readOnly) { %><a class="button" href="/new">写第一篇笔记</a><% } %></div>
+        <div class="empty-state">
+          <p>还没有笔记</p>
+          <% if (!readOnly) { %><a class="button" href="/new">写第一篇笔记</a><% } %>
+        </div>
       <% } %>
     </section>
   </div>
 
-  <aside class="desk-side" aria-label="今日安排">
-    <section class="desk-section" aria-labelledby="task-title">
-      <div class="desk-section-heading"><h2 id="task-title">今天需要处理</h2><a href="/plan?view=list">全部计划</a></div>
-      <% if (tasks.top && tasks.top.length) { %>
-        <ul class="desk-tasks">
-          <% tasks.top.slice(0, 4).forEach(task => { %>
-            <li><div class="desk-task-title"><span class="task-box" aria-hidden="true">☐</span><a href="/note/<%= encodePath(task.path) %>"><%= task.title %></a></div><div class="desk-task-meta"><span><%= task.noteTitle %></span><% if (task.due) { %><time class="<%= task.due < snapshot.date ? 'is-overdue' : '' %>" datetime="<%= task.due %>"><%= task.due < snapshot.date ? '逾期 · ' : task.due === snapshot.date ? '今天 · ' : '' %><%= task.due.slice(5).replace('-', '/') %></time><% } else { %><span>未安排日期</span><% } %></div><% if (!readOnly) { %><details class="desk-task-edit"><summary>调整待办</summary><%- include('partials/task-actions', { task }) %></details><% } %></li>
-          <% }) %>
-        </ul>
-      <% } else { %><p class="desk-quiet">没有待办</p><% } %>
-    </section>
-
-    <section class="desk-review" aria-labelledby="review-title">
-      <div class="desk-section-heading"><h2 id="review-title">巩固所学</h2></div>
-      <% if (reviewCount) { %><p><% if (review.due) { %><strong><%= review.due %> 张到期卡</strong><% if (review.fresh) { %>，另有 <%= review.fresh %> 张新卡<% } %>，等待复习。<% } else { %><strong><%= review.fresh %> 张新卡</strong>。<% } %></p><a class="button primary" href="/review">开始复习</a><% } else { %><p>暂无待复习卡片</p><a class="button" href="/decks">查看卡组</a><% } %>
-    </section>
-
-    <section class="desk-section" aria-labelledby="deadline-title">
-      <div class="desk-section-heading"><h2 id="deadline-title">项目期限</h2><a href="/plan?view=calendar">月历</a></div>
-      <% if (upcoming.length) { %><ul class="desk-deadlines"><% upcoming.slice(0, 4).forEach(entry => { %><li><time datetime="<%= entry.date %>" class="<%= entry.overdue ? 'is-overdue' : '' %>"><%= entry.date.slice(5).replace('-', '/') %><% if (entry.overdue) { %><small>已逾期</small><% } %></time><a href="/note/<%= encodePath(entry.path) %>"><%= entry.label %></a></li><% }) %></ul><% } else { %><p class="desk-quiet">近期没有截止事项。</p><% } %>
-    </section>
-  </aside>
+  <section class="panel desk-side" aria-labelledby="task-title">
+    <div class="section-head"><h2 id="task-title">今天需要处理</h2><a href="/plan?view=list">全部计划</a></div>
+    <% if (topTasks.length) { %>
+      <ul class="desk-tasks">
+        <% topTasks.forEach(task => { const overdue = task.due && task.due < date; const dueToday = task.due === date; %>
+          <li class="desk-task">
+            <% if (!readOnly) { %>
+              <form class="desk-task-form" action="/tasks/update" method="post" data-task-form data-task-quick>
+                <input type="hidden" name="path" value="<%= task.path %>">
+                <input type="hidden" name="line" value="<%= task.line %>">
+                <input type="hidden" name="expectedHash" value="<%= task.hash %>">
+                <input type="hidden" name="due" value="<%= task.due || '' %>">
+                <input class="task-check" type="checkbox" name="done" data-task-toggle aria-label="完成：<%= task.title %>">
+              </form>
+            <% } else { %>
+              <span class="task-check is-static" aria-hidden="true"></span>
+            <% } %>
+            <a class="desk-task-title" href="/note/<%= encodePath(task.path) %>#L<%= task.line %>" title="<%= task.noteTitle %>"><%= task.title %></a>
+            <% if (task.due) { %><time class="due-tag<%= overdue ? ' is-overdue' : dueToday ? ' is-today' : '' %>" datetime="<%= task.due %>"><%= overdue ? `逾期 ${ui.shortDate(task.due, date)}` : dueToday ? '今天' : ui.shortDate(task.due, date) %></time><% } %>
+          </li>
+        <% }) %>
+      </ul>
+    <% } else { %>
+      <p class="desk-quiet">今天没有待办。</p>
+    <% } %>
+  </section>
 </div>
 
 <%- include('partials/foot') %>

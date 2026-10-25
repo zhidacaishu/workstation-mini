@@ -17,6 +17,7 @@
   const summaryEl = document.getElementById('review-summary');
   const doneTitle = document.getElementById('review-done-title');
   const failuresEl = document.getElementById('review-failures');
+  const meterEl = document.getElementById('review-meter-fill');
 
   let queue;
   try {
@@ -69,7 +70,8 @@
     backEl.hidden = true;
     ratingsEl.hidden = true;
     revealBtn.hidden = false;
-    deckEl.textContent = card.deck ? `· ${card.deck}` : '';
+    deckEl.textContent = card.deck || '';
+    if (meterEl?.style) meterEl.style.width = `${Math.round((index / Math.max(queue.length, 1)) * 100)}%`;
     remainingEl.textContent = String(queue.length - index);
     revealed = false;
     shownAt = Date.now();

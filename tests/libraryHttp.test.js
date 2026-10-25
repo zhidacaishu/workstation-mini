@@ -102,7 +102,7 @@ test('有 query 时仍使用全文搜索结果', async t => {
   assert.doesNotMatch(response.text, /未命中文档/);
 });
 
-test('今日限制项目数量，项目期限不重复待办也不被前八条待办挤掉', async t => {
+test('今日只突出一个研究项目，项目截止日显示在项目卡上而不混进待办', async t => {
   const { app, config, indexer } = await setup(t);
   const date = new Date();
   const localDate = value => [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-');
@@ -117,11 +117,14 @@ test('今日限制项目数量，项目期限不重复待办也不被前八条�
   await addNote(config, 'tasks.md', { body: Array.from({ length: 9 }, (_, i) => `- [ ] 待办 ${i} @${today}`).join('\n') });
   await indexer.scan();
   const response = await request(app).get('/').expect(200);
-  assert.equal((response.text.match(/class="research-entry/g) || []).length, 2);
+  assert.equal((response.text.match(/class="research-entry/g) || []).length, 1);
   assert.doesNotMatch(response.text, /class="statrow"/);
-  const deadlines = response.text.match(/<ul class="desk-deadlines">([\s\S]*?)<\/ul>/)[1];
-  assert.match(deadlines, /研究项目 0/);
-  assert.doesNotMatch(deadlines, /待办 \d/);
+  const featured = response.text.match(/<article class="research-entry is-featured">([\s\S]*?)<\/article>/)[1];
+  assert.match(featured, /研究项目 0/);
+  assert.match(featured, /截止 /);
+  const tasks = response.text.match(/<ul class="desk-tasks">([\s\S]*?)<\/ul>/)[1];
+  assert.equal((tasks.match(/class="desk-task"/g) || []).length, 5, '首页最多列五条待办');
+  assert.doesNotMatch(tasks, /研究项目 0/);
 });
 
 test('笔记标签直接筛选资料库，不再附加同名全文搜索', async t => {

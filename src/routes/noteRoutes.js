@@ -1,7 +1,7 @@
 const express = require('express');
 
 const { renderMarkdown } = require('../markdown');
-const { buildResolver } = require('../vault/wikilink');
+const { buildIndexResolver } = require('../vault/wikilink');
 const { isSafeRelativePath, toPosix, sectionOf, encodePath } = require('../vault/paths');
 const { readNote, writeNote, deleteNote } = require('../vault/note');
 const { enqueueNote } = require('../vault/note-queue');
@@ -12,7 +12,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
   // 只读模式拒绝一切会改动 Markdown 的请求。
   const guard = blockWhenReadOnly(config, '不能修改笔记。');
 
-  const resolver = () => buildResolver(db.listPaths());
+  const resolver = () => buildIndexResolver(db);
 
   router.get('/search', (req, res) => {
     const query = String(req.query.q || '');
@@ -58,10 +58,15 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
       return;
     }
     const suggested = toPosix(String(req.query.path || ''));
+    // 研究项目也是普通笔记，只是 frontmatter 里带状态字段。从看板新建时预先填好
+    // 字段骨架，免得每次去翻格式；用户可以删掉不需要的行。
+    const isProject = suggested.startsWith('experiments/');
     res.render('edit', {
-      title: '新建笔记',
+      title: isProject ? '新建研究项目' : '新建笔记',
       notePath: suggested.endsWith('.md') ? suggested : `${suggested}.md`,
-      body: '',
+      body: isProject
+        ? '---\ntitle: \nstatus: planned\ndeadline: \ndataset: \nparams: \nseed: \ncommit: \nnext: \n---\n\n'
+        : '',
       expectedHash: '',
       isNew: true
     });

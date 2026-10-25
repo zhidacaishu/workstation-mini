@@ -10,6 +10,8 @@ const { createItemRoutes } = require('./routes/itemRoutes');
 const { createTodayRoutes } = require('./routes/todayRoutes');
 const { createCalendarRoutes } = require('./routes/calendarRoutes');
 const { encodePath } = require('./vault/paths');
+const { toLocalDate } = require('./templates');
+const viewHelpers = require('./viewHelpers');
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ''));
@@ -82,8 +84,17 @@ function createApp(config, deps) {
   app.use('/static', express.static(path.join(__dirname, 'public'), {
     maxAge: config.isProduction ? '1h' : 0
   }));
+  // 打包的界面字体。字体文件按内容切片且版本固定，可以长时间缓存。
+  for (const [name, directory] of Object.entries(viewHelpers.fontDirectories())) {
+    app.use(`/static/fonts/${name}`, express.static(directory, {
+      maxAge: config.isProduction ? '30d' : 0,
+      index: false
+    }));
+  }
 
-  app.use((req, res, next) => {
+  const navCounts = viewHelpers.createNavCounts({ config, db: resolved.db, now: resolved.now });
+
+  app.use(async (req, res, next) => {
     res.locals.readOnly = config.readOnly;
     res.locals.currentPath = req.path;
     res.locals.encodePath = encodePath;
@@ -91,6 +102,16 @@ function createApp(config, deps) {
     res.locals.draftId = crypto.randomUUID();
     res.locals.recovered = false;
     res.locals.editorWarning = '';
+    res.locals.today = toLocalDate((resolved.now || (() => new Date()))());
+    res.locals.ui = viewHelpers;
+    res.locals.navCounts = { overdue: 0, review: 0 };
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      navCounts.invalidate();
+    } else if (!wantsJson(req) && !req.path.startsWith('/api/')) {
+      try {
+        res.locals.navCounts = await navCounts.get();
+      } catch {}
+    }
     next();
   });
 
