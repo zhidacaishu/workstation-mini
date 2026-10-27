@@ -27,7 +27,7 @@
         : matches('/board') || (matches('/plan', '/calendar') && typeof view !== 'undefined' && view === 'calendar') ? 'page-canvas' : 'page-work';
 %>
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN"<% if (typeof insetChrome !== 'undefined' && insetChrome) { %> class="chrome-inset"<% } %>>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -35,6 +35,7 @@
   <link rel="stylesheet" href="/static/fonts/geist/wght.css">
   <link rel="stylesheet" href="/static/fonts/geist-mono/wght.css">
   <link rel="stylesheet" href="/static/fonts/noto-sans-sc/wght.css">
+  <link rel="stylesheet" href="/static/katex/katex.min.css">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/drafts.js" defer></script>
   <script src="/static/task-actions.js" defer></script>
@@ -48,7 +49,11 @@
   <div class="app-shell">
     <aside class="workspace-sidebar" aria-label="应用导航">
       <a class="workspace-brand" href="/" aria-label="科研工作台首页" title="科研工作台">
-        <span class="workspace-mark" aria-hidden="true">研</span>
+        <svg class="workspace-mark" viewBox="163 172 680 680" aria-hidden="true">
+          <rect class="workspace-mark-back" x="225" y="176" width="440" height="560" rx="72" transform="rotate(22 297 664)"/>
+          <rect class="workspace-mark-front" x="225" y="176" width="440" height="560" rx="72"/>
+          <path class="workspace-mark-tick" d="M327 462 L417 552 L581 368"/>
+        </svg>
       </a>
 
       <button type="button" class="palette-trigger workspace-search" data-palette-open aria-haspopup="dialog" aria-controls="palette" aria-keyshortcuts="<%= onMac ? 'Meta+K' : 'Control+K' %>" title="搜索与命令（<%= paletteHint %>）">

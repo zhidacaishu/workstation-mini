@@ -210,6 +210,13 @@
     }
   }
 
+  // 导航或退出会终止内存中的评分重试，待落盘时沿用编辑器的离开保护。
+  window.addEventListener('beforeunload', event => {
+    if (pendingAnswers === 0) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
   revealBtn.addEventListener('click', reveal);
   for (const button of ratingsEl.querySelectorAll('[data-rating]')) {
     button.addEventListener('click', () => answer(Number(button.dataset.rating)));

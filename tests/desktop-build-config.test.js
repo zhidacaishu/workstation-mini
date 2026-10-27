@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { build } = require('../package.json');
 
 test('macOS 目标只出 arm64 DMG，且不参与更新分发', () => {
@@ -42,4 +45,20 @@ test('两个平台的托盘资源都随包分发', () => {
 test('原生模块解包到 ASAR 之外', () => {
   // better-sqlite3 的 .node 在 ASAR 里加载不了，Windows 和 macOS 都一样。
   assert.deepEqual(build.asarUnpack, ['node_modules/**/*.node']);
+});
+
+test('应用图标：macOS 用自带多尺寸的 icns，Windows 的 ico 覆盖 16–256', () => {
+  // icns 里 16/32pt 放的是专门画的简化版；交给 electron-builder 从 png 缩，
+  // 小尺寸会糊成一团。
+  assert.equal(build.mac.icon, 'build/icon.icns');
+  const icns = fs.readFileSync(path.join(__dirname, '..', build.mac.icon));
+  assert.equal(icns.subarray(0, 4).toString('latin1'), 'icns');
+  for (const type of ['icp4', 'ic11', 'icp5', 'ic12', 'ic07', 'ic13', 'ic08', 'ic14', 'ic09', 'ic10']) {
+    assert.ok(icns.includes(Buffer.from(type, 'latin1')), `icns 缺少 ${type}`);
+  }
+
+  const ico = fs.readFileSync(path.join(__dirname, '..', build.win.icon));
+  const count = ico.readUInt16LE(4);
+  const sizes = Array.from({ length: count }, (_, index) => ico[6 + index * 16] || 256);
+  assert.deepEqual(sizes.sort((a, b) => a - b), [16, 24, 32, 48, 64, 128, 256]);
 });

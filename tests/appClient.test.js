@@ -604,6 +604,7 @@ async function loadBoard(fetch) {
   const card = element();
   card.dataset.status = 'running';
   card.parentColumn = sourceColumn;
+  card.querySelector = () => null;
   card.closest = selector => selector === '[data-board-column]' ? card.parentColumn : null;
   sourceItems.cards = [card];
   targetItems.cards = [];

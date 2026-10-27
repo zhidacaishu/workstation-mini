@@ -1,0 +1,321 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
+const { _electron: electron } = require('playwright-core');
+
+test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面交互', { timeout: 90000 }, async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-actions-desktop-'));
+  const vault = path.join(root, 'vault');
+  const userData = path.join(root, 'user');
+  let app, page;
+  const errors = [];
+  let failed = false;
+  async function check(name, fn) {
+    await t.test(name, async () => { try { await fn(); } catch (error) { failed = true; throw error; } });
+  }
+  try {
+    await fs.mkdir(path.join(vault, 'notes', 'experiments'), { recursive: true });
+    await fs.mkdir(path.join(vault, 'cards'), { recursive: true });
+    await fs.mkdir(path.join(vault, 'attachments'), { recursive: true });
+    await fs.writeFile(path.join(vault, 'attachments', 'example.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+    await fs.mkdir(path.join(userData, 'workstation-data'), { recursive: true });
+    const now = new Date();
+    const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
+    const note = '---\ntags: [交互标签]\n---\n\n# 交互测试\n\n可选择文字建卡\n\n**重点**\n\n[[missing]]\n\n![示例](attachments/example.svg)\n\n- [ ] 整理资料 @' + today + '\n';
+    await fs.writeFile(path.join(vault, 'notes', 'sample.md'), note);
+    await fs.writeFile(path.join(vault, 'notes', 'other.md'), '# 其他笔记\n\n其他正文\n');
+    await fs.writeFile(path.join(vault, 'notes', 'experiments', 'sample.md'),
+      '---\ntitle: 项目测试\nstatus: running\ndeadline: 2020-01-01\nnext: 下一步测试\nresult: 结果测试\n---\n\n项目正文\n');
+    await fs.writeFile(path.join(vault, 'cards', 'sample.md'), '---\ndeck: 交互卡组\n---\n\n## 题目\n\n答案\n');
+    await fs.writeFile(path.join(userData, 'workstation-data', 'settings.json'), JSON.stringify({
+      schemaVersion: 1, vaultDir: vault, device: 'actions-smoke', syncEnabled: false
+    }));
+    const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+    app = await electron.launch(process.env.WORKSTATION_EXECUTABLE
+      ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env }
+      : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
+    page = await app.firstWindow();
+    page.setDefaultTimeout(5000);
+    page.on('pageerror', error => errors.push(error.message));
+    await page.waitForSelector('.workspace-sidebar');
+    await page.waitForFunction(async () => (await fetch('/api/index-status').then(response => response.json())).phase === 'ready');
+    const origin = new URL(page.url()).origin;
+    const visit = route => page.goto(origin + route);
+    const visible = selector => page.locator(selector).isVisible();
+
+    await check('更多操作点击外部、Esc 和移出焦点收起，内部操作可用', async () => {
+      await visit('/note/sample.md');
+      assert.equal(await page.locator('.prose strong').textContent(), '重点');
+      assert.equal(await page.locator('.prose img').evaluate(async image => { await image.decode(); return image.naturalWidth; }), 10);
+      const trigger = page.locator('.note-more summary');
+      await trigger.click();
+      assert.equal(await visible('.note-more-menu'), true);
+      await page.locator('.note-title-row h1').click();
+      assert.equal(await visible('.note-more-menu'), false, '点击标题应关闭菜单');
+      await trigger.click();
+      await page.keyboard.press('Escape');
+      assert.equal(await visible('.note-more-menu'), false, 'Esc 应关闭菜单');
+      assert.equal(await trigger.evaluate(element => element === document.activeElement), true);
+      await trigger.click();
+      await page.keyboard.press('Tab');
+      assert.equal(await visible('.note-more-menu'), true);
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      assert.equal(await visible('.note-more-menu'), false, '移出焦点应关闭菜单');
+      await trigger.click();
+      page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
+      await page.getByRole('button', { name: '删除笔记', exact: true }).click();
+      assert.equal(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), note);
+      await page.getByRole('link', { name: '版本历史与草稿', exact: true }).click();
+      assert.ok(page.url().includes('/history?path=sample.md'));
+    });
+    await check('搜索面板内部空白不关闭，遮罩与 Esc 关闭，搜索结果可打开', async () => {
+      await visit('/');
+      await page.locator('[data-palette-open]').click();
+      await page.waitForSelector('.palette-item');
+      const box = await page.locator('#palette').boundingBox();
+      await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
+      assert.equal(await visible('#palette'), true, '面板内边距不应关闭');
+      await page.mouse.click(820, 620);
+      assert.equal(await visible('#palette'), false);
+      await page.locator('[data-palette-open]').click();
+      await page.keyboard.press('Escape');
+      assert.equal(await visible('#palette'), false);
+      await page.locator('[data-palette-open]').click();
+      await page.locator('.palette-input').fill('交互测试');
+      await page.locator('.palette-item').filter({ hasText: '交互测试' }).first().click();
+      await page.waitForURL('**/note/sample.md');
+    });
+    await check('资料库搜索、标签和分区筛选、清除及健康页入口', async () => {
+      await visit('/search');
+      await page.locator('[name="q"]').fill('交互测试');
+      await page.locator('[name="q"]').press('Enter');
+      await page.waitForURL('**/search?**');
+      assert.equal(await page.locator('.library-document').count(), 1);
+      await page.getByRole('link', { name: '清除', exact: true }).click();
+      await page.locator('[name="tag"]').selectOption('交互标签');
+      await page.waitForFunction(() => new URL(location.href).searchParams.get('tag') === '交互标签');
+      assert.equal(await page.locator('.library-document').count(), 1);
+      await page.locator('[name="section"]').selectOption('experiments');
+      await page.waitForFunction(() => new URL(location.href).searchParams.get('section') === 'experiments');
+      assert.equal(await page.locator('.library-document').count(), 0);
+      await page.getByRole('link', { name: '清除', exact: true }).click();
+      assert.equal(await page.locator('.library-document').count(), 3);
+      await page.getByRole('link', { name: '资料库健康', exact: true }).click();
+      await page.waitForURL('**/health');
+      assert.equal(await page.locator('.health-tile').count(), 5);
+    });
+    await check('项目状态变更立即更新截止提示和结果，刷新后相同', async () => {
+      await visit('/board/experiment');
+      const card = page.locator('[data-board-card]');
+      assert.match(await card.innerText(), /已逾期/);
+      await card.locator('select').selectOption('done');
+      await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'done');
+      assert.doesNotMatch(await card.innerText(), /已逾期|下一步测试/);
+      assert.match(await card.innerText(), /结果测试/);
+      const before = await card.innerText();
+      await page.reload();
+      assert.equal(await card.innerText(), before);
+      await card.locator('select').selectOption('running');
+      await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'running');
+      assert.match(await card.innerText(), /已逾期/);
+      assert.match(await card.innerText(), /下一步测试/);
+      assert.doesNotMatch(await card.innerText(), /结果测试/);
+      await card.locator('select').selectOption('abandoned');
+      await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'abandoned');
+      assert.doesNotMatch(await card.innerText(), /已逾期/);
+    });
+    await check('计划改期、完成和重新打开写回 Markdown', async () => {
+      await visit('/plan?view=list');
+      const form = page.locator('[data-plan-task]');
+      await form.locator('[name="due"]').fill('2030-02-03');
+      await form.locator('[data-task-save]').click();
+      await page.waitForFunction(() => document.querySelector('[data-plan-task] [name="due"]')?.value === '2030-02-03' && !document.querySelector('[data-plan-task]')?.hasAttribute('aria-busy'));
+      await form.locator('[name="done"]').check();
+      await page.waitForSelector('.plan-empty');
+      await page.getByRole('link', { name: '已完成', exact: true }).click();
+      await form.locator('[name="done"]').uncheck();
+      await page.waitForSelector('.plan-empty');
+      assert.match(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), /- \[ \] 整理资料 @2030-02-03/);
+    });
+    await check('未保存改期不会被其他任务完成或页面跳转丢弃', async () => {
+      await fs.writeFile(path.join(vault, 'notes', 'another-task.md'), '# 另一任务\n\n- [ ] task B @2030-02-04\n');
+      await visit('/plan?view=list');
+      await page.evaluate(() => fetch('/api/reindex', { method: 'POST' }));
+      await page.reload();
+      const forms = page.locator('[data-plan-task]');
+      const first = forms.filter({ has: page.locator('[name="path"][value="sample.md"]') });
+      const second = forms.filter({ has: page.locator('[name="path"][value="another-task.md"]') });
+      await first.locator('[name="due"]').fill('2031-05-06');
+      await second.locator('[name="done"]').click();
+      assert.equal(await second.locator('[name="done"]').isChecked(), false);
+      assert.equal(await first.locator('[name="due"]').inputValue(), '2031-05-06');
+      assert.match(await page.locator('#toast-region').innerText(), /先保存或还原/);
+      page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
+      await page.getByRole('link', { name: '笔记', exact: true }).click();
+      assert.equal(await first.locator('[name="due"]').inputValue(), '2031-05-06');
+      await first.locator('[data-task-save]').click();
+      await page.waitForFunction(() => document.querySelector('[name="due"][value="2031-05-06"]') && !document.querySelector('[aria-busy="true"][data-task-form]'));
+      await page.route('**/tasks/update', route => route.fulfill({
+        status: 409, contentType: 'application/json', body: JSON.stringify({ message: '模拟版本冲突' })
+      }));
+      await first.locator('[name="due"]').fill('2032-06-07');
+      await first.locator('[data-task-save]').click();
+      await page.waitForFunction(() => document.querySelector('.toast.is-error')?.textContent.includes('模拟版本冲突'));
+      assert.equal(await first.locator('[name="due"]').isDisabled(), false);
+      assert.equal(await second.locator('[name="due"]').isDisabled(), false);
+      assert.equal(await first.locator('[name="due"]').inputValue(), '2032-06-07');
+      await page.unroute('**/tasks/update');
+      let release;
+      let intercepted;
+      const arrived = new Promise(resolve => { intercepted = resolve; });
+      const gate = new Promise(resolve => { release = resolve; });
+      let requests = 0;
+      await page.route('**/tasks/update', async route => {
+        requests += 1; intercepted(); await gate; await route.continue();
+      });
+      await first.locator('[data-task-save]').click();
+      await arrived;
+      assert.equal(await second.locator('[name="done"]').isDisabled(), true);
+      assert.equal(await second.locator('[name="due"]').isDisabled(), true, '请求期间禁止产生另一项改期输入');
+      assert.equal(requests, 1, '另一任务保存期间不并发提交');
+      release();
+      await page.waitForFunction(() => document.querySelector('[name="due"][value="2032-06-07"]') && !document.querySelector('[aria-busy="true"][data-task-form]'));
+      await page.unroute('**/tasks/update');
+      await second.locator('[name="done"]').check();
+      await page.waitForFunction(() => document.querySelectorAll('[data-plan-task]').length === 1);
+      assert.equal(await first.locator('[name="due"]').inputValue(), '2032-06-07');
+    });
+    await check('月历备注保存、清空、未保存保护和月份切换', async () => {
+      await visit('/plan?view=calendar&date=' + today);
+      const text = page.locator('#calendar-note');
+      await text.fill('当天备注测试');
+      await page.getByRole('button', { name: '保存备注', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '备注已保存');
+      assert.equal(await visible('[data-calendar-note-link]'), true);
+      assert.match(await fs.readFile(path.join(vault, 'notes', 'calendar', today + '.md'), 'utf8'), /当天备注测试/);
+      await text.fill('未保存内容');
+      page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
+      await page.locator('.plan-view-switch a').filter({ hasText: '列表' }).click();
+      assert.equal(await text.inputValue(), '未保存内容');
+      await text.fill('');
+      await page.getByRole('button', { name: '保存备注', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '备注已清空');
+      assert.equal(await visible('[data-calendar-note-link]'), false);
+      await assert.rejects(fs.access(path.join(vault, 'notes', 'calendar', today + '.md')), { code: 'ENOENT' });
+      await page.getByRole('link', { name: '下个月', exact: true }).click();
+      assert.notEqual(new URL(page.url()).searchParams.get('month'), today.slice(0, 7));
+      await page.getByRole('link', { name: '今天', exact: true }).click();
+      assert.equal(await page.locator('[aria-current="date"]').getAttribute('data-calendar-day'), today);
+    });
+    await check('编辑保存、缺失双链新建、建卡取消和保存', async () => {
+      await visit('/note/sample.md');
+      await page.getByRole('link', { name: '编辑', exact: true }).click();
+      await page.locator('[name="body"]').fill(note + '\n新增内容\n');
+      await page.locator('[data-editor-save]').click();
+      await page.waitForURL('**/note/sample.md');
+      assert.match(await page.locator('.prose').innerText(), /新增内容/);
+      await page.locator('.prose .wikilink-missing').click();
+      await page.waitForSelector('[data-new-note="1"]');
+      await page.locator('[name="body"]').fill('# 缺失笔记\n');
+      await page.locator('[data-editor-save]').click();
+      await page.waitForURL('**/note/missing.md');
+      await visit('/note/sample.md');
+      const selectText = () => page.locator('.prose p').first().evaluate(element => {
+        const range = document.createRange(); range.selectNodeContents(element);
+        const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      });
+      await selectText();
+      await page.getByRole('button', { name: '建卡片', exact: true }).click();
+      await page.getByRole('button', { name: '取消', exact: true }).click();
+      assert.equal(await page.locator('.selection-form').count(), 0);
+      await selectText();
+      await page.getByRole('button', { name: '建卡片', exact: true }).click();
+      await page.locator('.selection-form [name="front"]').fill('新增卡片');
+      await page.locator('.selection-form [name="back"]').fill('新增答案');
+      await page.locator('.selection-form [data-save]').click();
+      await page.waitForSelector('.selection-form', { state: 'detached' });
+      assert.match(await fs.readFile(path.join(vault, 'cards', 'inbox.md'), 'utf8'), /新增卡片/);
+    });
+    await check('鼠标显示答案后数字快捷键仍可评分，评分按钮完成复习', async () => {
+      await visit('/review?deck=' + encodeURIComponent('交互卡组'));
+      await page.locator('#review-reveal').click();
+      let release;
+      const wait = new Promise(resolve => { release = resolve; });
+      await page.route('**/review/answer', async route => { await wait; await route.continue(); });
+      await page.keyboard.press('3');
+      await page.waitForFunction(() => document.querySelector('#reviewer').getAttribute('aria-busy') === 'true');
+      page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
+      await page.getByRole('link', { name: '笔记', exact: true }).click();
+      assert.equal(new URL(page.url()).pathname, '/review', '评分未保存时不能直接离开');
+      release();
+      await page.waitForSelector('#review-done', { state: 'visible', timeout: 2000 });
+      assert.match(await page.locator('#review-summary').textContent(), /复习了 1 张/);
+      await page.unroute('**/review/answer');
+      await page.getByRole('link', { name: '卡组', exact: true }).click();
+      await page.getByRole('link', { name: '开始复习' }).click();
+      await page.locator('#review-reveal').click();
+      await page.locator('[data-rating="4"]').click();
+      await page.waitForSelector('#review-done', { state: 'visible' });
+    });
+    await check('设置分组、同步反馈、恢复窗口和只读模式', async () => {
+      await visit('/');
+      const opened = app.waitForEvent('window');
+      await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById('show-settings').click());
+      const settings = await opened;
+      settings.setDefaultTimeout(5000);
+      settings.on('pageerror', error => errors.push(error.message));
+      await settings.waitForSelector('body[data-settings-state="clean"]');
+      for (const id of ['workspace', 'appearance', 'sync', 'system']) {
+        await settings.locator('[data-settings-nav] a[href="#' + id + '"]').click();
+        assert.equal(await settings.locator('[data-settings-nav] a[aria-current="location"]').getAttribute('href'), '#' + id);
+      }
+      assert.equal(await settings.locator('#sync-now').isDisabled(), true, '同步关闭时禁止手动同步');
+      const recoveryOpened = app.waitForEvent('window');
+      await settings.locator('#open-recovery').click();
+      const recovery = await recoveryOpened;
+      recovery.setDefaultTimeout(5000);
+      recovery.on('pageerror', error => errors.push(error.message));
+      await recovery.waitForSelector('#source-panel', { state: 'visible' });
+      assert.equal(await recovery.locator('#start').isDisabled(), true);
+      await recovery.locator('label').filter({ has: recovery.locator('[name="sourceKind"][value="local"]') }).click();
+      assert.equal(await recovery.locator('#local-source').isVisible(), true);
+      assert.equal(await recovery.locator('#git-source').isVisible(), false);
+      await recovery.close();
+      await settings.locator('[name="readOnly"]').check();
+      const refreshed = app.waitForEvent('window');
+      await settings.locator('#save').click();
+      await settings.waitForFunction(() => document.querySelector('#message').textContent === '设置已保存。');
+      page = await refreshed;
+      page.on('pageerror', error => errors.push(error.message));
+      await page.waitForSelector('body.is-readonly');
+      const readonlyOrigin = new URL(page.url()).origin;
+      await page.goto(readonlyOrigin + '/note/sample.md');
+      assert.equal(await page.locator('.note-actions, .workspace-create, .selection-card').count(), 0);
+      await page.goto(readonlyOrigin + '/board/experiment');
+      assert.equal(await page.locator('.statusform').count(), 0);
+      await page.goto(readonlyOrigin + '/plan?view=list');
+      assert.equal(await page.locator('[data-task-form]').count(), 0);
+      await page.goto(readonlyOrigin + '/plan?view=calendar');
+      assert.equal(await page.locator('[data-calendar-form]').count(), 0);
+      assert.equal(await page.locator('.calendar-note-readonly').count(), 1);
+      await settings.close();
+    });
+    assert.deepEqual(errors, []);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    if (failed || t.signal.aborted) {
+      await page?.screenshot({ path: path.join(root, 'failure.png'), fullPage: true, timeout: 5000 }).catch(() => {});
+      console.error('[desktop-actions] artifacts preserved at ' + root);
+    }
+    if (app) {
+      await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+      await app.close().catch(() => {});
+    }
+    if (!failed && !t.signal.aborted) await fs.rm(root, { recursive: true, force: true });
+  }
+});

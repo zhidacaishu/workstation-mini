@@ -19,7 +19,7 @@ const { createRuntimeConfig } = require('./runtime-config');
 const { validateSettingsUpdate } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
 const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
-const { createPlatformPolicy } = require('./platform-policy');
+const { createPlatformPolicy, INSET_CHROME_ARGUMENT } = require('./platform-policy');
 const {
   validateRecoveryMode,
   validateRecoveryStart
@@ -60,6 +60,12 @@ function applyThemeSetting() {
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.setBackgroundColor(windowBackgroundColor());
   }
+}
+
+// 设置和恢复窗口是本地文件页面，没有服务端可以替它们输出 html.chrome-inset，
+// 由 preload 读这个启动参数自己加上。
+function panelChromeArguments() {
+  return platformPolicy.insetTitleBar ? [INSET_CHROME_ARGUMENT] : [];
 }
 
 function onlyThemeChanged(previous, next) {
@@ -232,7 +238,10 @@ function chooseInitialVault() {
 }
 
 async function startConfiguredRuntime(nextSettings = settings) {
-  const config = createRuntimeConfig(nextSettings, { isProduction: app.isPackaged });
+  const config = createRuntimeConfig(nextSettings, {
+    isProduction: app.isPackaged,
+    windowChrome: platformPolicy.insetTitleBar ? 'inset' : 'native'
+  });
   return startRuntime(config);
 }
 
@@ -338,6 +347,7 @@ async function createMainWindow({ hidden = false, targetUrl = '' } = {}) {
       show: false,
       title: '科研工作台',
       backgroundColor: windowBackgroundColor(),
+      ...platformPolicy.windowChrome('main'),
       webPreferences: {
         partition,
         nodeIntegration: false,
@@ -615,8 +625,10 @@ async function showRecoveryWindow(mode = 'restore') {
     show: false,
     title: '恢复科研工作台资料库',
     backgroundColor: windowBackgroundColor(),
+    ...platformPolicy.windowChrome('panel'),
     webPreferences: {
       preload: RECOVERY_PRELOAD_FILE,
+      additionalArguments: panelChromeArguments(),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true
@@ -659,8 +671,10 @@ function showSettingsWindow() {
     show: false,
     title: '科研工作台设置',
     backgroundColor: windowBackgroundColor(),
+    ...platformPolicy.windowChrome('panel'),
     webPreferences: {
       preload: PRELOAD_FILE,
+      additionalArguments: panelChromeArguments(),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true

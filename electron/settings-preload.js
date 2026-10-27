@@ -1,5 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// macOS 上窗口隐藏了系统标题栏，主进程会带上这个参数（见 platform-policy.js）。
+// 给 <html> 打上 chrome-inset，样式表据此让出红绿灯的位置、标出可拖动区域。
+// 窗口在页面加载完成后才显示，DOMContentLoaded 时加上不会闪一下。
+// 参数名与 platform-policy.js 的 INSET_CHROME_ARGUMENT 保持一致：沙箱里的
+// preload 只能 require('electron')，不能引用那个模块。
+if (process.argv.includes('--workstation-inset-chrome')) {
+  window.addEventListener('DOMContentLoaded', () => {
+    document.documentElement.classList.add('chrome-inset');
+  });
+}
+
 // Electron 会把主进程抛出的错误包成
 // `Error invoking remote method 'settings:save': Error: 资料库必须是绝对路径。`
 // 设置页面是直接把 message 显示给人看的，这层壳得剥掉，

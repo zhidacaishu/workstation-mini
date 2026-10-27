@@ -160,9 +160,36 @@
     });
 
     dialog.showModal();
-    front.value = selected;
+    if (selected.includes('\n')) {
+      form.querySelector('[name=back]').value = selected;
+      front.value = '公式与笔记';
+    } else front.value = selected;
     front.focus();
     front.select();
+  }
+
+  // Treat a formula as one selectable unit, including partially selected glyphs.
+  // Serialize from a cloned range so neither the note DOM nor KaTeX's MathML is changed.
+  function selectedMarkdown(selection) {
+    const range = selection.getRangeAt(0);
+    if (!range.cloneRange) return selection.toString();
+    const selected = range.cloneRange();
+    const elementOf = node => node.nodeType === 1 ? node : node.parentElement;
+    const firstMath = elementOf(selected.startContainer)?.closest('[data-math-source]');
+    const lastMath = elementOf(selected.endContainer)?.closest('[data-math-source]');
+    if (firstMath && prose.contains(firstMath)) selected.setStartBefore(firstMath);
+    if (lastMath && prose.contains(lastMath)) selected.setEndAfter(lastMath);
+    const fragment = selected.cloneContents();
+    for (const formula of fragment.querySelectorAll('[data-math-source]')) {
+      formula.replaceWith(document.createTextNode(formula.dataset.mathSource));
+    }
+    const read = node => {
+      if (node.nodeType === 3) return node.textContent;
+      if (node.nodeName === 'BR') return '\n';
+      const text = [...node.childNodes].map(read).join('');
+      return /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/.test(node.nodeName) ? text + '\n' : text;
+    };
+    return read(fragment);
   }
 
   function refreshSelection() {
@@ -171,9 +198,9 @@
     const selection = document.getSelection();
     if (!selection || selection.isCollapsed) return removeBubble();
 
-    const text = selection.toString().trim();
-    if (!text || text.length > 200) return removeBubble();
     if (!prose.contains(selection.anchorNode) || !prose.contains(selection.focusNode)) return removeBubble();
+    const text = selectedMarkdown(selection).trim();
+    if (!text || text.length > 2000) return removeBubble();
 
     const rect = selection.getRangeAt(0).getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return removeBubble();

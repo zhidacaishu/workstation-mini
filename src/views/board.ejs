@@ -47,13 +47,14 @@ status: <%= workflow.initial %>
             <% if (dataset || deadline) { %>
               <p class="board-meta">
                 <% if (dataset) { %><span class="board-dataset"><%= dataset %></span><% } %>
-                <% if (deadline) { %><span class="board-deadline<%= overdue ? ' is-overdue' : active && deadline === today ? ' is-today' : '' %>"><%= overdue ? '已逾期 · ' : '截止 ' %><%= ui.shortDate(deadline, today) %></span><% } %>
+                <% if (deadline) { %><span class="board-deadline<%= overdue ? ' is-overdue' : active && deadline === today ? ' is-today' : '' %>" data-board-deadline data-deadline-state="<%= deadline < today ? 'overdue' : deadline === today ? 'today' : '' %>" data-active-label="<%= deadline < today ? '已逾期 · ' : '截止 ' %><%= ui.shortDate(deadline, today) %>" data-inactive-label="截止 <%= ui.shortDate(deadline, today) %>"><%= overdue ? '已逾期 · ' : '截止 ' %><%= ui.shortDate(deadline, today) %></span><% } %>
               </p>
             <% } %>
-            <% if (item.status === 'done' && result) { %>
-              <p class="board-next"><span>结果</span><%= result %></p>
-            <% } else if (next) { %>
-              <p class="board-next"><span>下一步</span><%= next %></p>
+            <% if (result) { %>
+              <p class="board-next" data-board-result<% if (item.status !== 'done') { %> hidden<% } %>><span>结果</span><%= result %></p>
+            <% } %>
+            <% if (next) { %>
+              <p class="board-next" data-board-next<% if (item.status === 'done' && result) { %> hidden<% } %>><span>下一步</span><%= next %></p>
             <% } %>
 
             <% if (!readOnly) { %>

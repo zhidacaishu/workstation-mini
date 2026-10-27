@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const express = require('express');
 
+const { createResourceRoutes } = require('./routes/resourceRoutes');
 const { createNoteRoutes } = require('./routes/noteRoutes');
 const { createHistoryRoutes } = require('./routes/historyRoutes');
 const { createHealthRoutes } = require('./routes/healthRoutes');
@@ -92,6 +93,10 @@ function createApp(config, deps) {
     }));
   }
 
+  app.use('/static/katex', express.static(path.join(path.dirname(require.resolve('katex/package.json')), 'dist'), {
+    index: false, maxAge: config.isProduction ? '30d' : 0
+  }));
+
   const navCounts = viewHelpers.createNavCounts({ config, db: resolved.db, now: resolved.now });
 
   app.use(async (req, res, next) => {
@@ -99,6 +104,8 @@ function createApp(config, deps) {
     res.locals.currentPath = req.path;
     res.locals.encodePath = encodePath;
     res.locals.isMac = isMac;
+    // macOS 桌面壳隐藏了系统标题栏，页面要给红绿灯让位（见 electron/platform-policy.js）。
+    res.locals.insetChrome = config.windowChrome === 'inset';
     res.locals.draftId = crypto.randomUUID();
     res.locals.recovered = false;
     res.locals.editorWarning = '';
@@ -115,6 +122,7 @@ function createApp(config, deps) {
     next();
   });
 
+  app.use(createResourceRoutes({ config }));
   app.use(createTodayRoutes({ config, ...resolved }));
   app.use(createCalendarRoutes({ config, ...resolved }));
   app.use(createReviewRoutes({ config, ...resolved }));

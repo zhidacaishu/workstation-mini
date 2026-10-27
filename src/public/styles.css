@@ -240,6 +240,11 @@ kbd {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* 品牌标记：应用图标「扇开」的小尺寸写法，两张卡加一个勾。 */
+.workspace-sidebar .workspace-mark { width: 20px; height: 20px; stroke: none; }
+.workspace-mark-back { fill: var(--accent); }
+.workspace-mark-front { fill: var(--text); }
+.workspace-sidebar .workspace-mark-tick { fill: none; stroke: var(--raised); stroke-width: 66; }
 .workspace-nav { display: flex; flex-direction: column; gap: 4px; }
 .workspace-nav-link {
   position: relative;
@@ -328,6 +333,23 @@ kbd {
 .readonly-status svg { width: 16px; height: 16px; }
 
 .workspace-main { min-width: 0; display: flex; flex-direction: column; }
+/* macOS 窗口外框：桌面壳隐藏了系统标题栏，红绿灯落在侧栏顶部（见
+   electron/platform-policy.js）。侧栏让出这块位置，品牌标记让位给红绿灯；
+   侧栏空白处和正文最上面一条用来拖动窗口、双击缩放，可交互的元素都排除在外。 */
+.chrome-inset .workspace-sidebar { padding-top: 50px; -webkit-app-region: drag; }
+.chrome-inset .workspace-brand { display: none; }
+.chrome-inset .workspace-main::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: var(--rail-width);
+  right: 0;
+  height: 32px;
+  /* 垫在内容下面：拖动区域照样生效，滚到这一条里的按钮仍然点得到。 */
+  z-index: -1;
+  -webkit-app-region: drag;
+}
+.chrome-inset :is(a, button, input, select, textarea, summary, label, [contenteditable="true"], [role="button"]) { -webkit-app-region: no-drag; }
 .search-glyph { flex: none; width: 16px; height: 16px; color: var(--icon); stroke-width: 1.8; }
 
 /* 侧栏里的搜索入口：外观与导航项一致，点开命令面板。 */
@@ -1598,3 +1620,10 @@ dialog { color: var(--text); }
     transition-duration: .01ms !important;
   }
 }
+
+/* Keep wide display equations inside the reading/card column. */
+.math-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: .3em 0; margin: 1em 0; }
+.math-display .katex-display { margin: 0; }
+.math-display .katex-display > .katex { white-space: nowrap; }
+.math-source .katex { font-size: 1.08em; }
+.math-source .math-error { color: var(--text-muted, #9a645c); white-space: pre-wrap; overflow-wrap: anywhere; }

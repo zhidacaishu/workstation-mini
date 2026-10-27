@@ -1,5 +1,7 @@
 const posixPath = require('node:path').posix;
 const MarkdownIt = require('markdown-it');
+const katex = require('katex');
+const { installMathSyntax, maskMath } = require('./mathSyntax');
 
 const { maskCode, headingFragment, wikilinkFragment } = require('./vault/wikilink');
 const { toPosix, stripExtension, encodePath } = require('./vault/paths');
@@ -65,6 +67,28 @@ const md = new MarkdownIt({
   linkify: true,
   breaks: false
 });
+
+installMathSyntax(md, (content, displayMode, env) => {
+  const source = displayMode ? '$$\n' + content.trim() + '\n$$' : '$' + content + '$';
+  let html;
+  try {
+    html = katex.renderToString(content, {
+      displayMode, output: 'htmlAndMathml', trust: false, throwOnError: true,
+      strict: 'ignore', maxExpand: 1000, maxSize: 20,
+      macros: env.mathMacros || (env.mathMacros = {})
+    });
+  } catch (error) {
+    if (!(error instanceof katex.ParseError)) throw error;
+    html = '<code class="math-error" title="公式暂无法渲染，请检查语法">' + md.utils.escapeHtml(source) + '</code>';
+  }
+  const tag = displayMode ? 'div' : 'span';
+  return '<' + tag + ' class="math-source' + (displayMode ? ' math-display' : '') + '" data-math-source="' + md.utils.escapeHtml(source) + '">' + html + '</' + tag + '>';
+});
+const renderMathBlock = md.renderer.rules.math_block;
+md.renderer.rules.math_block = (tokens, index, options, env, self) => {
+  const id = tokens[index].attrGet('id');
+  return (id ? '<span id="' + md.utils.escapeHtml(id) + '" class="heading-anchor" aria-hidden="true"></span>' : '') + renderMathBlock(tokens, index, options, env, self) + '\n';
+};
 
 // 给 wikilink 加上样式类：指向已存在笔记的和指向待建笔记的要能看出区别。
 const defaultLinkOpen = md.renderer.rules.link_open
@@ -151,10 +175,10 @@ md.core.ruler.push('task_items', state => {
 // list_item 里的 paragraph）经常共享起始源行；若各 renderer 临时加 id，会生成重复
 // DOM id。每一行只让最具体、跨度最小的可见 block claim 一次。
 const LINE_BLOCK_TYPES = new Set([
-  'paragraph_open', 'heading_open', 'list_item_open', 'blockquote_open', 'table_open', 'fence', 'code_block'
+  'paragraph_open', 'heading_open', 'list_item_open', 'blockquote_open', 'table_open', 'fence', 'code_block', 'math_block'
 ]);
 const LINE_BLOCK_PRIORITY = new Map([
-  ['heading_open', 0], ['paragraph_open', 1], ['fence', 1], ['code_block', 1],
+  ['heading_open', 0], ['paragraph_open', 1], ['fence', 1], ['code_block', 1], ['math_block', 1],
   ['list_item_open', 2], ['table_open', 3], ['blockquote_open', 4]
 ]);
 
@@ -225,7 +249,7 @@ function escapeMarkdownText(value) {
  */
 function replaceWikilinks(markdown, resolve, notePath = '') {
   const source = String(markdown ?? '');
-  const masked = maskCode(source);
+  const masked = maskMath(maskCode(source));
   const replacements = [];
 
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {

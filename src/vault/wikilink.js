@@ -1,4 +1,5 @@
 const MarkdownIt = require('markdown-it');
+const { maskMath } = require('../mathSyntax');
 const { toPosix, stripExtension, basename, encodePath } = require('./paths');
 
 // [[目标]] / [[目标|显示文字]] / [[目标#小节]]
@@ -77,7 +78,7 @@ function maskCode(markdown) {
  * 返回 [{ target, heading, display, index }]，target 已去掉扩展名并归一为正斜杠。
  */
 function parseWikilinks(markdown) {
-  const masked = maskCode(markdown);
+  const masked = maskMath(maskCode(markdown));
   const links = [];
 
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {
@@ -139,7 +140,7 @@ function buildIndexResolver(db) {
  * 而不是死链——它标记的是一篇还没写的笔记，这在双链笔记里是正常状态。
  */
 function renderWikilinks(markdown, resolve, escapeHtml) {
-  const masked = maskCode(markdown);
+  const masked = maskMath(maskCode(markdown));
   const replacements = [];
 
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {

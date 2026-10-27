@@ -203,6 +203,18 @@
         const expectedHash = form.querySelector('[name=expectedHash]');
         if (expectedHash) expectedHash.value = result.hash;
       }
+      const active = newStatus !== 'done' && newStatus !== 'abandoned';
+      const deadline = card.querySelector('[data-board-deadline]');
+      if (deadline) {
+        deadline.textContent = active ? deadline.dataset.activeLabel : deadline.dataset.inactiveLabel;
+        deadline.classList.toggle('is-overdue', active && deadline.dataset.deadlineState === 'overdue');
+        deadline.classList.toggle('is-today', active && deadline.dataset.deadlineState === 'today');
+      }
+      const resultLine = card.querySelector('[data-board-result]');
+      const nextLine = card.querySelector('[data-board-next]');
+      const showResult = newStatus === 'done' && Boolean(resultLine);
+      if (resultLine) resultLine.hidden = !showResult;
+      if (nextLine) nextLine.hidden = showResult;
       targetItems.append(card);
       updateColumn(sourceColumn);
       updateColumn(targetColumn);
@@ -228,6 +240,24 @@
       return;
     }
     select.form?.requestSubmit();
+  });
+
+  // 更多操作是弹出菜单，和长期展开的帮助内容区别处理。
+  function closeNoteMenus(target) {
+    for (const menu of document.querySelectorAll('.note-more[open]')) {
+      if (!menu.contains(target)) menu.open = false;
+    }
+  }
+
+  document.addEventListener('click', event => closeNoteMenus(event.target));
+  document.addEventListener('focusin', event => closeNoteMenus(event.target));
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.isComposing || hasOpenDialog()) return;
+    const menu = document.querySelector('.note-more[open]');
+    if (!menu) return;
+    menu.open = false;
+    menu.querySelector('summary')?.focus();
+    event.preventDefault();
   });
 
   document.addEventListener('submit', event => {

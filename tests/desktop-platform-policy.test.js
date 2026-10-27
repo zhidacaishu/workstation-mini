@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { createPlatformPolicy } = require('../electron/platform-policy');
+const fs = require('node:fs');
+
+const { createPlatformPolicy, INSET_CHROME_ARGUMENT } = require('../electron/platform-policy');
 
 function fakeApp() {
   const calls = [];
@@ -10,6 +12,7 @@ function fakeApp() {
     calls,
     isPackaged: false,
     getAppPath: () => '/repo',
+    dock: { setIcon(value) { calls.push(['dock-icon', value]); } },
     setAppUserModelId(value) { calls.push(['app-id', value]); },
     setLoginItemSettings(value) { calls.push(['login', value]); }
   };
@@ -65,6 +68,10 @@ test('macOS 平台不调用 Windows API，并使用 template status item', () =>
   assert.deepEqual(policy.capabilities, { launchAtLogin: false });
   policy.initializeApp(app);
   assert.equal(policy.applyLoginItem(app, true), false);
+  assert.deepEqual(app.calls, [['dock-icon', path.join('/repo', 'build', 'icon.png')]]);
+  app.calls.length = 0;
+  app.isPackaged = true;
+  policy.initializeApp(app);
   assert.deepEqual(app.calls, []);
   assert.equal(policy.isHiddenStartup(['app', '--hidden']), false);
   assert.deepEqual(policy.trayResource({
@@ -120,4 +127,27 @@ test('macOS 菜单使用标准角色，并让 Settings 与 Quit 委托共享回�
   quit.click();
   assert.equal(settingsCalls, 1);
   assert.equal(quitCalls, 1);
+});
+
+test('只有 macOS 隐藏系统标题栏，红绿灯按各窗口侧栏定位', () => {
+  const mac = createPlatformPolicy({ platform: 'darwin' });
+  assert.equal(mac.insetTitleBar, true);
+  assert.deepEqual(mac.windowChrome('main'), { titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 18 } });
+  assert.deepEqual(mac.windowChrome('panel'), { titleBarStyle: 'hidden', trafficLightPosition: { x: 18, y: 18 } });
+  // 每次给新对象：BrowserWindow 的选项不能共享同一个可变的坐标。
+  assert.notEqual(mac.windowChrome('main').trafficLightPosition, mac.windowChrome('main').trafficLightPosition);
+
+  for (const platform of ['win32', 'linux']) {
+    const policy = createPlatformPolicy({ platform });
+    assert.equal(policy.insetTitleBar, false);
+    assert.deepEqual(policy.windowChrome('main'), {});
+  }
+});
+
+test('设置和恢复窗口的 preload 认主进程传入的标题栏参数', () => {
+  // 沙箱里的 preload 不能 require 这个模块，参数名只能写成字面量，这里防止两边改岔。
+  for (const file of ['settings-preload.js', 'recovery-preload.js']) {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'electron', file), 'utf8');
+    assert.ok(source.includes(`process.argv.includes('${INSET_CHROME_ARGUMENT}')`), `${file} 没有认 ${INSET_CHROME_ARGUMENT}`);
+  }
 });

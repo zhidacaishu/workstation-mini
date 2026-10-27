@@ -148,3 +148,51 @@ test('空资料库和只读模式均可打开资料库页面', async t => {
   assert.match(readOnlyPage.text, /只读文档/);
   assert.match(readOnlyPage.text, /archive\/readonly\.md/);
 });
+
+test('笔记本地图片和媒体可读取，只读模式同样有效', async t => {
+  for (const readOnly of [false, true]) {
+    const { app, config } = await setup(t, { readOnly });
+    await fs.mkdir(path.join(config.vaultDir, 'attachments', '图片'), { recursive: true });
+    await fs.mkdir(path.join(config.vaultDir, 'audio'), { recursive: true });
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
+    await fs.writeFile(path.join(config.vaultDir, 'attachments', '图片', '示例.svg'), svg);
+    await fs.writeFile(path.join(config.vaultDir, 'audio', 'clip.mp3'), Buffer.from([1, 2, 3, 4]));
+    const image = await request(app).get('/attachments/' + encodeURIComponent('图片') + '/' + encodeURIComponent('示例.svg')).expect(200);
+    assert.match(image.headers['content-type'], /image\/svg\+xml/);
+    assert.match(image.headers['content-security-policy'], /sandbox/);
+    assert.equal(Buffer.from(image.body).toString(), svg);
+    await request(app).head('/attachments/' + encodeURIComponent('图片') + '/' + encodeURIComponent('示例.svg')).expect(200);
+    const audio = await request(app).get('/media/clip.mp3').set('Range', 'bytes=1-2').expect(206);
+    assert.deepEqual(audio.body, Buffer.from([2, 3]));
+  }
+});
+
+test('媒体读取拒绝非媒体、目录、缺失文件和符号链接逃逸', async t => {
+  const { app, config } = await setup(t);
+  await fs.mkdir(path.join(config.vaultDir, 'attachments', 'directory.svg'), { recursive: true });
+  await fs.writeFile(path.join(config.vaultDir, 'attachments', 'secret.md'), 'private');
+  for (const url of ['/attachments/secret.md', '/attachments/directory.svg', '/attachments/missing.png', '/media/missing.mp3', '/attachments/%2e%2e%2fnotes%2fsecret.png']) {
+    await request(app).get(url).expect(404);
+  }
+  if (process.platform !== 'win32') {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-resource-outside-'));
+    t.after(() => fs.rm(outside, { recursive: true, force: true }));
+    await fs.writeFile(path.join(outside, 'secret.svg'), '<svg/>');
+    await fs.symlink(path.join(outside, 'secret.svg'), path.join(config.vaultDir, 'attachments', 'linked.svg'));
+    await fs.symlink(outside, path.join(config.vaultDir, 'attachments', 'linked-dir'));
+    await request(app).get('/attachments/linked.svg').expect(404);
+    await request(app).get('/attachments/linked-dir/secret.svg').expect(404);
+  }
+});
+
+test('KaTeX 样式及引用字体均由本地服务提供', async t => {
+  const { app } = await setup(t);
+  const css = await request(app).get('/static/katex/katex.min.css').expect(200);
+  assert.match(css.headers['content-type'], /text\/css/);
+  const urls = [...new Set([...css.text.matchAll(/url\(([^)]+)\)/g)].map(match => match[1].replace(/['"]/g, '')))];
+  assert.ok(urls.length > 0);
+  for (const url of urls) {
+    assert.ok(url.startsWith('fonts/'));
+    await request(app).get('/static/katex/' + url).expect(200);
+  }
+});

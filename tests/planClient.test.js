@@ -12,19 +12,23 @@ function load({ href = 'http://localhost/plan', saved = null, blocked = false } 
   const checkbox = { addEventListener: (name, callback) => { checkbox[name] = callback; } };
   const classes = new Set();
   const form = {
+    dataset: {},
     classList: {
       add: name => classes.add(name),
+      remove: name => classes.delete(name),
       toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name)
     },
     querySelector: selector => selector === '[name="due"]' ? date : checkbox,
     requestSubmit: () => { state.submitted += 1; }
   };
+  const windowListeners = new Map();
   const url = new URL(href);
   const view = url.searchParams.get('view') || 'list';
   vm.runInNewContext(script, {
     URL,
     window: {
-      location: { href, replace: next => { state.redirected = next; } }
+      location: { href, replace: next => { state.redirected = next; } },
+      addEventListener: (name, handler) => windowListeners.set(name, handler)
     },
     localStorage: {
       getItem() { if (blocked) throw new Error('storage unavailable'); return saved; },
@@ -35,7 +39,9 @@ function load({ href = 'http://localhost/plan', saved = null, blocked = false } 
       querySelectorAll: () => [form]
     }
   });
-  return { state, date, checkbox, classes };
+  return { state, date, checkbox, classes,
+    beforeUnload(event) { windowListeners.get('beforeunload')?.(event); }
+  };
 }
 
 test('计划入口记住上次月历视图，显式列表链接仍优先', () => {
@@ -95,4 +101,18 @@ test('当天备注未保存时不更新待办，避免刷新丢失输入', async
   assert.equal(reloaded, false);
   assert.equal(done.checked, false);
   assert.match(message, /先保存当天备注/);
+});
+
+test('计划日期未保存时离开有保护，还原后解除', () => {
+  const ui = load();
+  const attempt = () => {
+    const event = { prevented: false, preventDefault() { this.prevented = true; } };
+    ui.beforeUnload(event);
+    return event.prevented;
+  };
+  assert.equal(attempt(), false);
+  ui.date.value = '2031-05-06';
+  assert.equal(attempt(), true);
+  ui.date.value = '';
+  assert.equal(attempt(), false);
 });

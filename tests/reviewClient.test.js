@@ -68,11 +68,12 @@ async function loadReview(fetch, queue) {
     addEventListener(type, handler) { this.listeners = { ...(this.listeners || {}), [type]: handler }; },
     querySelector() { return null; }
   };
+  const windowListeners = new Map();
   const source = await fs.readFile(path.join(__dirname, '..', 'src', 'public', 'review.js'), 'utf8');
   let uuid = 0;
   vm.runInNewContext(source, {
     document,
-    window: {},
+    window: { addEventListener(type, handler) { windowListeners.set(type, handler); } },
     fetch,
     JSON,
     decodeURIComponent,
@@ -86,6 +87,7 @@ async function loadReview(fetch, queue) {
   return {
     elements,
     document,
+    beforeUnload(event) { windowListeners.get('beforeunload')?.(event); },
     reveal: () => elements.get('review-reveal').listeners.get('click')(),
     rate: rating => buttons[rating - 1].listeners.get('click')(),
     keydown(event) { document.listeners.keydown({ metaKey: false, ctrlKey: false, altKey: false, preventDefault() {}, ...event }); }
@@ -230,4 +232,25 @@ test('评分响应中断后自动重试完全相同的事件载荷', async () =>
   assert.equal(JSON.parse(calls[0].body).eventId, 'event-1');
   assert.equal(ui.elements.get('review-done').hidden, false);
   assert.equal(ui.elements.get('review-summary').textContent.startsWith('复习了 1 张。'), true);
+});
+
+test('评分保存和重试期间离开页面有保护，保存完成后允许离开', async () => {
+  const answer = deferred();
+  const ui = await loadReview(url => url === '/review/answer'
+    ? answer.promise
+    : Promise.resolve({ ok: true, json: async () => ({ ok: true, skipped: '同步未配置' }) }), [CARD]);
+  const attempt = () => {
+    const event = { prevented: false, preventDefault() { this.prevented = true; } };
+    ui.beforeUnload(event);
+    return event;
+  };
+  assert.equal(attempt().prevented, false);
+  ui.reveal();
+  const rating = ui.rate(3);
+  const pending = attempt();
+  assert.equal(pending.prevented, true, '评分未确认时离开会丢失重试机会');
+  assert.equal(pending.returnValue, '');
+  answer.resolve({ ok: true });
+  await rating;
+  assert.equal(attempt().prevented, false);
 });

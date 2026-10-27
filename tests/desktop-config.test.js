@@ -129,6 +129,13 @@ test('运行配置总是生成新的内部令牌并固定回环随机端口', ()
   assert.notEqual(one.internalToken, two.internalToken);
 });
 
+test('窗口外框由主进程决定，设置文件里写了也不生效', () => {
+  const settings = normalizeSettings({ vaultDir: path.resolve('vault') });
+  assert.equal(createRuntimeConfig(settings).windowChrome, 'native');
+  assert.equal(createRuntimeConfig(settings, { windowChrome: 'inset' }).windowChrome, 'inset');
+  assert.equal(createRuntimeConfig({ ...settings, windowChrome: 'inset' }).windowChrome, 'native');
+});
+
 // settings.json 的落盘过去是裸 fs.renameSync。这个应用发 Windows，那边的 rename
 // 会被杀毒软件和索引服务的瞬时句柄打断（EPERM/EACCES/EBUSY）—— vault 里的笔记
 // 早就为此走 atomic.js 的重试了，唯独设置文件没有。而它偏偏是被夹在

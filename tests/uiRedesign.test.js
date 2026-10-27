@@ -16,11 +16,11 @@ const viewHelpers = require('../src/viewHelpers');
 
 const FIXED_NOW = new Date(2026, 9, 25, 10, 0);
 
-async function setup(t, { readOnly = false } = {}) {
+async function setup(t, { readOnly = false, windowChrome } = {}) {
   const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-ui-'));
   const notesDir = path.join(vaultDir, 'notes');
   await fs.mkdir(notesDir, { recursive: true });
-  const config = loadConfig({ vaultDir, dbPath: ':memory:', readOnly });
+  const config = loadConfig({ vaultDir, dbPath: ':memory:', readOnly, windowChrome });
   const db = openDatabase(':memory:');
   const indexer = createIndexer({ db, vaultDir: notesDir });
   const app = createApp(config, { db, indexer, search: createSearch(db), now: () => FIXED_NOW });
@@ -139,4 +139,20 @@ test('侧栏搜索按钮唤起命令面板，快捷键按平台标注', async t 
   const page = await request(app).get('/').expect(200);
   assert.match(page.text, /class="palette-trigger workspace-search" data-palette-open[^>]*aria-keyshortcuts="(?:Meta|Control)\+K"/);
   assert.doesNotMatch(page.text, /workspace-toolbar|class="topsearch"/);
+});
+
+test('macOS 隐藏标题栏时页面给红绿灯让位，其他情况保持原样', async t => {
+  const inset = await setup(t, { windowChrome: 'inset' });
+  const insetPage = await request(inset.app).get('/').expect(200);
+  assert.match(insetPage.text, /<html lang="zh-CN" class="chrome-inset">/);
+
+  const native = await setup(t);
+  const nativePage = await request(native.app).get('/').expect(200);
+  assert.match(nativePage.text, /<html lang="zh-CN">/);
+  // 品牌标记换成了应用图标的简化写法，不再是一个「研」字。
+  assert.match(nativePage.text, /<svg class="workspace-mark"[^>]*aria-hidden="true">/);
+  assert.doesNotMatch(nativePage.text, /workspace-mark"[^>]*>研</);
+
+  // 不认识的取值一律按系统标题栏处理。
+  assert.equal(loadConfig({ windowChrome: 'frameless' }).windowChrome, 'native');
 });

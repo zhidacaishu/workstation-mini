@@ -1,5 +1,8 @@
 const path = require('node:path');
 
+// 设置和恢复窗口的 preload 认这个参数（经 webPreferences.additionalArguments 传入）。
+const INSET_CHROME_ARGUMENT = '--workstation-inset-chrome';
+
 const EDIT_MENU = {
   label: '编辑',
   submenu: [
@@ -24,6 +27,10 @@ function createPlatformPolicy({
 
   function initializeApp(app) {
     if (isWindows) app.setAppUserModelId(appId);
+    // 开发模式运行的是 Electron.app，打包配置不会替换它的 Dock 图标。
+    if (isMac && !app.isPackaged) {
+      app.dock?.setIcon(path.join(app.getAppPath(), 'build', 'icon.png'));
+    }
   }
 
   function applyLoginItem(app, enabled, {
@@ -111,9 +118,30 @@ function createPlatformPolicy({
     ];
   }
 
+  // macOS 的系统标题栏是一条和界面无关的灰条，压在侧栏和正文上面很突兀。
+  // 这里把它藏起来，红绿灯直接落在侧栏顶部，界面一直画到窗口最上沿；
+  // 拖动窗口、双击缩放交给页面里标了 -webkit-app-region: drag 的区域。
+  // 页面靠 html.chrome-inset 知道要给红绿灯让位：主窗口由服务端按运行时配置
+  // 输出（runtime-config 的 windowChrome），设置和恢复窗口由 preload 按
+  // INSET_CHROME_ARGUMENT 加上。
+  // 横坐标按各自侧栏算：主窗口侧栏 76px，三颗按钮占 52px，x=12 正好居中；
+  // 设置和恢复窗口与侧栏里标记的左边缘对齐。
+  const insetTitleBar = isMac;
+  const TRAFFIC_LIGHTS = { main: { x: 12, y: 18 }, panel: { x: 18, y: 18 } };
+
+  function windowChrome(kind = 'panel') {
+    if (!insetTitleBar) return {};
+    return {
+      titleBarStyle: 'hidden',
+      trafficLightPosition: { ...(TRAFFIC_LIGHTS[kind] || TRAFFIC_LIGHTS.panel) }
+    };
+  }
+
   return Object.freeze({
     platform,
     restoreOnActivate: isMac,
+    insetTitleBar,
+    windowChrome,
     capabilities,
     initializeApp,
     applyLoginItem,
@@ -123,4 +151,4 @@ function createPlatformPolicy({
   });
 }
 
-module.exports = { createPlatformPolicy };
+module.exports = { createPlatformPolicy, INSET_CHROME_ARGUMENT };

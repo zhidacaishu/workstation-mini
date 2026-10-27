@@ -1,4 +1,6 @@
 const path = require('node:path');
+const { maskCode } = require('./vault/wikilink');
+const { maskMath } = require('./mathSyntax');
 
 const { toPosix, stripExtension, isSafeRelativePath, ensureSafeFilePath } = require('./vault/paths');
 const { listNotes, parseFrontmatter, stringifyFrontmatter, readNote, writeNote } = require('./vault/note');
@@ -73,13 +75,23 @@ function splitCards(body) {
 function parseCloze(text) {
   const source = String(text ?? '');
   CLOZE_PATTERN.lastIndex = 0;
-  const answers = [...source.matchAll(CLOZE_PATTERN)].map(match => match[1].trim());
+  const protectedSource = maskMath(maskCode(source));
+  const matches = [...protectedSource.matchAll(CLOZE_PATTERN)].filter(match => source.slice(match.index + 2, match.index + match[0].length - 2).trim());
+  const answers = matches.map(match => source.slice(match.index + 2, match.index + match[0].length - 2).trim());
+  const replace = fill => {
+    let output = source;
+    for (let i = matches.length - 1; i >= 0; i -= 1) {
+      const match = matches[i];
+      output = output.slice(0, match.index) + (fill ? answers[i] : '＿＿＿＿') + output.slice(match.index + match[0].length);
+    }
+    return output;
+  };
   if (answers.length === 0) return { hasCloze: false, masked: source, filled: source, answers: [] };
 
   return {
     hasCloze: true,
-    masked: source.replace(CLOZE_PATTERN, '＿＿＿＿'),
-    filled: source.replace(CLOZE_PATTERN, (match, answer) => answer.trim()),
+    masked: replace(false),
+    filled: replace(true),
     answers
   };
 }
