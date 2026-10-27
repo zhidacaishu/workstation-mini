@@ -14,7 +14,7 @@
       </label>
     </div>
     <div class="editor-head-actions">
-      <p class="editor-status" data-editor-status role="status" aria-live="polite">所有更改均已保存</p>
+      <p class="editor-status" data-editor-status role="status" aria-live="polite"><%= recovered ? '恢复内容尚未保存' : isNew ? '新笔记尚未保存' : '所有更改均已保存' %></p>
       <% if (!isNew) { %>
         <a class="button quiet" href="/note/<%= encodePath(notePath) %>">取消</a>
       <% } else { %>

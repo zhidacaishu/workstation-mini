@@ -17,6 +17,7 @@ const argumentsFromCli = process.argv.slice(2);
 const desktopOnly = argumentsFromCli.includes('--desktop');
 const forwarded = argumentsFromCli.filter(argument => argument !== '--desktop');
 const miniCoreTests = [
+  'guide.test.js',
   'math.test.js',
   'appClient.test.js',
   'calendarHttp.test.js',
@@ -55,6 +56,7 @@ const miniCoreTests = [
   'watcher.test.js'
 ];
 const desktopTests = [
+  'desktop-guide.test.js',
   'desktop-math.test.js',
   'desktop-build-config.test.js',
   'desktop-config.test.js',

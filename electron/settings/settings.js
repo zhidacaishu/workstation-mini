@@ -423,7 +423,10 @@ function activateSection(id) {
   }
 }
 
+let navigatingSection = null;
+
 function activateVisibleSection() {
+  if (navigatingSection) return;
   const marker = Math.min(window.innerHeight * .24, 180);
   let visible = sections[0];
   for (const section of sections) {
@@ -433,10 +436,31 @@ function activateVisibleSection() {
   if (visible) activateSection(visible.id);
 }
 
-activateSection(window.location.hash.slice(1) || sections[0]?.id);
-window.addEventListener('hashchange', () => activateSection(window.location.hash.slice(1) || sections[0]?.id));
+function activateHashSection() {
+  navigatingSection = window.location.hash.slice(1) || sections[0]?.id;
+  activateSection(navigatingSection);
+}
+
+for (const link of navLinks) {
+  link.addEventListener('click', () => {
+    navigatingSection = link.hash.slice(1);
+    activateSection(navigatingSection);
+  });
+}
+// Keep the chosen section highlighted while smooth anchor scrolling passes other sections.
+activateHashSection();
+window.addEventListener('hashchange', activateHashSection);
+window.addEventListener('scrollend', () => { navigatingSection = null; });
+for (const type of ['wheel', 'touchstart']) {
+  window.addEventListener(type, () => { navigatingSection = null; }, { passive: true });
+}
+window.addEventListener('keydown', event => {
+  if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+    navigatingSection = null;
+  }
+});
 window.addEventListener('scroll', activateVisibleSection, { passive: true });
-window.addEventListener('resize', activateVisibleSection);
+window.addEventListener('resize', () => { navigatingSection = null; activateVisibleSection(); });
 
 api.onChanged(handleExternalChange);
 api.onSyncStatusChanged(renderSyncStatus);

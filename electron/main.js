@@ -15,6 +15,7 @@ const {
 } = require('electron');
 
 const { createConfigStore } = require('./config-store');
+const { createGuideStore } = require('./guide-store');
 const { createRuntimeConfig } = require('./runtime-config');
 const { validateSettingsUpdate } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
@@ -25,7 +26,7 @@ const {
   validateRecoveryStart
 } = require('./recovery-validation');
 const { activateRecoveredVault } = require('./recovery-activation');
-const { normalizedDocumentUrl, isTrustedMainFrameSender } = require('./trusted-sender');
+const { normalizedDocumentUrl, isTrustedMainFrameSender, isTrustedMainOriginSender } = require('./trusted-sender');
 const { startRuntime } = require('../src/runtime');
 const { defaultVaultDir } = require('../src/config');
 const { createRecoveryJournal } = require('../src/recovery/journal');
@@ -350,6 +351,7 @@ async function createMainWindow({ hidden = false, targetUrl = '' } = {}) {
       ...platformPolicy.windowChrome('main'),
       webPreferences: {
         partition,
+        preload: path.join(__dirname, 'main-preload.js'),
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: true
@@ -872,6 +874,22 @@ function showFatalError(error) {
 }
 
 function registerIpc() {
+  const guideStore = createGuideStore(app.getPath('userData'));
+  const assertGuideSender = event => {
+    if (!isTrustedMainOriginSender(event, mainWindow, runtime?.origin)) throw new Error('拒绝来自未知页面的指引请求。');
+  };
+  ipcMain.handle('guide:get', event => {
+    assertGuideSender(event);
+    return { ...guideStore.read(), vaultDir: settings.vaultDir, syncEnabled: settings.syncEnabled, readOnly: settings.readOnly };
+  });
+  ipcMain.handle('guide:save', (event, state) => {
+    assertGuideSender(event);
+    return guideStore.write(state);
+  });
+  ipcMain.handle('guide:settings', async event => {
+    assertGuideSender(event);
+    await showSettingsWindow();
+  });
   ipcMain.handle('settings:get', event => {
     assertSettingsSender(event);
     return runtimeState();

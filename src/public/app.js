@@ -287,7 +287,9 @@
     const refreshEditorState = () => {
       if (saving) return;
       const dirty = serializeEditor() !== baseline;
-      renderEditorState(dirty ? 'dirty' : 'clean', dirty ? '有未保存的更改' : '所有更改均已保存');
+      const newNote = editorForm.querySelector('[name="isNew"]')?.value === '1';
+      const cleanMessage = newNote ? '新笔记尚未保存' : '所有更改均已保存';
+      renderEditorState(dirty ? 'dirty' : 'clean', dirty ? (editorForm.dataset?.recovered === '1' ? '恢复内容尚未保存' : '有未保存的更改') : cleanMessage);
     };
 
     editorForm.addEventListener('input', refreshEditorState);

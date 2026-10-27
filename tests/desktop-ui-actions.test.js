@@ -29,6 +29,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     await fs.writeFile(path.join(vault, 'notes', 'experiments', 'sample.md'),
       '---\ntitle: 项目测试\nstatus: running\ndeadline: 2020-01-01\nnext: 下一步测试\nresult: 结果测试\n---\n\n项目正文\n');
     await fs.writeFile(path.join(vault, 'cards', 'sample.md'), '---\ndeck: 交互卡组\n---\n\n## 题目\n\n答案\n');
+    await fs.writeFile(path.join(userData, 'workstation-data', 'guide.json'), JSON.stringify({ step: 7, status: 'completed' }));
     await fs.writeFile(path.join(userData, 'workstation-data', 'settings.json'), JSON.stringify({
       schemaVersion: 1, vaultDir: vault, device: 'actions-smoke', syncEnabled: false
     }));
@@ -268,10 +269,20 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       settings.setDefaultTimeout(5000);
       settings.on('pageerror', error => errors.push(error.message));
       await settings.waitForSelector('body[data-settings-state="clean"]');
-      for (const id of ['workspace', 'appearance', 'sync', 'system']) {
+      for (const id of ['system', 'workspace', 'appearance', 'sync', 'system']) {
         await settings.locator('[data-settings-nav] a[href="#' + id + '"]').click();
         assert.equal(await settings.locator('[data-settings-nav] a[aria-current="location"]').getAttribute('href'), '#' + id);
+        await settings.waitForFunction(id => {
+          const target = document.getElementById(id);
+          const desired = Math.min(target.getBoundingClientRect().top + scrollY - 16, document.documentElement.scrollHeight - innerHeight);
+          return Math.abs(scrollY - desired) < 2;
+        }, id);
+        await settings.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await settings.locator('[data-settings-nav] a[aria-current="location"]').getAttribute('href'), '#' + id);
       }
+      await settings.mouse.move(700, 400);
+      await settings.mouse.wheel(0, -2000);
+      await settings.waitForFunction(() => scrollY === 0 && document.querySelector('[data-settings-nav] a[aria-current="location"]').hash === '#workspace');
       assert.equal(await settings.locator('#sync-now').isDisabled(), true, '同步关闭时禁止手动同步');
       const recoveryOpened = app.waitForEvent('window');
       await settings.locator('#open-recovery').click();
@@ -291,6 +302,8 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       page = await refreshed;
       page.on('pageerror', error => errors.push(error.message));
       await page.waitForSelector('body.is-readonly');
+      assert.equal(await page.locator('.workspace-sidebar').evaluate(e => e.scrollWidth <= e.clientWidth), true);
+      assert.equal(await page.locator('.readonly-status').isVisible(), true);
       const readonlyOrigin = new URL(page.url()).origin;
       await page.goto(readonlyOrigin + '/note/sample.md');
       assert.equal(await page.locator('.note-actions, .workspace-create, .selection-card').count(), 0);

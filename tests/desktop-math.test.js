@@ -18,6 +18,7 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     const block = '$$\n\\sum_{i=1}^{n} x_i = ' + Array(45).fill('x_i').join(' + ') + '\n$$';
     await fs.writeFile(path.join(vault, 'notes', 'math.md'), '# 公式测试\n\n中文 ' + math + ' 结束\n\n' + block + '\n\n$\\unknown{x}$');
     await fs.writeFile(path.join(vault, 'cards', 'math.md'), '## 公式挖空\n答案 {{ ' + math + ' }}');
+    await fs.writeFile(path.join(userData, 'workstation-data', 'guide.json'), JSON.stringify({ step: 7, status: 'completed' }));
     await fs.writeFile(path.join(userData, 'workstation-data', 'settings.json'), JSON.stringify({ schemaVersion: 1, vaultDir: vault, device: 'math-smoke', syncEnabled: false }));
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
     app = await electron.launch(process.env.WORKSTATION_EXECUTABLE

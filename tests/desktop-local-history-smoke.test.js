@@ -37,6 +37,7 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       await fs.mkdir(path.join(vault, 'notes'), { recursive: true });
       await fs.mkdir(settings, { recursive: true });
       await fs.writeFile(path.join(vault, 'notes', 'task.md'), '# Task\n\n- [ ] write paper @2026-10-05\n');
+      await fs.writeFile(path.join(settings, 'guide.json'), JSON.stringify({ step: 7, status: 'completed' }));
       await fs.writeFile(path.join(settings, 'settings.json'), JSON.stringify({
       schemaVersion: 1, vaultDir: vault, device: 'history-smoke', syncEnabled: false
       }));

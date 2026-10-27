@@ -63,7 +63,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
     const isProject = suggested.startsWith('experiments/');
     res.render('edit', {
       title: isProject ? '新建研究项目' : '新建笔记',
-      notePath: suggested.endsWith('.md') ? suggested : `${suggested}.md`,
+      notePath: suggested ? (suggested.endsWith('.md') ? suggested : suggested + '.md') : '',
       body: isProject
         ? '---\ntitle: \nstatus: planned\ndeadline: \ndataset: \nparams: \nseed: \ncommit: \nnext: \n---\n\n'
         : '',

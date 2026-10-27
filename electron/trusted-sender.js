@@ -15,4 +15,13 @@ function isTrustedMainFrameSender(event, window, documentUrl) {
     && normalizedDocumentUrl(event.senderFrame?.url) === documentUrl;
 }
 
-module.exports = { normalizedDocumentUrl, isTrustedMainFrameSender };
+function isTrustedMainOriginSender(event, window, origin) {
+  if (!origin || !window || window.isDestroyed()) return false;
+  try {
+    return event?.sender === window.webContents
+      && event?.senderFrame === window.webContents.mainFrame
+      && new URL(event.senderFrame.url).origin === origin;
+  } catch { return false; }
+}
+
+module.exports = { normalizedDocumentUrl, isTrustedMainFrameSender, isTrustedMainOriginSender };
