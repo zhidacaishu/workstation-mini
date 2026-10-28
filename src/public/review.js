@@ -83,6 +83,8 @@
     backEl.hidden = false;
     revealBtn.hidden = true;
     ratingsEl.hidden = false;
+    // Windows 隐藏按钮后可能仍保留焦点，显式交还给复习区域以恢复数字快捷键。
+    root.focus({ preventScroll: true });
   }
 
   function createEventId() {

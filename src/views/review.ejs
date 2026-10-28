@@ -7,7 +7,7 @@
     <a class="button" href="/decks">查看卡组</a>
   </section>
 <% } else { %>
-  <section id="reviewer" class="reviewer" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>">
+  <section id="reviewer" class="reviewer" tabindex="-1" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>">
     <h1 class="visually-hidden"><%= deck ? `复习 · ${deck}` : '复习' %></h1>
     <div class="review-progress">
       <div class="review-progress-row">

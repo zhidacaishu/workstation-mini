@@ -242,7 +242,9 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     });
     await check('鼠标显示答案后数字快捷键仍可评分，评分按钮完成复习', async () => {
       await visit('/review?deck=' + encodeURIComponent('交互卡组'));
+      await page.locator('#review-reveal').focus();
       await page.locator('#review-reveal').click();
+      assert.equal(await page.locator('#reviewer').evaluate(element => element === document.activeElement), true);
       let release;
       const wait = new Promise(resolve => { release = resolve; });
       await page.route('**/review/answer', async route => { await wait; await route.continue(); });

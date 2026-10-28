@@ -68,6 +68,9 @@ async function loadReview(fetch, queue) {
     addEventListener(type, handler) { this.listeners = { ...(this.listeners || {}), [type]: handler }; },
     querySelector() { return null; }
   };
+  for (const element of elements.values()) {
+    element.focus = () => { element.focused = true; document.activeElement = element; };
+  }
   const windowListeners = new Map();
   const source = await fs.readFile(path.join(__dirname, '..', 'src', 'public', 'review.js'), 'utf8');
   let uuid = 0;
@@ -109,6 +112,31 @@ test('focused button、select 和 audio 不被复习快捷键接管', async () =
     assert.equal(prevented, false);
     assert.equal(ui.elements.get('review-back').hidden, true);
   }
+});
+
+test('显示答案按钮持有焦点时，隐藏后交还焦点并允许数字键评分', async () => {
+  const answer = deferred();
+  const payloads = [];
+  const ui = await loadReview((url, options) => {
+    if (url === '/review/answer') {
+      payloads.push(JSON.parse(options.body));
+      return answer.promise;
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ ok: true, skipped: '同步未配置' }) });
+  }, [CARD]);
+  const reveal = ui.elements.get('review-reveal');
+  reveal.tagName = 'BUTTON';
+  reveal.focus();
+  ui.reveal();
+  assert.equal(reveal.hidden, true);
+  assert.equal(ui.document.activeElement, ui.elements.get('reviewer'));
+  ui.keydown({ key: '3' });
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0].rating, 3);
+  assert.equal(ui.elements.get('reviewer').attributes['aria-busy'], 'true');
+  answer.resolve({ ok: true });
+  await flush();
+  assert.equal(ui.elements.get('review-done').hidden, false);
 });
 
 test('最后一次评分落盘前不结束也不同步', async () => {
