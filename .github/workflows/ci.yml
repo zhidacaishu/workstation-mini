@@ -24,14 +24,14 @@ concurrency:
 jobs:
   # 快速回归：几分钟内给出「逻辑有没有坏」的答案。
   #
-  # 正式发布只出 Windows，macOS 是 ad-hoc 的个人本地版，但绝大多数测试是纯
+  # Windows 与 macOS 安装包通过独立 Release 工作流发布；绝大多数测试是纯
   # Node 的，跑在哪个平台上都一样；桌面 smoke test 也能在 Xvfb 下真的开出窗口来。
   # 把它们放在 Linux 上先跑一遍，就不必为了知道「应用还能不能启动」去等下面
   # 那两个打包 job。
   #
-  # 注意 Linux 在 platform-policy 里既不是 win32 也不是 darwin：登录启动和自动
-  # 更新两个能力都没有，和 macOS 同侧。测试要按能力分支，不能写成「非 macOS
-  # 即 Windows」—— 那样这个 job 会稳定挂在只有 Windows 才有的菜单项上。
+  # 注意 Linux 在 platform-policy 里既不是 win32 也不是 darwin：没有登录启动这项
+  # 能力，和 macOS 同侧。测试要按能力分支，不能写成「非 macOS 即 Windows」——
+  # 那样这个 job 会稳定挂在只有 Windows 才有的菜单项上。
   #
   # Windows job 仍是发布门禁 —— 原生 ABI、路径语义和安装器只有那边能验。
   regression:
@@ -93,6 +93,14 @@ jobs:
 
       - name: Build unpacked Windows application
         run: npm run desktop:dir
+
+      # Mini 不参与更新分发（package.json 顶层 build.publish 为 null）。
+      - name: Assert no Windows update manifest was produced
+        shell: pwsh
+        run: |
+          if (Get-ChildItem -Path 'dist' -Recurse -Include 'latest*.yml', 'app-update.yml' -ErrorAction SilentlyContinue) {
+            throw 'dist/ 里出现了更新清单。检查 package.json 的 build.publish —— Mini 不应参与更新分发。'
+          }
 
       - name: Locate packaged executable
         shell: pwsh

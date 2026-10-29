@@ -198,3 +198,15 @@ test('只读模式可浏览计划但拒绝任务与月历备注写入', async t 
   await request(ctx.app).post('/plan/notes').send({ date: TODAY, text: '不应写入' }).expect(403);
   await request(ctx.app).post('/tasks/update').send({}).expect(403);
 });
+
+test('计划页记住上次的视图：直接打开 /plan 时沿用，显式参数优先', async t => {
+  const ctx = await setup(t);
+  const first = await request(ctx.app).get('/plan?view=calendar').expect(200);
+  const cookie = first.headers['set-cookie'].find(value => value.startsWith('plan_view='));
+  assert.match(cookie, /plan_view=calendar/);
+  assert.match(cookie, /HttpOnly/);
+  const again = await request(ctx.app).get('/plan').set('Cookie', 'plan_view=calendar').expect(200);
+  assert.match(again.text, /data-plan-view="calendar"/);
+  const explicit = await request(ctx.app).get('/plan?view=list&filter=undated').set('Cookie', 'plan_view=calendar').expect(200);
+  assert.match(explicit.text, /data-plan-view="list"/);
+});

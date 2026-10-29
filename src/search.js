@@ -41,6 +41,10 @@ function buildFilterClause(filters, params, alias = 'notes') {
     clause += ` AND EXISTS (SELECT 1 FROM tags WHERE tags.path = ${alias}.path AND tags.tag = ?)`;
     params.push(String(filters.tag).toLowerCase());
   }
+  if (filters.excludeSection) {
+    clause += ` AND ${alias}.section != ?`;
+    params.push(filters.excludeSection);
+  }
   return clause;
 }
 
@@ -128,7 +132,8 @@ function createSearch(db) {
    */
   function browse(options = {}) {
     const limit = Math.min(Math.max(Number(options.limit) || DEFAULT_LIMIT, 1), 200);
-    const filters = { section: options.section || '', tag: options.tag || '' };
+    const offset = Math.max(0, Math.floor(Number(options.offset) || 0));
+    const filters = { section: options.section || '', tag: options.tag || '', excludeSection: options.excludeSection || '' };
     const params = [];
     const clause = buildFilterClause(filters, params);
     const rows = db.raw.prepare(`
@@ -137,7 +142,7 @@ function createSearch(db) {
       FROM notes
       WHERE 1 = 1${clause}
       ORDER BY notes.mtime_ms DESC, notes.path ASC
-      LIMIT ${limit}
+      LIMIT ${limit} OFFSET ${offset}
     `).all(...params);
 
     return rows.map(row => ({
@@ -155,18 +160,18 @@ function createSearch(db) {
     }));
   }
 
-  function recent(limit = 20) {
-    return browse({ limit }).map(({ mtime_ms, ...note }) => ({ ...note, mtimeMs: mtime_ms }));
+  function recent(limit = 20, { excludeSection = '' } = {}) {
+    return browse({ limit, excludeSection }).map(({ mtime_ms, ...note }) => ({ ...note, mtimeMs: mtime_ms }));
   }
 
-  function bySection(section, limit = 100) {
-    return db.raw.prepare(`
-      SELECT path, title_raw AS title, section, mtime_ms AS mtimeMs
-      FROM notes WHERE section = ? ORDER BY path DESC LIMIT ?
-    `).all(section, Math.min(Math.max(Number(limit) || 100, 1), 500));
+  /** 和 browse 同一套筛选条件下一共有多少篇，供翻页和「共 N 篇」使用。 */
+  function count(options = {}) {
+    const params = [];
+    const clause = buildFilterClause({ section: options.section || '', tag: options.tag || '' }, params);
+    return db.raw.prepare(`SELECT count(*) AS total FROM notes WHERE 1 = 1${clause}`).get(...params).total;
   }
 
-  return { search, browse, recent, bySection, buildSnippet };
+  return { search, browse, count, recent, buildSnippet, PAGE_SIZE: DEFAULT_LIMIT };
 }
 
 module.exports = { createSearch, buildSnippet, escapeLike };

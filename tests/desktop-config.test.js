@@ -200,3 +200,78 @@ test('外观设置只接受跟随系统、浅色、深色，旧配置默认跟�
   assert.doesNotThrow(() => validateSettingsUpdate({ settings: { vaultDir: '/vault', theme: 'light' } }));
   assert.throws(() => validateSettingsUpdate({ settings: { vaultDir: '/vault', theme: 'sepia' } }), /外观/);
 });
+
+test('索引库放在应用数据目录，每个资料库一份，资料库里不再出现 workstation.db', () => {
+  const { indexDatabasePath, pruneStaleIndexes } = require('../electron/runtime-config');
+  const indexDir = path.resolve('user-data', 'index');
+  const vaultA = normalizeSettings({ vaultDir: path.resolve('vault-a') });
+  const vaultB = normalizeSettings({ vaultDir: path.resolve('vault-b') });
+  const configA = createRuntimeConfig(vaultA, { indexDir });
+  assert.equal(path.dirname(configA.dbPath), indexDir);
+  assert.ok(!configA.dbPath.startsWith(configA.vaultDir), '索引不在资料库里');
+  assert.equal(createRuntimeConfig(vaultA, { indexDir }).dbPath, configA.dbPath, '同一个资料库总是同一份索引');
+  assert.notEqual(createRuntimeConfig(vaultB, { indexDir }).dbPath, configA.dbPath);
+  assert.equal(indexDatabasePath(indexDir, path.resolve('vault-a') + path.sep), configA.dbPath, '结尾斜杠不影响');
+
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'ws-index-'));
+  try {
+    const current = indexDatabasePath(dir, '/current');
+    const stale = indexDatabasePath(dir, '/stale');
+    const recent = indexDatabasePath(dir, '/recent');
+    for (const file of [current, stale, stale + '-wal', recent]) fsSync.writeFileSync(file, 'x');
+    const old = new Date(Date.now() - 200 * 86_400_000);
+    fsSync.utimesSync(stale, old, old);
+    fsSync.utimesSync(current, old, old);
+    pruneStaleIndexes(dir, current);
+    assert.deepEqual(fsSync.readdirSync(dir).sort(), [path.basename(current), path.basename(recent)].sort());
+  } finally {
+    fsSync.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('设置文件损坏：坏文件改名留存，用备份并报告；坏文件不会覆盖好备份；两份都坏按首次启动处理', async () => {
+  const userDataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-settings-corrupt-'));
+  try {
+    const store = createConfigStore({ userDataPath });
+    store.write({ ...normalizeSettings(), vaultDir: '/vault-one', device: 'mac-1' });
+    store.write({ ...store.load(), vaultDir: '/vault-two' });
+    await fs.writeFile(store.filePath, '{"schemaVersion":5,"vaultDir":"/vault-tw');
+    const restored = store.load();
+    assert.equal(restored.vaultDir, '/vault-one');
+    assert.equal(store.lastLoadIssue().kind, 'backup');
+    assert.match(path.basename(store.lastLoadIssue().corruptPath), /^settings\.corrupt-.+\.json$/);
+    await fs.writeFile(store.filePath, '{broken');
+    store.write({ ...restored, device: 'mac-1' });
+    assert.equal(JSON.parse(await fs.readFile(store.backupPath, 'utf8')).vaultDir, '/vault-one', '坏的主文件不会被拷成备份');
+    await fs.writeFile(store.filePath, '{broken');
+    await fs.writeFile(store.backupPath, '{broken too');
+    const reset = store.load();
+    assert.equal(reset.vaultDir, '');
+    assert.equal(store.lastLoadIssue().kind, 'reset');
+  } finally {
+    await fs.rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('设备名不能清空；老用户沿用主机名算出的设备名', () => {
+  const { legacyDeviceName, normalizeDeviceName } = require('../src/config');
+  assert.throws(() => validateSettingsUpdate({ settings: { vaultDir: '/vault', device: '  ' } }), /设备名不能为空/);
+  assert.doesNotThrow(() => validateSettingsUpdate({ settings: { vaultDir: '/vault', device: 'mac-1' } }));
+  assert.equal(legacyDeviceName('vm'), normalizeDeviceName('vm'));
+  assert.equal(legacyDeviceName('Zhangs-MacBook-Pro.local'), normalizeDeviceName('Zhangs-MacBook-Pro.local'));
+});
+
+test('资料库里旧版本留下的 workstation.db：几天没动过就清掉，最近还在用的不碰', async () => {
+  const { removeLegacyVaultIndex, LEGACY_INDEX_IDLE_DAYS } = require('../electron/runtime-config');
+  const vault = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-legacy-index-'));
+  try {
+    for (const name of ['workstation.db', 'workstation.db-wal', 'workstation.db-shm']) await fs.writeFile(path.join(vault, name), 'x');
+    assert.deepEqual(removeLegacyVaultIndex(vault), [], '刚修改过：可能另一台设备的旧版本正开着');
+    const later = Date.now() + (LEGACY_INDEX_IDLE_DAYS + 1) * 86_400_000;
+    assert.deepEqual(removeLegacyVaultIndex(vault, later), ['workstation.db', 'workstation.db-wal', 'workstation.db-shm']);
+    assert.deepEqual(await fs.readdir(vault), []);
+    assert.deepEqual(removeLegacyVaultIndex(vault, later), []);
+  } finally {
+    await fs.rm(vault, { recursive: true, force: true });
+  }
+});

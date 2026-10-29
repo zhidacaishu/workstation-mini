@@ -33,7 +33,11 @@ test('编辑器中间产物不触发重扫', () => {
     'note.md~',                    // 备份文件
     '4913',                        // vim 的探测文件
     '.note.md.swp',
-    'sub/.hidden.md'
+    'sub/.hidden.md',
+    // 草稿和版本历史：编辑时约每秒写一次，不该触发全量重扫。
+    '.workstation-local/drafts/0b8f4a52-8b1b-4c55-9d8e-3f0e4d1a2b3c.json',
+    '.workstation-local/versions/abc/note.json',
+    'node_modules/pkg/readme.md'
   ]) {
     assert.equal(isEditorNoise(name), true, `${name} 应被当作编辑器噪声`);
   }

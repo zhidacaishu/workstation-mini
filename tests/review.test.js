@@ -26,7 +26,7 @@ function writeLog(vaultDir, filename, events) {
 
 // ── 卡片解析 ──────────────────────────────────────────
 
-test('同一物理卡组的路径别名不会并发重复 managed 卡片', async () => {
+test('同一物理卡组的路径别名串行追加且不覆盖卡片', async () => {
   const vaultDir = await makeVault();
   try {
     const probe = path.join(vaultDir, 'cards', 'Alias.md');
@@ -38,13 +38,13 @@ test('同一物理卡组的路径别名不会并发重复 managed 卡片', async
     if (!sameFile) return;
 
     await Promise.all([
-      cards.appendCard(vaultDir, { deckFile: 'Alias', front: '问题', back: '答案', managedId: 'one' }),
-      cards.appendCard(vaultDir, { deckFile: 'alias', front: '问题', back: '答案', managedId: 'one' })
+      cards.appendCard(vaultDir, { deckFile: 'Alias', front: '问题', back: '答案' }),
+      cards.appendCard(vaultDir, { deckFile: 'alias', front: '问题', back: '答案' })
     ]);
 
     const raw = await fs.readFile(path.join(vaultDir, 'cards', 'Alias.md'), 'utf8');
     assert.equal((raw.match(/^---$/gm) || []).length, 2);
-    assert.equal((raw.match(/workstation:annotation-card:v1/g) || []).length, 1);
+    assert.equal(cards.parseCardFile('cards/Alias.md', raw).length, 2);
   } finally {
     await fs.rm(vaultDir, { recursive: true, force: true });
   }

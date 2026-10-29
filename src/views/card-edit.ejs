@@ -1,0 +1,54 @@
+<%- include('partials/head') %>
+<div class="narrow card-edit">
+
+<header class="page-head">
+  <div>
+    <h1>编辑卡片</h1>
+    <p class="page-meta"><code><%= card.path %></code></p>
+  </div>
+</header>
+
+<form class="panel card-edit-form" action="/cards/update" method="post" data-guard-unsaved>
+  <input type="hidden" name="id" value="<%= card.id %>">
+  <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
+  <input type="hidden" name="returnTo" value="<%= returnTo %>">
+
+  <label class="card-field">
+    <span>正面</span>
+    <input type="text" name="front" value="<%= card.front %>" required autocomplete="off" spellcheck="false">
+  </label>
+  <label class="card-field">
+    <span>背面</span>
+    <textarea name="back" rows="10" spellcheck="false"><%= card.back %></textarea>
+    <small>支持 Markdown、<code>$公式$</code> 和 <code>{{挖空}}</code>。</small>
+  </label>
+  <label class="card-field">
+    <span>卡组文件</span>
+    <span class="card-deck-input"><span aria-hidden="true">cards/</span><input type="text" name="deckFile" value="<%= card.deckFile %>" list="deck-files" autocomplete="off" spellcheck="false"><span aria-hidden="true">.md</span></span>
+    <datalist id="deck-files">
+      <% deckFiles.forEach(item => { %><option value="<%= item.file %>"><%= item.deck %></option><% }) %>
+    </datalist>
+    <small>改成别的卡组文件会把这张卡挪过去；文件不存在时会新建。</small>
+  </label>
+  <label class="card-check">
+    <input type="checkbox" name="suspended"<% if (card.suspended) { %> checked<% } %>>
+    <span>暂停复习<small>暂停后不再出现在复习队列里，复习记录保留，随时可以恢复。</small></span>
+  </label>
+
+  <p class="card-edit-note">改正面或挪卡组后，这张卡的复习记录会继续保留。</p>
+
+  <div class="card-edit-actions">
+    <button class="button primary" type="submit">保存</button>
+    <a class="button quiet" href="<%= returnTo %>">取消</a>
+    <button class="button danger card-delete" type="submit" form="card-delete-form">删除这张卡</button>
+  </div>
+</form>
+
+<form id="card-delete-form" action="/cards/delete" method="post" data-confirm="删除这张卡片？删除前的卡组会存进「历史与草稿」，需要时可以在那里恢复。">
+  <input type="hidden" name="id" value="<%= card.id %>">
+  <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
+  <input type="hidden" name="returnTo" value="<%= returnTo %>">
+</form>
+
+</div>
+<%- include('partials/foot') %>

@@ -68,11 +68,17 @@ async function exists(target) {
   }
 }
 
+/**
+ * 是不是同一个目录。只比 dev + ino 不够：删掉再新建一个目录，ext4 等文件系统会把
+ * 刚释放的 inode 号直接给新目录用。能拿到创建时间的平台上再比一次创建时间。
+ */
 function sameIdentity(left, right) {
+  const born = value => Number(value?.birthtimeMs) || 0;
   return Boolean(left && right
     && left.dev === right.dev
     && left.ino === right.ino
-    && (left.dev !== 0 || left.ino !== 0));
+    && (left.dev !== 0 || left.ino !== 0)
+    && (!born(left) || !born(right) || born(left) === born(right)));
 }
 
 async function validateVaultRoot(vaultDir, { scanSymlinks = false } = {}) {
@@ -296,9 +302,12 @@ function createRecoveryService({
     return [];
   }
 
+  // 只是验证恢复出来的笔记能完整建索引。正式运行时索引放在应用数据目录，
+  // 验证完就把这份临时索引删掉，不在资料库里留文件。
   async function buildIndex(candidatePath) {
     const dbPath = path.join(candidatePath, 'workstation.db');
-    for (const suffix of ['', '-wal', '-shm']) await fsp.rm(`${dbPath}${suffix}`, { force: true });
+    const removeIndex = () => Promise.all(['', '-wal', '-shm'].map(suffix => fsp.rm(`${dbPath}${suffix}`, { force: true })));
+    await removeIndex();
     const db = openDb(dbPath);
     try {
       const indexer = createIndex({ db, vaultDir: path.join(candidatePath, 'notes') });
@@ -308,6 +317,7 @@ function createRecoveryService({
         : { phase: 'ready', failures: [], failureTotal: 0 };
     } finally {
       db.close();
+      await removeIndex().catch(() => {});
     }
   }
 
@@ -694,6 +704,22 @@ function createRecoveryService({
     });
   }
 
+  /**
+   * 不属于本应用会话的残留（暂存目录被手动删掉、所有权标记对不上）没法自动清理，
+   * 以前也没法忽略，于是每次启动都卡在恢复窗口。用户检查过后可以只清掉这条记录：
+   * 不碰任何目录。
+   */
+  function dismissResidue() {
+    if (operations.size || state.phase !== 'residue') throw new Error('当前没有可以忽略的恢复残留。');
+    return track(async () => {
+      await journal.clear();
+      state = emptyState();
+      session = null;
+      emit({ phase: 'idle' });
+      return getState();
+    });
+  }
+
   function reset() {
     if (operations.size || !['idle', 'cancelled', 'failed', 'completed'].includes(state.phase)) {
       throw new Error('当前恢复状态不能重置。');
@@ -725,6 +751,7 @@ function createRecoveryService({
     failActivation,
     loadResidue,
     discardOwnedStaging,
+    dismissResidue,
     reset,
     idle
   };

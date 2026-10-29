@@ -3,11 +3,9 @@ const assert = require('node:assert/strict');
 const Database = require('better-sqlite3');
 
 const {
-  LEXICAL_STOPWORDS,
   tokenize,
   tokenizeToText,
-  toMatchExpression,
-  toBroadMatchExpression
+  toMatchExpression
 } = require('../src/segment');
 
 test('tokenize 切开中文词并丢掉标点', () => {
@@ -59,29 +57,6 @@ test('带引号的查询能正常匹配到原文', () => {
 test('查询里没有可检索 token 时返回空串', () => {
   assert.equal(toMatchExpression('   '), '');
   assert.equal(toMatchExpression('，。'), '');
-});
-
-test('broad FTS 查询过滤停用词、窄疑问词并按首次出现去重', () => {
-  assert.equal(
-    toBroadMatchExpression('请问工具变量如何处理工具变量的内生性'),
-    '"工具" OR "变量" OR "处理" OR "内" OR "生" OR "性"'
-  );
-  assert.equal(toBroadMatchExpression('方法和模型有什么效应'), '"方法" OR "模型" OR "效应"');
-  assert.equal(toBroadMatchExpression('为什么 是否 what how 的'), '');
-  assert.ok(LEXICAL_STOPWORDS.has('的'));
-});
-
-test('broad FTS 查询也把语法字符当普通文本处理', () => {
-  const db = new Database(':memory:');
-  db.exec('CREATE VIRTUAL TABLE t USING fts5(body, tokenize="unicode61")');
-  for (const query of ['A AND B', 'NOT', 'OR', 'foo*', '(bar)', 'said "hi"']) {
-    const expression = toBroadMatchExpression(query);
-    assert.doesNotThrow(
-      () => expression && db.prepare('SELECT count(*) FROM t WHERE body MATCH ?').get(expression),
-      `查询 ${query} 不应触发 FTS5 语法错误`
-    );
-  }
-  db.close();
 });
 
 // 这是整个中文检索方案的回归基线。方案定稿前在 SQLite 3.45.1 上实测过一次，

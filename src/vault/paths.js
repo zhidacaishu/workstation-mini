@@ -1,4 +1,3 @@
-const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 
@@ -56,27 +55,6 @@ async function ensureSafeTargetParent(targetDir, absolute, { create = false } = 
   return absolute;
 }
 
-function ensureSafeTargetParentSync(targetDir, absolute) {
-  const root = path.resolve(targetDir);
-  const relative = assertInsideRoot(root, path.dirname(absolute));
-  const rootReal = fs.realpathSync(root);
-  if (!fs.statSync(rootReal).isDirectory()) throw new Error('资料库不是目录。');
-  let current = root;
-  let expectedReal = rootReal;
-  for (const segment of relative.split(path.sep).filter(Boolean)) {
-    current = path.join(current, segment);
-    expectedReal = path.join(expectedReal, segment);
-    const stats = fs.lstatSync(current);
-    if (!stats.isDirectory() || stats.isSymbolicLink()) {
-      throw new Error('目标路径包含符号链接或非目录祖先。');
-    }
-    if (!samePath(fs.realpathSync(current), expectedReal)) {
-      throw new Error('目标路径离开了资料库目录。');
-    }
-  }
-  return absolute;
-}
-
 async function ensureSafeFilePath(vaultDir, relativePath, { allowMissing = false, createParents = false } = {}) {
   const absolute = toAbsolute(vaultDir, relativePath);
   await ensureSafeTargetParent(vaultDir, absolute, { create: createParents });
@@ -87,14 +65,6 @@ async function ensureSafeFilePath(vaultDir, relativePath, { allowMissing = false
     if (allowMissing && error.code === 'ENOENT') return absolute;
     throw error;
   }
-  return absolute;
-}
-
-function ensureSafeFilePathSync(vaultDir, relativePath) {
-  const absolute = toAbsolute(vaultDir, relativePath);
-  ensureSafeTargetParentSync(vaultDir, absolute);
-  const stats = fs.lstatSync(absolute);
-  if (!stats.isFile() || stats.isSymbolicLink()) throw new Error('目标不是普通文件。');
   return absolute;
 }
 
@@ -171,6 +141,27 @@ function basename(relativePath) {
   return stripExtension(toPosix(relativePath).split('/').pop() || '');
 }
 
+/**
+ * 用户在编辑器里填的笔记路径：可以不写 `.md`，也可以多打一个结尾斜杠或 `./`。
+ * 这里补齐成规范的笔记路径；是否安全仍由 isSafeRelativePath 判断。
+ */
+function withNoteExtension(value) {
+  const cleaned = toPosix(String(value ?? '').trim()).replace(/^\.\//, '').replace(/\/+$/, '');
+  if (!cleaned) return '';
+  return cleaned.toLowerCase().endsWith('.md') ? cleaned : cleaned + '.md';
+}
+
+/**
+ * 能作为一篇笔记打开、保存、删除的路径：安全、以 .md 结尾，而且不在点目录或
+ * node_modules 里 —— 索引扫描跳过这些地方，存进去的笔记永远看不到。
+ */
+function isNotePath(relativePath) {
+  const value = String(relativePath ?? '');
+  return isSafeRelativePath(value)
+    && value.toLowerCase().endsWith('.md')
+    && !value.split(/[\\/]/).some(segment => segment.startsWith('.') || segment === 'node_modules');
+}
+
 function encodePath(relativePath) {
   return toPosix(relativePath).split('/').map(encodeURIComponent).join('/');
 }
@@ -181,11 +172,11 @@ module.exports = {
   toAbsolute,
   isSafeRelativePath,
   ensureSafeTargetParent,
-  ensureSafeTargetParentSync,
   ensureSafeFilePath,
-  ensureSafeFilePathSync,
   sectionOf,
   stripExtension,
   basename,
+  withNoteExtension,
+  isNotePath,
   encodePath
 };

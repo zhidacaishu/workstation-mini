@@ -10,9 +10,11 @@ const { createReviewRoutes } = require('./routes/reviewRoutes');
 const { createItemRoutes } = require('./routes/itemRoutes');
 const { createTodayRoutes } = require('./routes/todayRoutes');
 const { createCalendarRoutes } = require('./routes/calendarRoutes');
+const { createGuideRoutes } = require('./routes/guideRoutes');
 const { encodePath } = require('./vault/paths');
 const { toLocalDate } = require('./templates');
 const viewHelpers = require('./viewHelpers');
+const { createReviewService } = require('./reviewService');
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ''));
@@ -26,6 +28,9 @@ function wantsJson(req) {
     || (req.get('accept') || '').includes('application/json');
 }
 
+// 编辑器一次提交整篇原文；10MB 足够任何正常的笔记，又不至于把一次误粘贴的巨型内容整个吞进内存。
+const BODY_LIMIT = '10mb';
+
 function createApp(config, deps) {
   const app = express();
   const noopSync = async () => ({ ok: true, skipped: '同步未配置' });
@@ -37,10 +42,11 @@ function createApp(config, deps) {
       syncReviewLogs: noopSync,
       idle: noopSync
     },
-    // 没显式传相似度服务就退回主线程内联计算：运行时会传一个带工作线程的进来，
-    // 而直接构造 app 的调用方不该被迫去管线程生命周期。
     ...deps
   };
+  // 整个应用共用一个复习服务：卡片和复习日志的缓存只建一份，今日、卡组、复习、
+  // 侧栏角标看到的是同一份状态。
+  resolved.review ||= createReviewService({ vaultDir: config.vaultDir, device: config.device, now: resolved.now });
 
   // 界面跑在 Electron 里，而这个 HTTP 服务就在主进程内，所以 process.platform
   // 就是用户实际所在的平台 —— 前端不必去嗅探 userAgent。可注入是为了让回归测试
@@ -74,14 +80,38 @@ function createApp(config, deps) {
     });
   }
 
-  // 附件上传的请求体就是文件本身（见 attachmentRoutes），不能先被这里按
-  // Content-Type 解析掉：前端发的是文件自己的 MIME 类型，一个 .json 附件会被
-  // express.json() 读空，上传路由只收到零字节。
-  const skipRawUploads = parser => (req, res, next) => (
-    req.method === 'POST' && req.path === '/attachments' ? next() : parser(req, res, next)
-  );
-  app.use(skipRawUploads(express.urlencoded({ extended: false, limit: '2mb' })));
-  app.use(skipRawUploads(express.json({ limit: '2mb' })));
+  // 页面模板要用的默认值放在解析请求体之前：请求体解析出错（太大、格式坏）时
+  // 直接进错误页，那时后面的中间件都还没跑，模板里缺这些变量就会崩成一页堆栈。
+  app.use((req, res, next) => {
+    res.locals.readOnly = config.readOnly;
+    res.locals.currentPath = req.path;
+    res.locals.encodePath = encodePath;
+    res.locals.isMac = isMac;
+    // macOS 桌面壳隐藏了系统标题栏，页面要给红绿灯让位（见 electron/platform-policy.js）。
+    res.locals.insetChrome = config.windowChrome === 'inset';
+    res.locals.draftId = crypto.randomUUID();
+    res.locals.recovered = false;
+    res.locals.editorWarning = '';
+    res.locals.today = toLocalDate((resolved.now || (() => new Date()))());
+    res.locals.ui = viewHelpers;
+    res.locals.navCounts = { overdue: 0, review: 0 };
+    next();
+  });
+
+  app.use(express.urlencoded({ extended: false, limit: BODY_LIMIT }));
+  app.use(express.json({ limit: BODY_LIMIT }));
+  // 没有请求体或 Content-Type 不认识时，Express 5 的 req.body 是 undefined；
+  // 统一成空对象，交给各路由按「缺字段」返回 400，而不是读属性时崩成 500。
+  app.use((req, res, next) => {
+    req.body ??= {};
+    // 只用到一两个界面偏好（比如计划页上次的视图），不值得为此引入 cookie-parser。
+    req.cookies = Object.fromEntries(String(req.get('cookie') || '').split(';').map(part => {
+      const index = part.indexOf('=');
+      if (index < 0) return null;
+      try { return [part.slice(0, index).trim(), decodeURIComponent(part.slice(index + 1).trim())]; } catch { return null; }
+    }).filter(Boolean));
+    next();
+  });
   app.use('/static', express.static(path.join(__dirname, 'public'), {
     maxAge: config.isProduction ? '1h' : 0
   }));
@@ -97,28 +127,17 @@ function createApp(config, deps) {
     index: false, maxAge: config.isProduction ? '30d' : 0
   }));
 
-  const navCounts = viewHelpers.createNavCounts({ config, db: resolved.db, now: resolved.now });
+  const navCounts = viewHelpers.createNavCounts({ config, db: resolved.db, now: resolved.now, review: resolved.review });
 
-  app.use(async (req, res, next) => {
-    res.locals.readOnly = config.readOnly;
-    res.locals.currentPath = req.path;
-    res.locals.encodePath = encodePath;
-    res.locals.isMac = isMac;
-    // macOS 桌面壳隐藏了系统标题栏，页面要给红绿灯让位（见 electron/platform-policy.js）。
-    res.locals.insetChrome = config.windowChrome === 'inset';
-    res.locals.draftId = crypto.randomUUID();
-    res.locals.recovered = false;
-    res.locals.editorWarning = '';
-    res.locals.today = toLocalDate((resolved.now || (() => new Date()))());
-    res.locals.ui = viewHelpers;
-    res.locals.navCounts = { overdue: 0, review: 0 };
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      navCounts.invalidate();
-    } else if (!wantsJson(req) && !req.path.startsWith('/api/')) {
-      try {
-        res.locals.navCounts = await navCounts.get();
-      } catch {}
-    }
+  // 侧栏角标只在真的渲染页面时才算：图片、媒体、JSON 接口和跳转都用不上它。
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') navCounts.invalidate();
+    const render = res.render.bind(res);
+    res.render = (view, locals, callback) => {
+      navCounts.get()
+        .then(counts => { res.locals.navCounts = counts; }, () => {})
+        .then(() => render(view, locals, callback));
+    };
     next();
   });
 
@@ -130,6 +149,7 @@ function createApp(config, deps) {
   app.use(createNoteRoutes({ config, ...resolved }));
   app.use(createHistoryRoutes({ config, ...resolved }));
   app.use(createHealthRoutes({ config, ...resolved }));
+  app.use(createGuideRoutes({ config, ...resolved }));
 
   app.use((req, res) => {
     const message = `没有这个地址：${req.path}`;
@@ -141,6 +161,14 @@ function createApp(config, deps) {
   });
 
   app.use((error, req, res, next) => { // eslint-disable-line no-unused-vars
+    // 请求体解析阶段的错误（body-parser）：给中文说明，不露英文原文。
+    if (error.type === 'entity.too.large') {
+      error.status = 413;
+      error.message = '内容超过 10MB，没有保存。请把大段内容拆到几篇笔记里。';
+    } else if (error.type === 'entity.parse.failed' || error.type === 'encoding.unsupported' || error.type === 'charset.unsupported') {
+      error.status = 400;
+      error.message = '请求格式不正确，没有保存。';
+    }
     const status = error.status || 500;
     if (status >= 500) console.error(error);
     // 索引库页损坏常常要到某个页面查询时才暴露；记下来，下次启动时重建。

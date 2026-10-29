@@ -1,16 +1,24 @@
 <%- include('partials/head') %>
+<%
+  // 新建笔记：标题写在最上面，路径按标题自动生成；用户改过路径之后就不再跟着标题变。
+  const autoPathMode = isNew && !recovered && typeof autoPath !== 'undefined' && autoPath;
+  const targetFolder = typeof folder === 'string' && folder ? folder : 'inbox';
+%>
 
 <form data-draft-id="<%= draftId %>" data-recovered="<%= recovered ? '1' : '0' %>" class="editform" action="/save" method="post" data-editor-form data-new-note="<%= isNew ? '1' : '0' %>">
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="isNew" value="<%= isNew ? '1' : '0' %>">
+  <input type="hidden" name="autoPath" value="<%= autoPathMode ? '1' : '0' %>">
+  <% if (recovered && typeof recoveredFrom !== 'undefined' && recoveredFrom) { %><input type="hidden" name="recoveredFrom" value="<%= recoveredFrom %>"><% } %>
 
   <header class="editor-head">
     <div class="editor-title">
       <h1><%= recovered ? '恢复笔记' : isNew ? (title || '新建笔记') : '编辑' %></h1>
-      <label class="editor-path" title="相对资料库 notes/ 目录的路径，以 .md 结尾">
-        <span class="visually-hidden">路径</span>
+      <label class="editor-path" title="相对资料库 notes/ 目录的路径，可以不写 .md">
+        <span class="<%= autoPathMode ? 'editor-path-label' : 'visually-hidden' %>"><%= autoPathMode ? '保存到' : '路径' %></span>
         <input type="text" name="path" value="<%= notePath %>" required
-               placeholder="research/notes.md" spellcheck="false" <%= isNew ? '' : 'readonly' %>>
+               placeholder="<%= autoPathMode ? `${targetFolder}/标题.md` : 'research/notes.md' %>" spellcheck="false"
+               <%= isNew ? '' : 'readonly' %><% if (autoPathMode) { %> data-auto-path data-folder="<%= targetFolder %>"<% } %>>
       </label>
     </div>
     <div class="editor-head-actions">
@@ -26,13 +34,21 @@
 
   <% if (editorWarning) { %><p class="notice is-warn" role="alert"><%= editorWarning %></p><% } %>
 
+  <% if (isNew && !recovered) { %>
+    <label class="editor-note-title">
+      <span class="visually-hidden">标题</span>
+      <input type="text" data-note-title placeholder="标题" autocomplete="off" spellcheck="false"<% if (!notePath) { %> autofocus<% } %>>
+    </label>
+  <% } %>
+
   <label class="editor-body">
     <span class="visually-hidden">正文</span>
     <textarea name="body" rows="12" spellcheck="false" placeholder="---&#10;title: 标题&#10;tags: [概念]&#10;---&#10;&#10;正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
   </label>
 
   <footer class="editor-footer">
-    <p data-draft-status role="status" aria-live="polite"></p>
+    <%# 草稿每次自动保存都会改这行字；不让读屏软件在每次打字停顿时都念一遍。出错时另有提示。 %>
+    <p data-draft-status aria-live="off"></p>
     <a class="editor-history-link" href="/history?path=<%= encodeURIComponent(notePath) %>">版本与草稿</a>
   </footer>
 </form>

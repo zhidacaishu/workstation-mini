@@ -18,6 +18,12 @@ const desktopOnly = argumentsFromCli.includes('--desktop');
 const forwarded = argumentsFromCli.filter(argument => argument !== '--desktop');
 const miniCoreTests = [
   'guide.test.js',
+  'onboarding.test.js',
+  'maintenance.test.js',
+  'cardManagement.test.js',
+  'newNote.test.js',
+  'taskToggleClient.test.js',
+  'taskRules.test.js',
   'math.test.js',
   'appClient.test.js',
   'calendarHttp.test.js',
@@ -29,6 +35,7 @@ const miniCoreTests = [
   'desktop-config.test.js',
   'desktop-platform-policy.test.js',
   'desktop-quit-coordinator.test.js',
+  'desktop-resource-links.test.js',
   'desktop-vault-resolution.test.js',
   'draftsClient.test.js',
   'indexer.test.js',
@@ -53,7 +60,13 @@ const miniCoreTests = [
   'sync.test.js',
   'uiRedesign.test.js',
   'vault.test.js',
-  'watcher.test.js'
+  'watcher.test.js',
+  // 以前不在清单里，CI 从没跑过（单独跑都能通过）。
+  'ci-workflow.test.js',
+  'recovery-exclusive-rename.test.js',
+  'recovery-git.test.js',
+  'recovery-journal.test.js',
+  'testNetwork.test.js'
 ];
 const desktopTests = [
   'desktop-guide.test.js',
@@ -65,6 +78,7 @@ const desktopTests = [
   'desktop-ui-actions.test.js',
   'desktop-platform-policy.test.js',
   'desktop-quit-coordinator.test.js',
+  'desktop-resource-links.test.js',
   'desktop-trusted-sender.test.js',
   'desktop-vault-resolution.test.js'
 ];

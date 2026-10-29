@@ -17,8 +17,12 @@ const FALLBACK_POLL_MS = 30_000;
  * 再 rename），vim 用 `4913` 和 `~`，各种编辑器还会用 `.swp` / `.swx`。
  */
 function isEditorNoise(name) {
-  const base = name.split('/').pop() || '';
-  return base.startsWith('.')
+  const segments = name.split('/');
+  const base = segments.pop() || '';
+  // 点号开头的目录和索引器一样整体跳过：本应用的版本历史与草稿就在 notes/.workstation-local/
+  // 下，编辑器每隔一秒存一次草稿，以前会被当成「不认识的路径」而触发全量重扫。
+  return segments.some(segment => segment.startsWith('.') || segment === 'node_modules')
+    || base.startsWith('.')
     || base.endsWith('~')
     || base === '4913'
     || /\.tmp-/.test(base)

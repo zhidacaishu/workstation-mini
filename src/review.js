@@ -41,42 +41,123 @@ function isValidEvent(event) {
  * 坏行直接跳过而不是抛错：日志是追加式的，一次崩溃可能留下半行 JSON，
  * 不该让整个复习功能瘫掉。文件名会随事件带出来，用于排序去歧义。
  */
-async function readEvents(vaultDir) {
-  const dir = path.join(vaultDir, REVIEWS_DIR);
-  let files;
+function parseEventLines(file, raw) {
+  const events = [];
+  raw.split('\n').forEach((line, index) => {
+    const text = line.trim();
+    if (!text) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (!isValidEvent(parsed)) return;
+    events.push({
+      eventId: parsed.event_id || '',
+      cardId: parsed.card_id,
+      identityVersion: parsed.card_id_version || 1,
+      ts: parsed.ts,
+      rating: Number(parsed.rating),
+      elapsedMs: Number(parsed.elapsed_ms) || 0,
+      source: file,
+      line: index
+    });
+  });
+  return events;
+}
+
+/**
+ * 复习日志文件。reviews 目录本身或其中的文件是符号链接时一律不认：
+ * 否则一个指向资料库外的链接就能让应用去读写别处的文件。
+ */
+async function listLogFiles(vaultDir) {
+  const directory = path.join(vaultDir, REVIEWS_DIR);
   try {
-    files = (await fsp.readdir(dir)).filter(name => name.endsWith('.jsonl')).sort();
+    if (!(await fsp.lstat(directory)).isDirectory()) return [];
+    return (await fsp.readdir(directory, { withFileTypes: true }))
+      .filter(entry => entry.isFile() && entry.name.endsWith('.jsonl'))
+      .map(entry => entry.name)
+      .sort();
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
   }
+}
 
+function assertWritableLog(directory, file) {
+  const unsafe = target => {
+    try { return fs.lstatSync(target).isSymbolicLink(); } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  };
+  if (unsafe(directory) || unsafe(file)) {
+    throw Object.assign(new Error('复习日志目录或文件是符号链接，为安全起见不写入。'), { status: 409 });
+  }
+}
+
+async function readEvents(vaultDir) {
   const events = [];
-  for (const file of files) {
-    const raw = await fsp.readFile(path.join(dir, file), 'utf8');
-    raw.split('\n').forEach((line, index) => {
-      const text = line.trim();
-      if (!text) return;
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        return;
-      }
-      if (!isValidEvent(parsed)) return;
-      events.push({
-        eventId: parsed.event_id || '',
-        cardId: parsed.card_id,
-        identityVersion: parsed.card_id_version || 1,
-        ts: parsed.ts,
-        rating: Number(parsed.rating),
-        elapsedMs: Number(parsed.elapsed_ms) || 0,
-        source: file,
-        line: index
-      });
-    });
+  for (const file of await listLogFiles(vaultDir)) {
+    events.push(...parseEventLines(file, await fsp.readFile(path.join(vaultDir, REVIEWS_DIR, file), 'utf8')));
   }
   return events;
+}
+
+/**
+ * 复习日志的缓存：按文件记住大小、修改时间和 inode，只重读变了的文件。
+ *
+ * 日志按「年月 + 设备」分文件、只追加，几年下来会有几万条。以前今日、复习、卡组页
+ * 每打开一次就把全部文件读一遍、整体重放一遍，评一张卡还要再读一遍来去重。
+ * 现在评一张卡只会让本设备当月那一个文件失效；git 拉下别的设备的记录也只重读那几个文件。
+ * generation 在任何文件变化时加一，上层据此决定要不要重放。
+ */
+function createEventCache(vaultDir) {
+  let files = new Map();
+  let generation = 0;
+  let snapshot = null;
+
+  async function refresh() {
+    const directory = path.join(vaultDir, REVIEWS_DIR);
+    const names = await listLogFiles(vaultDir);
+    let changed = names.length !== files.size;
+    const next = new Map();
+    for (const name of names) {
+      let stats;
+      try {
+        stats = await fsp.stat(path.join(directory, name));
+      } catch (error) {
+        if (error.code === 'ENOENT') { changed = true; continue; }
+        throw error;
+      }
+      const key = `${stats.size}:${stats.mtimeMs}:${stats.ino}`;
+      const cached = files.get(name);
+      if (cached && cached.key === key) {
+        next.set(name, cached);
+        continue;
+      }
+      changed = true;
+      next.set(name, { key, events: parseEventLines(name, await fsp.readFile(path.join(directory, name), 'utf8')) });
+    }
+    files = next;
+    if (changed || !snapshot) {
+      generation += 1;
+      const events = [...files.values()].flatMap(entry => entry.events);
+      snapshot = { generation, events, byId: null };
+    }
+    return snapshot;
+  }
+
+  /** 事件 ID → 事件，第一次用到时才建。 */
+  function byId(current) {
+    if (!current.byId) {
+      current.byId = new Map();
+      for (const event of current.events) {
+        if (event.eventId && !current.byId.has(event.eventId)) current.byId.set(event.eventId, event);
+      }
+    }
+    return current.byId;
+  }
+
+  return { refresh, byId };
 }
 
 /**
@@ -153,6 +234,7 @@ function newCardState(now) {
 
 function createReviewStore({ vaultDir, device, now = () => new Date() }) {
   let recordQueue = Promise.resolve();
+  const cache = createEventCache(vaultDir);
 
   function conflict(message) {
     const error = new Error(message);
@@ -178,7 +260,7 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
       }
 
       if (normalized.eventId) {
-        const existing = (await readEvents(vaultDir)).find(event => event.eventId === normalized.eventId);
+        const existing = cache.byId(await cache.refresh()).get(normalized.eventId);
         if (existing) {
           if (existing.cardId !== normalized.cardId
             || existing.rating !== normalized.rating
@@ -199,6 +281,7 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
       const at = now();
       const iso = at.toISOString();
       const dir = path.join(vaultDir, REVIEWS_DIR);
+      assertWritableLog(dir, dir);
       fs.mkdirSync(dir, { recursive: true });
       const event = {
         ...(normalized.eventId ? { event_id: normalized.eventId } : {}),
@@ -209,7 +292,9 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
         elapsed_ms: normalized.elapsedMs
       };
       const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-      appendLinesSync(path.join(dir, reviewLogName(local, device)), [JSON.stringify(event)]);
+      const logFile = path.join(dir, reviewLogName(local, device));
+      assertWritableLog(dir, logFile);
+      appendLinesSync(logFile, [JSON.stringify(event)]);
       return {
         eventId: normalized.eventId,
         cardId: normalized.cardId,
@@ -223,10 +308,16 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
   }
 
   async function states(cardIds) {
-    return replay(await readEvents(vaultDir), cardIds);
+    return replay((await cache.refresh()).events, cardIds);
   }
 
-  return { record, states, readEvents: () => readEvents(vaultDir) };
+  return {
+    record,
+    states,
+    /** 当前全部事件（缓存过的）；generation 变了才说明日志有变化。 */
+    snapshot: () => cache.refresh(),
+    readEvents: async () => (await cache.refresh()).events
+  };
 }
 
 module.exports = {

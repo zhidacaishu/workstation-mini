@@ -54,7 +54,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
         await app.evaluate(({ BrowserWindow }, width) => {
           BrowserWindow.getAllWindows().find(window => window.webContents.getURL().startsWith('http')).setContentSize(width, 620);
         }, width);
-        for (const route of ['/', '/search', '/board/experiment', '/note/experiments/long.md', '/note/research/source.md', '/plan?view=list', '/plan?view=calendar&date=2026-10-25', '/decks', '/review', '/new', '/edit/research/source.md', '/history', '/health']) {
+        for (const route of ['/', '/search', '/board/experiment', '/note/experiments/long.md', '/note/research/source.md', '/plan?view=list', '/plan?view=calendar&date=2026-10-25', '/decks', '/review', '/new', '/edit/research/source.md', '/history', '/health', '/guide']) {
           await page.goto(origin + route);
           await page.evaluate(() => document.fonts.ready);
           if (route === '/new') {
@@ -96,7 +96,8 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
             const name = route === '/' ? 'today' : route.replace(/[^a-zA-Z0-9]/g, '-');
             await page.screenshot({ path: path.join(screenshots, colorScheme + '-' + width + '-' + name + '.png') });
           }
-          const layout = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
+          // clientWidth 不含纵向滚动条：Windows/Linux 的滚动条占宽，用 innerWidth 比会漏掉横向滚动条。
+          const layout = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
           assert.ok(layout.scrollWidth <= layout.width + 1,
             colorScheme + ' ' + width + 'px ' + route + ': 页面被撑至 ' + layout.scrollWidth + 'px');
         }
@@ -135,7 +136,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
     for (const scheme of ['light', 'dark']) {
       await recoveryPage.emulateMedia({ colorScheme: scheme });
       await recoveryPage.screenshot({ path: path.join(screenshots, 'recovery-' + scheme + '.png'), fullPage: true });
-      assert.equal(await recoveryPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      assert.equal(await recoveryPage.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
     }
     await recoveryPage.close();
     assert.deepEqual(errors, []);

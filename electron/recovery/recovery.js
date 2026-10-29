@@ -24,6 +24,7 @@ const retryButton = document.getElementById('retry');
 const activateButton = document.getElementById('activate');
 const discardButton = document.getElementById('discard-staging');
 const openCurrentVaultButton = document.getElementById('open-current-vault');
+const dismissResidueButton = document.getElementById('dismiss-residue');
 const actionNote = document.getElementById('action-note');
 
 let state = { phase: 'idle', mode: 'restore' };
@@ -130,9 +131,13 @@ function renderControls() {
   discardButton.disabled = operationPending;
   openCurrentVaultButton.hidden = phase !== 'residue' || state.residue?.owned === true || !state.canOpenCurrentVault;
   openCurrentVaultButton.disabled = operationPending;
+  if (dismissResidueButton) {
+    dismissResidueButton.hidden = phase !== 'residue' || state.residue?.owned === true;
+    dismissResidueButton.disabled = operationPending;
+  }
 
   for (const control of form.querySelectorAll('input, button')) {
-    if ([cancelButton, retryButton, activateButton, discardButton, openCurrentVaultButton].includes(control)) continue;
+    if ([cancelButton, retryButton, activateButton, discardButton, openCurrentVaultButton, dismissResidueButton].includes(control)) continue;
     if (!setup || operationPending) control.disabled = true;
   }
   if (setup && !operationPending) {
@@ -200,7 +205,7 @@ function render(next = {}) {
   } else if (phase === 'completed') {
     actionNote.textContent = '请复核设备名、Git 远端和本机设置，再手工启用同步。';
   } else if (phase === 'residue' && state.residue?.owned !== true) {
-    actionNote.textContent = '此残留不属于当前应用会话，不能自动清理；请人工检查恢复目录和记录。';
+    actionNote.textContent = '此残留不属于当前应用会话，不能自动清理。检查过恢复目录后，可以「忽略这条记录」（不删除任何目录），下次启动就不会再停在这里。';
   } else {
     actionNote.textContent = '来源不会被修改；恢复期间不会写入 Git 远端。';
   }
@@ -298,6 +303,10 @@ retryButton.addEventListener('click', () => run(api.retryStage));
 activateButton.addEventListener('click', () => run(api.activate));
 discardButton.addEventListener('click', () => run(api.discardOwnedStaging));
 openCurrentVaultButton.addEventListener('click', () => run(api.openCurrentVault));
+dismissResidueButton?.addEventListener('click', () => {
+  if (!window.confirm('只清除这条恢复记录，不会删除任何目录。确认已经检查过恢复目录了吗？')) return;
+  run(api.dismissResidue);
+});
 document.getElementById('create-vault').addEventListener('click', () => run(api.createVault));
 document.getElementById('open-existing-vault').addEventListener('click', () => run(api.openExistingVault));
 document.getElementById('begin-restore').addEventListener('click', () => run(api.beginRestore));

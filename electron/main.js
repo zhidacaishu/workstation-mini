@@ -1,3 +1,11 @@
+// Surface early import failures to packaged smoke tests instead of a blocking dialog.
+if (process.argv.includes('--workstation-smoke-test')) {
+  process.on('uncaughtException', error => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -16,10 +24,11 @@ const {
 
 const { createConfigStore } = require('./config-store');
 const { createGuideStore } = require('./guide-store');
-const { createRuntimeConfig } = require('./runtime-config');
+const { createRuntimeConfig, pruneStaleIndexes, removeLegacyVaultIndex } = require('./runtime-config');
 const { validateSettingsUpdate } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
 const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
+const { createLeaveGuard } = require('./leave-guard');
 const { createPlatformPolicy, INSET_CHROME_ARGUMENT } = require('./platform-policy');
 const {
   validateRecoveryMode,
@@ -27,8 +36,10 @@ const {
 } = require('./recovery-validation');
 const { activateRecoveredVault } = require('./recovery-activation');
 const { normalizedDocumentUrl, isTrustedMainFrameSender, isTrustedMainOriginSender } = require('./trusted-sender');
+const { resourceTarget } = require('./resource-links');
+const { ensureSafeFilePath } = require('../src/vault/paths');
 const { startRuntime } = require('../src/runtime');
-const { defaultVaultDir } = require('../src/config');
+const { defaultVaultDir, createDeviceName, legacyDeviceName } = require('../src/config');
 const { createRecoveryJournal } = require('../src/recovery/journal');
 const { createRecoveryService, validateVaultRoot } = require('../src/recovery/service');
 
@@ -77,6 +88,8 @@ function onlyThemeChanged(previous, next) {
 }
 
 let configStore;
+// 指引进度（导览看到哪一步、上手清单是否隐藏）只存本机，不进资料库。
+let guideStore;
 let settings;
 let runtime;
 let mainWindow;
@@ -106,6 +119,8 @@ const isTestRun = Boolean(
   isSmokeTest
   || (testUserDataDir && !app.isPackaged)
 );
+// 「有未保存的更改，仍要离开吗」。自动化测试里不弹框（见 leave-guard.js）。
+const confirmLeave = createLeaveGuard({ dialog, isTestRun });
 if (testUserDataDir && (!app.isPackaged || isSmokeTest)) {
   app.setPath('userData', path.resolve(testUserDataDir));
 }
@@ -239,11 +254,17 @@ function chooseInitialVault() {
 }
 
 async function startConfiguredRuntime(nextSettings = settings) {
+  const indexDir = path.join(app.getPath('userData'), 'workstation-data', 'index');
   const config = createRuntimeConfig(nextSettings, {
     isProduction: app.isPackaged,
-    windowChrome: platformPolicy.insetTitleBar ? 'inset' : 'native'
+    windowChrome: platformPolicy.insetTitleBar ? 'inset' : 'native',
+    indexDir
   });
-  return startRuntime(config);
+  pruneStaleIndexes(indexDir, config.dbPath);
+  const legacy = removeLegacyVaultIndex(config.vaultDir);
+  if (legacy.length) console.log(`[index] 已清理资料库里旧版本留下的索引文件：${legacy.join('、')}`);
+  // 服务端只读指引状态，用来决定今日页要不要渲染上手清单；写入仍走 guide:save。
+  return startRuntime(config, { guide: guideStore });
 }
 
 function attachInternalSession() {
@@ -281,19 +302,56 @@ function openExternalUrl(url) {
   shell.openExternal(url).catch(showFatalError);
 }
 
+// 附件交给系统默认应用打开（见 resource-links.js）。测试里不真的拉起别的程序。
+async function openResource(window, target) {
+  const vaultDir = runtime?.config?.vaultDir;
+  try {
+    if (target.invalid || !vaultDir) throw Object.assign(new Error('附件路径不合法。'), { code: 'EINVAL' });
+    const absolute = await ensureSafeFilePath(vaultDir, target.relative);
+    if (isTestRun) { console.log(`[resource] 用系统默认应用打开：${target.relative}`); return; }
+    const failure = await shell.openPath(absolute);
+    if (failure) throw new Error(failure);
+  } catch (error) {
+    const detail = error.code === 'ENOENT' ? `资料库里没有 ${target.relative}。` : String(error.message || error);
+    if (isTestRun) { console.log(`[resource] 打不开：${detail}`); return; }
+    const parent = window && !window.isDestroyed() ? window : undefined;
+    const options = { type: 'info', buttons: ['好'], noLink: true, message: '打不开这个附件', detail };
+    (parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)).catch(() => {});
+  }
+}
+
 function secureMainWindow(window, origin) {
-  window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  // 其余权限一律拒绝；只放行本应用页面「写入纯文本到剪贴板」，上手指南的「复制命令」要用。
+  // 读剪贴板仍然拒绝。按当前运行时的源判断，内部服务重启换端口后照样生效。
+  window.webContents.session.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission !== 'clipboard-sanitized-write') return callback(false);
+    try { callback(new URL(details?.requestingUrl).origin === runtime?.origin); } catch { callback(false); }
+  });
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (isExternalUrl(url)) openExternalUrl(url);
+    // Ctrl/⌘ 或中键点应用内链接：在主窗口里打开。交给系统浏览器的话，
+    // 浏览器没有内部令牌，打开的只是一个 403。
+    let sameOrigin = false;
+    try { sameOrigin = new URL(url).origin === runtime?.origin; } catch {}
+    const resource = sameOrigin ? resourceTarget(url, runtime?.origin) : null;
+    if (resource) openResource(window, resource);
+    else if (sameOrigin) window.loadURL(url).catch(() => {});
+    else if (isExternalUrl(url)) openExternalUrl(url);
     return { action: 'deny' };
   });
 
+  // 页面有未保存的更改时问一声，而不是静默拦下（见 leave-guard.js）。
+  window.webContents.on('will-prevent-unload', event => {
+    if (quitCoordinator?.isAccepted() || confirmLeave(window, 'main')) event.preventDefault();
+  });
+
   window.webContents.on('will-navigate', (event, url) => {
-    try {
-      if (new URL(url).origin === origin) return;
-    } catch {}
+    let sameOrigin = false;
+    try { sameOrigin = new URL(url).origin === origin; } catch {}
+    const resource = sameOrigin ? resourceTarget(url, origin) : null;
+    if (sameOrigin && !resource) return;
     event.preventDefault();
-    if (isExternalUrl(url)) openExternalUrl(url);
+    if (resource) openResource(window, resource);
+    else if (isExternalUrl(url)) openExternalUrl(url);
   });
 
   window.webContents.on('will-redirect', (event, url) => {
@@ -308,6 +366,9 @@ function secureMainWindow(window, origin) {
 function secureSettingsWindow(window) {
   window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-prevent-unload', event => {
+    if (quitCoordinator?.isAccepted() || confirmLeave(window, 'settings')) event.preventDefault();
+  });
   window.webContents.on('will-navigate', (event, url) => {
     if (!isSettingsDocumentUrl(url)) event.preventDefault();
   });
@@ -323,19 +384,10 @@ function secureRecoveryWindow(window) {
   window.webContents.on('will-redirect', event => event.preventDefault());
 }
 
-async function createMainWindow({ hidden = false, targetUrl = '' } = {}) {
+async function createMainWindow({ hidden = false } = {}) {
   if (!runtime || quitting) return null;
-  if (mainWindowPromise) {
-    const window = await mainWindowPromise;
-    if (window && !window.isDestroyed() && targetUrl && window.webContents.getURL() !== targetUrl) {
-      await window.loadURL(targetUrl);
-    }
-    return window;
-  }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (targetUrl && mainWindow.webContents.getURL() !== targetUrl) await mainWindow.loadURL(targetUrl);
-    return mainWindow;
-  }
+  if (mainWindowPromise) return mainWindowPromise;
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
 
   const runtimeAtCreation = runtime;
   mainWindowPromise = (async () => {
@@ -345,6 +397,8 @@ async function createMainWindow({ hidden = false, targetUrl = '' } = {}) {
       height: 840,
       minWidth: 900,
       minHeight: 620,
+      // 最小尺寸按内容区算：Windows 的外框和标题栏要另算，否则内容区比 900 窄。
+      useContentSize: true,
       show: false,
       title: '科研工作台',
       backgroundColor: windowBackgroundColor(),
@@ -367,13 +421,40 @@ async function createMainWindow({ hidden = false, targetUrl = '' } = {}) {
     window.on('closed', () => {
       if (mainWindow === window) mainWindow = null;
     });
+    // 切回窗口时补一次对账，接住外部编辑器的改动（文件监听在部分平台会漏事件）。
+    // 来回切窗口很频繁，15 秒内只扫一次；后台对账不会在界面上弹索引横幅。
+    let lastFocusRescan = 0;
     window.on('focus', () => {
-      if (quitting) return;
+      if (quitting || Date.now() - lastFocusRescan < 15_000) return;
+      lastFocusRescan = Date.now();
       runtime?.rescan().catch(error => console.warn(`[index] 聚焦重扫失败：${error.message}`));
+    });
+    // 渲染进程崩溃（内存不足、GPU 驱动问题）后窗口是一片空白：自动重新载入。
+    window.webContents.on('render-process-gone', (_event, details) => {
+      if (quitting || details?.reason === 'clean-exit' || window.isDestroyed()) return;
+      console.error(`[window] 渲染进程退出（${details?.reason}），重新载入页面`);
+      window.webContents.reload();
+    });
+    // 页面卡死：问一下要等还是重新载入。
+    window.on('unresponsive', () => {
+      if (quitting || isTestRun || window.isDestroyed()) return;
+      const choice = dialog.showMessageBoxSync(window, {
+        type: 'warning',
+        buttons: ['继续等待', '重新载入'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        message: '页面没有响应',
+        detail: '可以再等一会儿，或者重新载入页面（还没保存的内容会丢失，笔记编辑器里写的内容已存成本机草稿）。'
+      });
+      if (choice === 1 && !window.isDestroyed()) {
+        window.webContents.forcefullyCrashRenderer();
+        window.webContents.reload();
+      }
     });
 
     try {
-      await window.loadURL(targetUrl || runtimeAtCreation.origin);
+      await window.loadURL(runtimeAtCreation.origin);
       if (!hidden && !quitting) window.show();
       return window;
     } catch (error) {
@@ -389,15 +470,9 @@ async function createMainWindow({ hidden = false, targetUrl = '' } = {}) {
   }
 }
 
-function showMainWindow(targetUrl = '') {
-  // 这个函数直接挂在托盘的 click/double-click 和「显示科研工作台」菜单项上，
-  // 而 Electron 给这两种回调的第一个参数是 KeyboardEvent 和 MenuItem，不是字符串。
-  // 原样传下去，createMainWindow 会拿它去 loadURL，Electron 抛
-  // 「conversion failure from」TypeError，再被 showFatalError 变成一个模态错误框 ——
-  // 主进程从此卡在那个框上。表现就是「点托盘图标窗口不出来，还弹个看不懂的错」，
-  // 而托盘恰恰是关掉窗口（关闭 = 隐藏）之后唯一能把它唤回来的入口。
-  // 只认字符串，其余一律当成「没有指定目标地址」。
-  const url = typeof targetUrl === 'string' ? targetUrl : '';
+// 这个函数直接挂在托盘的 click/double-click 和「显示科研工作台」菜单项上，
+// Electron 会给它传 KeyboardEvent、MenuItem 之类的参数，这里一概不用。
+function showMainWindow() {
   if (quitting) return Promise.resolve(null);
   if ((!mainWindow || mainWindow.isDestroyed()) && !runtime) {
     const fallback = recoveryWindow && !recoveryWindow.isDestroyed()
@@ -412,7 +487,7 @@ function showMainWindow(targetUrl = '') {
     return Promise.resolve(fallback);
   }
 
-  return createMainWindow({ targetUrl: url }).then(window => {
+  return createMainWindow().then(window => {
     if (!window || window.isDestroyed() || quitting) return null;
     if (window.isMinimized()) window.restore();
     window.show();
@@ -624,6 +699,7 @@ async function showRecoveryWindow(mode = 'restore') {
     height: 720,
     minWidth: 900,
     minHeight: 620,
+    useContentSize: true,
     show: false,
     title: '恢复科研工作台资料库',
     backgroundColor: windowBackgroundColor(),
@@ -646,7 +722,8 @@ async function showRecoveryWindow(mode = 'restore') {
   window.on('closed', () => {
     if (recoveryWindow === window) recoveryWindow = null;
   });
-  window.loadFile(RECOVERY_FILE)
+  // loadURL 而不是 loadFile：安装路径里有 `%` 时 loadFile 会把它当成转义，找不到文件。
+  window.loadURL(RECOVERY_URL)
     .then(() => {
       notifyRecoveryStateChanged(publicRecoveryState());
       window.show();
@@ -670,6 +747,7 @@ function showSettingsWindow() {
     height: 820,
     minWidth: 760,
     minHeight: 620,
+    useContentSize: true,
     show: false,
     title: '科研工作台设置',
     backgroundColor: windowBackgroundColor(),
@@ -687,7 +765,7 @@ function showSettingsWindow() {
   window.on('closed', () => {
     if (settingsWindow === window) settingsWindow = null;
   });
-  window.loadFile(SETTINGS_FILE)
+  window.loadURL(SETTINGS_URL)
     .then(() => window.show())
     .catch(error => {
       if (!window.isDestroyed()) window.destroy();
@@ -708,7 +786,8 @@ async function canReplaceRuntime() {
     mainWindow.show();
     mainWindow.focus();
   }
-  return false;
+  // 以前直接返回「取消」，设置保存按钮像没反应；现在问一声，用户可以放弃那些更改。
+  return confirmLeave(mainWindow, 'restart');
 }
 
 async function replaceRuntime(nextSettings, previousSettings, { unloadChecked = false } = {}) {
@@ -757,10 +836,6 @@ async function replaceRuntime(nextSettings, previousSettings, { unloadChecked = 
     }
     try {
       applyLoginItemSetting();
-    } catch (rollbackError) {
-      rollbackErrors.push(rollbackError);
-    }
-    try {
     } catch (rollbackError) {
       rollbackErrors.push(rollbackError);
     }
@@ -838,9 +913,6 @@ async function finishQuit() {
   recoveryWindow?.hide();
   showQuitProgress();
 
-  // 定时检查停掉，但不动 autoInstallOnAppQuit：更新的安装要留到最后，
-  // 由 Electron 的 quit 事件触发 —— 那时 runtime.stop() 已经跑完，
-  // 最后一次提交推送不会被安装器打断。
   const recoveryState = recoveryService?.getState();
   if (recoveryState?.canCancel) await recoveryService.cancel().catch(error => console.error(error));
   await recoveryService?.idle();
@@ -870,17 +942,16 @@ function quitApplication() {
 
 function showFatalError(error) {
   console.error(error);
-  dialog.showErrorBox('科研工作台', error.message || String(error));
+  if (!isTestRun) dialog.showErrorBox('科研工作台', error.message || String(error));
 }
 
 function registerIpc() {
-  const guideStore = createGuideStore(app.getPath('userData'));
   const assertGuideSender = event => {
     if (!isTrustedMainOriginSender(event, mainWindow, runtime?.origin)) throw new Error('拒绝来自未知页面的指引请求。');
   };
   ipcMain.handle('guide:get', event => {
     assertGuideSender(event);
-    return { ...guideStore.read(), vaultDir: settings.vaultDir, syncEnabled: settings.syncEnabled, readOnly: settings.readOnly };
+    return guideStore.read();
   });
   ipcMain.handle('guide:save', (event, state) => {
     assertGuideSender(event);
@@ -1052,9 +1123,16 @@ function registerIpc() {
     assertRecoverySender(event);
     const state = publicRecoveryState();
     if (!state.canOpenCurrentVault) throw new Error('当前资料库不可用。');
+    // 启动时发现残留就只开了恢复窗口，运行时根本没起来：这里先把它启动，
+    // 否则 showMainWindow 找不到运行时，又会把恢复窗口显示回来，按钮像没反应一样。
+    if (!runtime) await enqueueRestart(() => replaceRuntime(settings, settings, { unloadChecked: true }));
     recoveryWindow?.hide();
-    showMainWindow();
-    return state;
+    await showMainWindow();
+    return publicRecoveryState();
+  });
+  ipcMain.handle('recovery:dismiss-residue', async event => {
+    assertRecoverySender(event);
+    return recoveryService.dismissResidue();
   });
   ipcMain.handle('recovery:discard-owned-staging', async event => {
     assertRecoverySender(event);
@@ -1122,7 +1200,14 @@ if (!gotLock) {
   quitCoordinator = createQuitCoordinator({
     getWindows: () => [settingsWindow, recoveryWindow, mainWindow],
     onAccepted: finishQuit,
-    onCancelled: () => refreshMenus()
+    onCancelled: () => refreshMenus(),
+    confirmDiscard: window => confirmLeave(window, window === settingsWindow ? 'settings' : 'quit')
+  });
+  // 外观跟随系统时，系统切换明暗之后窗口底色也要跟着换，否则缩放窗口会闪旧颜色的边。
+  nativeTheme.on('updated', () => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.setBackgroundColor(windowBackgroundColor());
+    }
   });
   app.on('second-instance', () => showMainWindow());
   if (platformPolicy.restoreOnActivate) app.on('activate', () => showMainWindow());
@@ -1138,9 +1223,39 @@ if (!gotLock) {
 
     configStore = createConfigStore({ userDataPath: app.getPath('userData') });
     settings = configStore.load();
+    const loadIssue = configStore.lastLoadIssue?.();
+    if (loadIssue && !isTestRun) {
+      // 设置文件损坏：说清楚用了什么、坏文件留在哪里，而不是悄悄换成上一版甚至直接退出。
+      if (loadIssue.kind === 'backup' && settings.vaultDir) {
+        const choice = dialog.showMessageBoxSync({
+          type: 'warning',
+          buttons: ['使用这个资料库', '重新选择资料库'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+          message: '设置文件损坏，已从上一版备份恢复',
+          detail: `备份里的资料库是：\n${settings.vaultDir}\n\n损坏的文件已改名保存在：\n${loadIssue.corruptPath}`
+        });
+        if (choice === 1) settings = { ...settings, vaultDir: '' };
+      } else if (loadIssue.kind === 'reset') {
+        dialog.showMessageBoxSync({
+          type: 'warning',
+          buttons: ['好'],
+          noLink: true,
+          message: '设置文件损坏，已按首次启动处理',
+          detail: `接下来请重新选择资料库。损坏的文件已改名保存在：\n${loadIssue.corruptPath}`
+        });
+      }
+    }
+    // 设备名决定复习日志写进哪个文件，第一次保存后不再随主机名变化。老用户（已经有
+    // 资料库、只是没存过设备名）沿用一直在用的主机名算法，复习日志不会换文件。
+    if (!settings.device) {
+      writeSettings({ ...settings, device: settings.vaultDir || loadIssue ? legacyDeviceName() : createDeviceName() });
+    } else if (loadIssue) {
+      writeSettings(settings);
+    }
+    guideStore = createGuideStore(app.getPath('userData'));
     applyThemeSetting();
-    // 合盖再打开之后，setInterval 的节奏已经乱了，中间那段时间的提醒也没跑。
-    // 醒来立刻补一轮 —— tick 本身是按墙上时钟算的，补跑不会重复发。
     registerIpc();
 
     const startupRecovery = resetRecoveryService('restore');

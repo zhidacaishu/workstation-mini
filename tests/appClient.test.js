@@ -130,8 +130,6 @@ async function loadEditor(fetch, { primaryModifier = 'control' } = {}) {
   return {
     form, expectedHashInput, isNewInput, pathInput, bodyInput, status, saveButton, window, document,
     formDataCalls() { return formDataCalls; },
-    beginEditorWork() { return window.workstationUI.beginEditorWork(); },
-    waitForEditorWork() { return window.workstationUI.waitForEditorWork(); },
     isInteractiveTarget(target) { return window.workstationUI.isInteractiveTarget(target); },
     keydown(event) {
       for (const handler of documentListeners.get('keydown') || []) handler(event);
@@ -231,67 +229,6 @@ test('编辑器保存成功后沿服务器 redirect 地址导航', async () => {
   const leaving = unloadEvent();
   ui.beforeUnload(leaving);
   assert.equal(leaving.prevented, false);
-});
-
-test('保存等待所有附件批次稳定归零后重新采集表单', async () => {
-  let submitted;
-  const ui = await loadEditor(async (_url, options) => {
-    submitted = Object.fromEntries(options.body);
-    return {
-      ok: true,
-      status: 200,
-      url: 'http://127.0.0.1/save',
-      text: async () => JSON.stringify({ hash: 'hash-2', redirect: '/note/notes/test.md' })
-    };
-  });
-
-  const finishFirst = ui.beginEditorWork();
-  ui.bodyInput.value = '![上传中一]()';
-  const saving = ui.form.dispatch('submit', { preventDefault() {} });
-  await flush();
-  assert.equal(ui.status.textContent, '正在等待附件上传…');
-  assert.equal(ui.saveButton.disabled, true);
-  assert.equal(submitted, undefined);
-
-  const finishSecond = ui.beginEditorWork();
-  ui.bodyInput.value = '![一](/one.png)![上传中二]()';
-  finishFirst();
-  await flush();
-  assert.equal(submitted, undefined, '后加入的批次仍会阻止保存');
-
-  ui.bodyInput.value = '![一](/one.png)![二](/two.png)';
-  finishSecond();
-  await saving;
-  assert.equal(submitted.body, '![一](/one.png)![二](/two.png)');
-  assert.equal(ui.window.location.href, '/note/notes/test.md');
-});
-
-test('idle 等待跨过串行文件间 finish/begin 的微任务间隙', async () => {
-  const ui = await loadEditor(async () => { throw new Error('不应保存'); });
-  const finishFirst = ui.beginEditorWork();
-  let idle = false;
-  const waiting = ui.waitForEditorWork().then(() => { idle = true; });
-
-  finishFirst();
-  const finishSecond = ui.beginEditorWork();
-  await Promise.resolve();
-  assert.equal(idle, false, '同一轮微任务里开始下一文件时不能提前报告 idle');
-
-  finishSecond();
-  await waiting;
-  assert.equal(idle, true);
-});
-
-test('pending 附件触发离开保护，完成后恢复', async () => {
-  const ui = await loadEditor(async () => { throw new Error('不应保存'); });
-  const finish = ui.beginEditorWork();
-  const pending = unloadEvent();
-  ui.beforeUnload(pending);
-  assert.equal(pending.prevented, true);
-  finish();
-  const idle = unloadEvent();
-  ui.beforeUnload(idle);
-  assert.equal(idle.prevented, false);
 });
 
 test('保存快捷键要求精确单主修饰键且 modal 内不提交', async () => {
@@ -438,6 +375,32 @@ async function loadIndexWatcher(fetch) {
   };
 }
 
+test('后台对账和单篇增量扫描不弹索引横幅，首次建索引照常提示', async () => {
+  const responses = [
+    { phase: 'indexing', scanKind: 'background', done: 10, total: 3000, notes: 3000 },
+    { phase: 'indexing', scanKind: 'incremental', done: 0, total: 1, notes: 3000 },
+    { phase: 'ready', scanKind: 'background', done: 3000, total: 3000, notes: 3000 },
+    { phase: 'indexing', scanKind: 'initial', done: 10, total: 3000, notes: 0 }
+  ];
+  const ui = await loadIndexWatcher(async () => ({
+    ok: true,
+    status: 200,
+    text: async () => JSON.stringify(responses.shift())
+  }));
+  await flush();
+  assert.equal(ui.banner.hidden, true, '后台对账不显示');
+  ui.runNextTimer();
+  await flush();
+  assert.equal(ui.banner.hidden, true, '单篇增量不显示');
+  ui.runNextTimer();
+  await flush();
+  assert.equal(ui.banner.hidden, true, '对账结束后也不出现「索引已恢复」');
+  ui.runNextTimer();
+  await flush();
+  assert.equal(ui.banner.hidden, false);
+  assert.match(ui.message.textContent, /正在建立索引 10\/3000/);
+});
+
 test('索引轮询仅在请求完成后安排下一次，不产生重叠请求', async () => {
   const first = deferred();
   const second = deferred();
@@ -473,8 +436,11 @@ test('索引就绪后低频检查，并显示后来出现的文件失败', async
   const statuses = [
     { phase: 'ready', notes: 3, failures: [], failureTotal: 0 },
     {
-      phase: 'degraded', notes: 2, failureTotal: 1, failuresTruncated: false,
-      failures: [{ path: 'research/bad.md', reason: 'frontmatter 格式无法解析' }]
+      phase: 'degraded', notes: 2, failureTotal: 2, failuresTruncated: false,
+      failures: [
+        { path: 'research/bad.md', code: 'read-failed', reason: '文件读取失败（EIO）' },
+        { path: 'research/坏 属性.md', code: 'invalid-frontmatter', reason: '属性区（frontmatter）格式有误，点路径打开后修复' }
+      ]
     }
   ];
   const ui = await loadIndexWatcher(async () => ({
@@ -490,9 +456,12 @@ test('索引就绪后低频检查，并显示后来出现的文件失败', async
   ui.runNextTimer();
   await flush();
   assert.equal(ui.banner.hidden, false);
-  assert.match(ui.message.textContent, /有 1 篇笔记未能更新/);
+  assert.match(ui.message.textContent, /有 2 篇笔记未能更新/);
   assert.equal(ui.failures.hidden, false);
   assert.equal(ui.failures.children[0].children[0].textContent, 'research/bad.md');
+  const link = ui.failures.children[1].children[0];
+  assert.equal(link.href, '/note/research/%E5%9D%8F%20%E5%B1%9E%E6%80%A7.md', '属性区写坏的笔记给出打开入口');
+  assert.equal(link.children[0].textContent, 'research/坏 属性.md');
   assert.equal(ui.retry.hidden, false);
   assert.equal(ui.nextDelay(), 9000);
 });
@@ -713,4 +682,17 @@ test('看板状态请求失败时恢复选项并保留原卡片', async () => {
   assert.equal(ui.targetCount.textContent, '0');
   assert.equal(ui.select.disabled, false);
   assert.equal(ui.select.focusCalls, 1);
+});
+
+test('409 时草稿未确认保存则不刷新，保留编辑内容与离开保护', async () => {
+  const c = await loadEditor(async () => ({ ok: false, status: 409, json: async () => ({ message: '版本冲突' }) }));
+  c.bodyInput.value = '唯一的未保存内容';
+  c.window.workstationDrafts = { flush: async () => false };
+  c.window.confirm = () => { throw new Error('不能承诺草稿已保存'); };
+  c.window.location.reload = () => { throw new Error('不能刷新'); };
+  await c.form.dispatch('submit', { preventDefault() {} });
+  assert.match(c.status.textContent, /草稿未确认保存/);
+  const event = unloadEvent(); c.beforeUnload(event);
+  assert.equal(event.prevented, true);
+  assert.equal(c.bodyInput.value, '唯一的未保存内容');
 });

@@ -23,7 +23,7 @@
 </form>
 
 <section class="library-collection" aria-labelledby="library-results-title">
-  <div class="library-list-heading"><h2 id="library-results-title"><%= browsing ? (section ? sectionName(section) : '最近修改') : '匹配的笔记' %></h2><span><%= results.length %> 篇<% if (browsing && typeof total !== 'undefined' && total > results.length) { %> / 共 <%= total %> 篇<% } %></span></div>
+  <div class="library-list-heading"><h2 id="library-results-title"><%= browsing ? (section ? sectionName(section) : '最近修改') : '匹配的笔记' %></h2><span><% if (browsing) { %>共 <%= total %> 篇<% if (pages > 1) { %> · 第 <%= page %> / <%= pages %> 页<% } %><% } else { %><%= results.length %> 篇<% } %></span></div>
   <% if (results.length) { %>
     <ul class="library-list">
       <% results.forEach(row => { const modified = row.mtime_ms || row.mtimeMs; const excerpt = browsing ? '' : ui.plainSnippet(row.snippet); %>
@@ -36,6 +36,15 @@
         </a></li>
       <% }) %>
     </ul>
+    <% if (browsing && pages > 1) { const pageHref = n => '/search?page=' + n + (section ? '&section=' + encodeURIComponent(section) : '') + (tag ? '&tag=' + encodeURIComponent(tag) : ''); %>
+      <nav class="library-pager" aria-label="翻页">
+        <% if (page > 1) { %><a class="button small quiet" href="<%= pageHref(page - 1) %>">← 上一页</a><% } else { %><span></span><% } %>
+        <span>第 <%= page %> / <%= pages %> 页</span>
+        <% if (page < pages) { %><a class="button small quiet" href="<%= pageHref(page + 1) %>">下一页 →</a><% } else { %><span></span><% } %>
+      </nav>
+    <% } else if (!browsing && results.length >= pageSize) { %>
+      <p class="library-more-hint">只列出最相关的 <%= pageSize %> 篇。换一个更具体的词，或按分区、标签筛选。</p>
+    <% } %>
   <% } else { %>
     <div class="library-empty empty-state">
       <h2><%= filtered ? '没有匹配的笔记' : '还没有笔记' %></h2>

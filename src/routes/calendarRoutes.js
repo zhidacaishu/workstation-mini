@@ -61,14 +61,20 @@ function planGroups({ filter, tasks, projects, today }) {
   ];
 }
 
-function createCalendarRoutes({ config, db, indexer, now = () => new Date() }) {
+const PLAN_VIEWS = new Set(['list', 'calendar']);
+
+function createCalendarRoutes({ config, db, indexer, now = () => new Date(), review }) {
   const router = express.Router();
-  const aggregate = createAggregator({ config, db, now });
+  const aggregate = createAggregator({ config, db, now, review });
 
   async function renderPlan(req, res, { view, filter } = {}) {
     const today = toLocalDate(now());
     const requestedFilter = FILTERS.has(req.query.filter) ? req.query.filter : '';
-    const resolvedView = view || (req.query.view === 'calendar' ? 'calendar' : 'list');
+    // 直接打开 /plan（不带任何参数）时沿用上次的视图。记在 cookie 里：cookie 按主机
+    // 而不是端口区分，内部服务每次启动换端口也读得到；localStorage 做不到这一点。
+    const remembered = Object.keys(req.query).length === 0 && PLAN_VIEWS.has(req.cookies?.plan_view) ? req.cookies.plan_view : '';
+    const resolvedView = view || (PLAN_VIEWS.has(req.query.view) ? req.query.view : remembered || 'list');
+    res.cookie('plan_view', resolvedView, { maxAge: 365 * 86_400_000, httpOnly: true, sameSite: 'strict', path: '/' });
     const resolvedFilter = filter || requestedFilter || (req.query.done === '1' ? 'done' : 'all');
     const requestedDate = isValidDateString(req.query.date) ? req.query.date : '';
     const month = isValidMonthString(req.query.month)
@@ -84,7 +90,8 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date() }) {
 
     const allTasks = db.listTasks({ includeDone: true });
     const openTasks = allTasks.filter(task => !task.done);
-    const projectEntries = aggregate.datedEntries(today).filter(entry => entry.source === '研究项目');
+    const dated = aggregate.datedEntries(today, { tasks: openTasks });
+    const projectEntries = dated.filter(entry => entry.source === '研究项目');
     const projects = projectEntries.map(entry => ({
       path: entry.path,
       label: entry.label,
@@ -94,7 +101,7 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date() }) {
       source: entry.source
     }));
     const entriesByDate = new Map();
-    for (const entry of aggregate.datedEntriesInRange(from, to, today)) {
+    for (const entry of dated.filter(item => item.date >= from && item.date <= to)) {
       const kind = entry.source === '研究项目' ? 'project' : 'task';
       const planEntry = { ...entry, kind };
       if (!entriesByDate.has(entry.date)) entriesByDate.set(entry.date, []);
@@ -155,7 +162,7 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date() }) {
     try {
       const date = String(req.body.date || '');
       if (!isValidDateString(date)) throw httpError(400, '请选择有效日期。');
-      const text = String(req.body.text ?? '');
+      const text = String(req.body.text ?? '').replace(/\r\n?/g, '\n');
       const expectedHash = String(req.body.expectedHash || '');
       const notePath = notePathFor(date);
       const hash = await enqueueNote(config.notesDir, notePath, async () => {

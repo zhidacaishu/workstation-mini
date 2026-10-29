@@ -50,10 +50,21 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
     });
   }
 
+  // 重放结果只取决于日志和卡片集合：两者都没变就直接复用，翻页不再重放几万条事件。
+  let replayed = { generation: -1, cards: null, states: null };
+
   /** 卡片本体 + 重放算出的状态。没复习过的卡是「新卡」，立刻可学。 */
   async function withStates() {
     const cards = await allCards();
-    const states = replay(migrateEvents(await store.readEvents(), cards), cards.map(card => card.id));
+    const log = await store.snapshot();
+    if (replayed.generation !== log.generation || replayed.cards !== cards) {
+      replayed = {
+        generation: log.generation,
+        cards,
+        states: replay(migrateEvents(log.events, cards), cards.map(card => card.id))
+      };
+    }
+    const { states } = replayed;
     const current = now();
     return cards.map(card => ({
       ...card,
@@ -70,7 +81,8 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
   async function queue({ deck = '', newLimit = DEFAULT_NEW_LIMIT } = {}) {
     const nowIso = now().toISOString();
     const all = await withStates();
-    const scoped = deck ? all.filter(card => card.deck === deck) : all;
+    // 暂停的卡不进复习队列，复习记录保留，恢复后接着排。
+    const scoped = all.filter(card => !card.suspended && (!deck || card.deck === deck));
 
     const due = scoped
       .filter(card => card.state.state !== State.New && card.state.due <= nowIso)
@@ -90,9 +102,12 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
     const byDeck = new Map();
 
     for (const card of all) {
-      const entry = byDeck.get(card.deck) || { deck: card.deck, total: 0, due: 0, fresh: 0, learned: 0 };
+      const entry = byDeck.get(card.deck) || { deck: card.deck, total: 0, due: 0, fresh: 0, learned: 0, suspended: 0 };
       entry.total += 1;
-      if (card.state.state === State.New) entry.fresh += 1;
+      if (card.suspended) {
+        entry.suspended += 1;
+        if (card.state.state !== State.New) entry.learned += 1;
+      } else if (card.state.state === State.New) entry.fresh += 1;
       else {
         entry.learned += 1;
         if (card.state.due <= nowIso) entry.due += 1;
@@ -106,7 +121,8 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
     return {
       decks,
       failures,
-      ambiguousHistory: all.some(card => all.some(other => other !== card && other.legacyId === card.legacyId)),
+      // 一趟计数，不两两比较：卡多了以后双重循环要好几百毫秒。
+      ambiguousHistory: new Set(all.map(card => card.legacyId)).size !== all.length,
       total: all.length,
       due,
       fresh,

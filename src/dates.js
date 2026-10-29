@@ -28,33 +28,6 @@ const GRID_WEEKS = 6;
 /** 周一为一周之首；WEEKDAYS 是周日开头的，这里转一次序。 */
 const WEEKDAYS_MONDAY_FIRST = [...WEEKDAYS.slice(1), WEEKDAYS[0]];
 
-const CLOCK_PATTERN = /^(\d{1,2}):([0-5]\d)$/;
-
-/**
- * 一天之内的时刻，统一成 HH:MM。
- *
- * 时间块在 frontmatter 里是人手写的，`9:00` 和 `09:00` 都会出现。补零不是审美问题：
- * 这两个值到处都在被**字符串比较** —— 排序、判断时间块跨不跨零点。而
- * `'10:00' > '9:00'` 是假的（比的是 '1' 和 '9'），于是 `9:00-10:00` 会被判成
- * 跨了零点，导出的 .ics 里变成一个 25 小时的事件。补齐之后字典序才等于时间序。
- *
- * 认不出来的返回空串，让调用方按「没填时间」处理，不要拿一个半成品往下传。
- */
-function padTime(value) {
-  const match = CLOCK_PATTERN.exec(String(value ?? '').trim());
-  if (!match) return '';
-  const hour = Number(match[1]);
-  if (hour > 23) return '';
-  return `${String(hour).padStart(2, '0')}:${match[2]}`;
-}
-
-/** HH:MM → 从零点起的分钟数，认不出返回 null。比较时刻先落到数字上最稳。 */
-function minutesOfClock(value) {
-  const padded = padTime(value);
-  if (!padded) return null;
-  return Number(padded.slice(0, 2)) * 60 + Number(padded.slice(3, 5));
-}
-
 /** YYYY-MM-DD → 本地午夜的 Date。见文件头第 2 条铁律。 */
 function parseDate(dateString) {
   const [year, month, day] = String(dateString).split('-').map(Number);
@@ -66,15 +39,21 @@ function isValidDateString(value) {
   const text = String(value ?? '');
   if (!DATE_PATTERN.test(text)) return false;
   const [year, month, day] = text.split('-').map(Number);
+  if (year < 1000) return false;
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 }
 
+/**
+ * 年份限制在 1000–9998：new Date(50, …) 会被当成 1950 年，月历标题和网格对不上；
+ * 9999 年 12 月的「下个月」又会变成五位数的年份。
+ */
 function isValidMonthString(value) {
   const text = String(value ?? '');
   if (!MONTH_PATTERN.test(text)) return false;
+  const year = Number(text.slice(0, 4));
   const month = Number(text.slice(5, 7));
-  return month >= 1 && month <= 12;
+  return year >= 1000 && year <= 9998 && month >= 1 && month <= 12;
 }
 
 function addDays(dateString, days) {
@@ -133,8 +112,6 @@ function monthGridDates(month) {
 }
 
 module.exports = {
-  padTime,
-  minutesOfClock,
   parseDate,
   isValidDateString,
   isValidMonthString,

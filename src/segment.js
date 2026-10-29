@@ -13,19 +13,6 @@
 
 const WORD_SEGMENTER = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 
-const LEXICAL_STOPWORDS = new Set([
-  '的', '了', '是', '在', '和', '与', '也', '就', '都', '而', '及', '或', '把', '被',
-  '这', '那', '有', '没', '不', '很', '一个', '我们', '可以', '因为', '所以', '但是',
-  'the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'is', 'are', 'for', 'on', 'with',
-  'that', 'this', 'it', 'as', 'we', 'be', 'by', 'from', 'at', 'can', 'not'
-]);
-
-const QUESTION_STOPWORDS = new Set([
-  ...LEXICAL_STOPWORDS,
-  '什么', '为何', '为什么', '如何', '怎么', '怎样', '哪个', '哪些', '哪里', '是否', '吗', '呢', '请问',
-  'what', 'why', 'how', 'which', 'where', 'whether', 'who', 'when', 'do', 'does', 'did'
-]);
-
 // 拉丁字母与数字统一转小写，让 FTS5 的匹配不受大小写影响；中日韩文字不受影响。
 function normalizeToken(token) {
   return token.toLowerCase();
@@ -73,16 +60,8 @@ function toMatchExpression(query) {
   return tokens.map(quoteMatchToken).join(' AND ');
 }
 
-function toBroadMatchExpression(query) {
-  const tokens = [...new Set(tokenize(query).filter(token => !QUESTION_STOPWORDS.has(token)))];
-  if (tokens.length === 0) return '';
-  return tokens.map(quoteMatchToken).join(' OR ');
-}
-
 module.exports = {
-  LEXICAL_STOPWORDS,
   tokenize,
   tokenizeToText,
-  toMatchExpression,
-  toBroadMatchExpression
+  toMatchExpression
 };

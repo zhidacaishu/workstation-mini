@@ -26,11 +26,32 @@ test('macOS 目标只出 arm64 DMG，且不参与更新分发', () => {
   }]);
 });
 
-test('Windows 目标保留 x64 NSIS 与自身的发布配置', () => {
+test('Windows 目标是 x64 NSIS，不参与更新分发', () => {
   assert.deepEqual(build.win.target, [{ target: 'nsis', arch: ['x64'] }]);
-  // Mini 不包含发布/自动更新配置，构建产物由用户本地生成。
+  // Mini 不包含发布/自动更新。顶层 publish 必须显式为 null：不写的话，在 GitHub
+  // 克隆里打包时 electron-builder 会按 git 远端自动推断出 github 更新源，
+  // 生成 latest.yml 和包内的 app-update.yml。
   assert.equal(build.win.publish, undefined);
-  assert.equal(build.publish, undefined);
+  assert.equal(build.publish, null);
+});
+
+test('打包加固：关闭 RunAsNode 和 NODE_OPTIONS，只从 asar 加载应用代码', () => {
+  // 否则 macOS 上任何本地进程都能用 ELECTRON_RUN_AS_NODE=1 借本应用的系统授权跑脚本。
+  assert.equal(build.electronFuses.runAsNode, false);
+  assert.equal(build.electronFuses.enableNodeOptionsEnvironmentVariable, false);
+  assert.equal(build.electronFuses.onlyLoadAppFromAsar, true);
+  // 打包后的桌面冒烟测试要靠调试参数连上应用。
+  assert.equal(build.electronFuses.enableNodeCliInspectArguments, true);
+});
+
+test('原生模块用 N-API 预编译，不重编；包里不带 SQLite 源码和别的平台的二进制', () => {
+  assert.equal(build.npmRebuild, false);
+  assert.doesNotMatch(require('../package.json').scripts.postinstall, /install-app-deps/);
+  assert.ok(build.files.includes('!node_modules/better-sqlite3/deps/**'));
+  assert.ok(build.files.includes('!node_modules/better-sqlite3/src/**'));
+  assert.deepEqual(build.mac.files, ['!node_modules/better-sqlite3/prebuilds/!(darwin-arm64).node']);
+  assert.deepEqual(build.win.files, ['!node_modules/better-sqlite3/prebuilds/!(win32-x64).node']);
+  assert.equal(require('../package.json').dependencies.yauzl, undefined);
 });
 
 test('两个平台的托盘资源都随包分发', () => {

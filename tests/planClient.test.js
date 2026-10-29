@@ -44,16 +44,7 @@ function load({ href = 'http://localhost/plan', saved = null, blocked = false } 
   };
 }
 
-test('计划入口记住上次月历视图，显式列表链接仍优先', () => {
-  const remembered = load({ saved: 'calendar' });
-  assert.equal(remembered.state.redirected, 'http://localhost/plan?view=calendar');
-  const explicit = load({ href: 'http://localhost/plan?view=list&filter=undated', saved: 'calendar' });
-  assert.equal(explicit.state.redirected, '');
-  assert.equal(explicit.state.saved, 'list');
-  assert.equal(load({ href: 'http://localhost/plan?filter=undated', saved: 'calendar' }).state.redirected, '');
-});
-
-test('浏览器存储不可用时仍可编辑日期和完成待办', () => {
+test('计划页脚本不依赖浏览器存储：存储不可用时仍可编辑日期和完成待办', () => {
   const ui = load({ blocked: true });
   assert.equal(ui.classes.has('is-enhanced'), true);
   ui.date.value = '2026-10-30';

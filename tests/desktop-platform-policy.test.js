@@ -32,6 +32,8 @@ test('Windows 平台保留 AppUserModelID、登录启动与隐藏启动语义', 
   const policy = createPlatformPolicy({ platform: 'win32' });
   const app = fakeApp();
 
+  assert.equal(app.calls.length, 0);
+  assert.equal(require('../package.json').build.appId, 'com.research.workstation-mini');
   assert.equal(policy.restoreOnActivate, false);
   assert.deepEqual(policy.capabilities, { launchAtLogin: true });
   policy.initializeApp(app);
@@ -41,7 +43,7 @@ test('Windows 平台保留 AppUserModelID、登录启动与隐藏启动语义', 
     appPath: 'C:\\repo'
   }), true);
   assert.deepEqual(app.calls, [
-    ['app-id', 'com.research.workstation'],
+    ['app-id', 'com.research.workstation-mini'],
     ['login', {
       openAtLogin: true,
       path: 'C:\\Electron.exe',

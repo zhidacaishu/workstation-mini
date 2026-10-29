@@ -88,7 +88,8 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       assert.match(await page.locator('.history-preview').innerText(), /My recovered draft/);
       await page.getByRole('link', { name: '载入编辑器', exact: true }).click();
       assert.match(await page.locator('[name="body"]').inputValue(), /My recovered draft/);
-      assert.match(await page.locator('[data-editor-status]').innerText(), /未保存/);
+      // 恢复页载入后不算「有未保存的更改」（不改也能离开），但会说明还没写进笔记。
+      assert.match(await page.locator('[data-editor-status]').innerText(), /保存后才会写入笔记/);
       await page.locator('[data-editor-save]').click();
       await page.waitForURL('**/note/task.md', { timeout: 15000 });
     });
@@ -108,7 +109,8 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       await page.locator('.note-more summary').click();
       page.once('dialog', dialog => dialog.accept());
       await page.locator('[data-confirm-delete] button').click();
-      await page.waitForURL(origin + '/', { timeout: 15000 });
+      // 删除后回到笔记列表（分区笔记回到该分区的列表）。
+      await page.waitForURL(origin + '/search', { timeout: 15000 });
     });
     await phase('restore-deleted-note', async () => {
       await page.goto(origin + '/history', { waitUntil: 'domcontentloaded', timeout: 15000 });

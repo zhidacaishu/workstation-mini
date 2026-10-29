@@ -82,7 +82,11 @@ function parseWikilinks(markdown) {
   const links = [];
 
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {
-    const target = stripExtension(toPosix(match[1].trim()));
+    // `![[图.png]]`、`![[录音.mp3]]` 嵌入的是附件，不是笔记：不算链接，否则每个附件都成了「待建」笔记。
+    // `![[笔记]]` 和 `![[笔记.md]]` 仍按普通双链处理，和阅读页的渲染一致。
+    const raw = toPosix(match[1].trim());
+    if (match.index > 0 && masked[match.index - 1] === '!' && /\.[^./]+$/.test(raw) && !/\.md$/i.test(raw)) continue;
+    const target = stripExtension(raw);
     if (!target) continue;
     links.push({
       target,
@@ -144,7 +148,11 @@ function renderWikilinks(markdown, resolve, escapeHtml) {
   const replacements = [];
 
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {
-    const target = stripExtension(toPosix(match[1].trim()));
+    // `![[图.png]]`、`![[录音.mp3]]` 嵌入的是附件，不是笔记：不算链接，否则每个附件都成了「待建」笔记。
+    // `![[笔记]]` 和 `![[笔记.md]]` 仍按普通双链处理，和阅读页的渲染一致。
+    const raw = toPosix(match[1].trim());
+    if (match.index > 0 && masked[match.index - 1] === '!' && /\.[^./]+$/.test(raw) && !/\.md$/i.test(raw)) continue;
+    const target = stripExtension(raw);
     if (!target) continue;
     const display = (match[3] || '').trim() || match[1].trim();
     const resolved = resolve(target);

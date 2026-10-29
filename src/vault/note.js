@@ -1,5 +1,4 @@
 const crypto = require('node:crypto');
-const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const matter = require('gray-matter');
@@ -10,9 +9,7 @@ const {
   toAbsolute,
   toPosix,
   ensureSafeTargetParent,
-  ensureSafeTargetParentSync,
   ensureSafeFilePath,
-  ensureSafeFilePathSync,
   sectionOf,
   basename
 } = require('./paths');
@@ -33,13 +30,38 @@ const NOTE_EXTENSION = '.md';
  * 污染之后所有相同内容的解析结果。传个 options 对象两个问题一起没有，
  * 而应用自己已经有 mtime/hash 快路径，本来也不依赖它这层缓存。
  */
+function frontmatterLanguage(source) {
+  const match = /^\uFEFF?---(?!-)([^\r\n]*)/.exec(source);
+  return match ? match[1].trim().toLowerCase() : '';
+}
+
+/**
+ * 只认 YAML。gray-matter 会按 `---js`、`---json`、`---toml` 这类开头切换解析引擎，
+ * 其中 javascript 引擎直接 eval —— 资料库会经 Git、云盘从别处同步进来，一篇
+ * `---js` 开头的笔记就能在建索引时以应用的权限运行任意代码。所以带语言名的开头
+ * 一律当成格式错误，内置引擎也一并换成直接报错的版本，双保险。
+ */
+function onlyYaml() {
+  const error = new Error('frontmatter 只支持 YAML（第一行只写 ---），不解析 ---js、---json、---toml 等其他格式。');
+  error.name = 'FrontmatterError';
+  throw error;
+}
+const BLOCKED_ENGINE = { parse: onlyYaml, stringify: onlyYaml };
+const FRONTMATTER_OPTIONS = Object.freeze({
+  language: 'yaml',
+  engines: { javascript: BLOCKED_ENGINE, js: BLOCKED_ENGINE, json: BLOCKED_ENGINE, coffee: BLOCKED_ENGINE, cson: BLOCKED_ENGINE }
+});
+
 function parseFrontmatter(raw) {
-  return matter(String(raw ?? ''), {});
+  const source = String(raw ?? '');
+  const language = frontmatterLanguage(source);
+  if (language && language !== 'yaml' && language !== 'yml') onlyYaml();
+  return matter(source, { ...FRONTMATTER_OPTIONS });
 }
 
 /** 写回 frontmatter。同样要显式传 options，`matter.stringify` 内部也会走那层缓存。 */
 function stringifyFrontmatter(body, data) {
-  return matter.stringify(String(body ?? ''), data, {});
+  return matter.stringify(String(body ?? ''), data, { ...FRONTMATTER_OPTIONS });
 }
 
 function hashContent(content) {
@@ -337,20 +359,36 @@ async function readNote(vaultDir, relativePath, { tolerateInvalid = false } = {}
   }
 }
 
-function readNoteSync(vaultDir, relativePath) {
-  const absolute = ensureSafeFilePathSync(vaultDir, relativePath);
-  const before = fs.lstatSync(absolute, { bigint: true });
-  const descriptor = fs.openSync(absolute, 'r');
+/** 写完先 fsync 再关：只靠 rename 的话，断电后可能留下一个改了名的空文件。 */
+async function writeDurably(file, content) {
+  const handle = await fsp.open(file, 'wx');
   try {
-    const raw = fs.readFileSync(descriptor, 'utf8');
-    const stats = fs.fstatSync(descriptor);
-    const identity = fs.fstatSync(descriptor, { bigint: true });
-    ensureSafeTargetParentSync(vaultDir, absolute);
-    const after = fs.lstatSync(absolute, { bigint: true });
-    if (!sameEntry(before, identity) || !sameEntry(identity, after)) throw unsafeFileChanged();
-    return parseNote(relativePath, raw, stats);
+    await handle.writeFile(content, 'utf8');
+    await handle.sync().catch(() => {});
   } finally {
-    fs.closeSync(descriptor);
+    await handle.close();
+  }
+}
+
+// exFAT/FAT32、部分云盘虚拟盘和 SMB 共享不支持硬链接，link 会报这些错。
+const NO_HARDLINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV', 'EINVAL', 'ENOSYS', 'EMLINK']);
+
+/**
+ * 新建时不能覆盖已有文件。首选硬链接：把写好的临时文件「挂」到目标名上，
+ * 目标已存在就失败，而且目标一出现就是完整内容。文件系统不支持硬链接时，
+ * 退回 `wx` 直接创建 —— 仍然保证不覆盖别人刚建的同名文件。
+ */
+async function createExclusive(temporary, absolute, content) {
+  try {
+    await fsp.link(temporary, absolute);
+  } catch (error) {
+    if (!NO_HARDLINK.has(error.code)) throw error;
+    try {
+      await writeDurably(absolute, content);
+    } catch (fallbackError) {
+      if (fallbackError.code !== 'EEXIST') await fsp.rm(absolute, { force: true }).catch(() => {});
+      throw fallbackError;
+    }
   }
 }
 
@@ -358,7 +396,7 @@ function readNoteSync(vaultDir, relativePath) {
  * 写笔记。先写临时文件再 rename，避免写到一半崩溃留下半截文件——
  * 正文是唯一真相，损坏一次就是真的丢数据。
  */
-async function writeNote(vaultDir, relativePath, { data = {}, body = '', raw } = {}, { exclusive = false } = {}) {
+async function writeNote(vaultDir, relativePath, { data = {}, body = '', raw } = {}, { exclusive = false, versionReason = 'save' } = {}) {
   const absolute = await ensureSafeFilePath(vaultDir, relativePath, {
     allowMissing: true,
     createParents: true
@@ -380,15 +418,15 @@ async function writeNote(vaultDir, relativePath, { data = {}, body = '', raw } =
   if (!exclusive) {
     try {
       const previous = await readNote(vaultDir, relativePath, { tolerateInvalid: true });
-      if (previous.raw !== content) await saveVersion(vaultDir, relativePath, previous.raw, 'save');
+      if (previous.raw !== content) await saveVersion(vaultDir, relativePath, previous.raw, versionReason);
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   const temporary = `${absolute}.tmp-${process.pid}-${crypto.randomUUID()}`;
   try {
-    await fsp.writeFile(temporary, content, { encoding: 'utf8', flag: 'wx' });
+    await writeDurably(temporary, content);
     await ensureSafeFilePath(vaultDir, relativePath, { allowMissing: true });
     if (exclusive) {
-      await fsp.link(temporary, absolute);
+      await createExclusive(temporary, absolute, content);
     } else {
       await replaceFile(temporary, absolute);
     }
@@ -432,12 +470,26 @@ async function listNotes(rootDir, options = {}) {
 
     for (const entry of entries) {
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-      if (entry.isSymbolicLink()) continue;
 
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
+      let isDirectory = entry.isDirectory();
+      let isFile = entry.isFile();
+      if (entry.isSymbolicLink()) {
+        // Windows 上目录项只要带「重解析点」属性就报成链接，OneDrive/Dropbox 的
+        // 占位文件也是这样。用 lstat 再问一次：真正的符号链接和目录联接才跳过。
+        let stats;
+        try {
+          stats = await fsp.lstat(path.join(currentDir, entry.name));
+        } catch {
+          continue;
+        }
+        if (stats.isSymbolicLink()) continue;
+        isDirectory = stats.isDirectory();
+        isFile = stats.isFile();
+      }
+      if (isDirectory) {
         await walk(path.join(currentDir, entry.name), relative);
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(extension)) {
+      } else if (isFile && entry.name.toLowerCase().endsWith(extension)) {
         results.push(relative);
       }
     }
@@ -460,7 +512,6 @@ module.exports = {
   resolveTitle,
   parseNote,
   readNote,
-  readNoteSync,
   writeNote,
   deleteNote,
   listNotes

@@ -32,7 +32,7 @@ async function setup(t, { readOnly = false, windowChrome } = {}) {
 }
 
 test('阅读页把待办语法渲染成勾选框和日期标签，原文不变', () => {
-  const html = renderMarkdown('- [ ] 写引言 <b> @2026-10-26\n- [x] 读论文\n- 普通条目 [ ] 不算');
+  const html = renderMarkdown('- [ ] 写引言 <b> @2026-10-26\n- [x] 读论文\n- 普通条目 [ ] 不算', () => '', { today: '2026-10-25' });
   assert.match(html, /<li[^>]*class="task-item"[^>]*><span class="task-box" role="img" aria-label="待办"><\/span>写引言 &lt;b&gt; <time class="task-due" datetime="2026-10-26">10\/26<\/time>/);
   assert.match(html, /class="task-item is-done"[^>]*><span class="task-box is-done"[^>]*><\/span>读论文/);
   assert.doesNotMatch(html, /\[ \] 写引言|\[x\]/);

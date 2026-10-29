@@ -16,9 +16,15 @@ const EDIT_MENU = {
   ]
 };
 
+// 必须和安装器写进开始菜单、桌面快捷方式的 AppUserModelID 一致（electron-builder
+// 取的是 package.json 的 build.appId）。不一致时，固定到任务栏的图标和运行中的窗口
+// 会分成两个按钮；完整版装在同一台机器上时，两个应用的窗口反而会被合到一组。
+// electron-builder removes build metadata from the packaged package.json.
+const BUILD_APP_ID = 'com.research.workstation-mini';
+
 function createPlatformPolicy({
   platform = process.platform,
-  appId = 'com.research.workstation',
+  appId = BUILD_APP_ID,
   productName = '科研工作台'
 } = {}) {
   const isMac = platform === 'darwin';

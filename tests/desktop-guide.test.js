@@ -5,95 +5,187 @@ const path = require('node:path');
 const os = require('node:os');
 const { _electron: electron } = require('playwright-core');
 
-test('页面新手指引：首次显示、进度、Git 设置、跳过和重启', { timeout: 60000 }, async () => {
+const progressIs = text => document.querySelector('[data-guide-progress]').textContent === text;
+
+/** 高亮框要完整罩住目标，卡片要整张落在窗口里、并且不压住目标。 */
+async function spotlightOf(page, selector) {
+  // 等高亮框停稳：窗口缩放后它会重新定位，还可能带着过渡动画。
+  await page.waitForFunction(() => new Promise(resolve => {
+    const spot = document.querySelector('[data-guide-spot]');
+    const before = JSON.stringify(spot.getBoundingClientRect());
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(JSON.stringify(spot.getBoundingClientRect()) === before)));
+  }), null, { polling: 50 });
+  return page.evaluate(selector => {
+    const box = element => { const r = element.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; };
+    const targets = [...document.querySelectorAll(selector)].map(box);
+    return {
+      spot: box(document.querySelector('[data-guide-spot]')),
+      card: box(document.querySelector('[data-guide-card]')),
+      target: {
+        left: Math.min(...targets.map(r => r.left)), top: Math.min(...targets.map(r => r.top)),
+        right: Math.max(...targets.map(r => r.right)), bottom: Math.max(...targets.map(r => r.bottom))
+      },
+      viewport: { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight }
+    };
+  }, selector);
+}
+
+function assertSpotlight({ spot, card, target, viewport }, label) {
+  assert.ok(spot.left <= target.left && spot.top <= target.top && spot.right >= target.right && spot.bottom >= target.bottom, label + '：高亮框罩住目标');
+  assert.ok(card.left >= 0 && card.top >= 0 && card.right <= viewport.width && card.bottom <= viewport.height, label + '：卡片完整可见');
+  assert.ok(card.left >= target.right, label + '：卡片不压住目标');
+}
+
+test('界面导览、上手清单与上手指南：首次显示、进度、跳过、隐藏和重看', { timeout: 90000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-guide-desktop-'));
   const userData = path.join(root, 'user');
   const vault = path.join(root, "vault's notes");
   let app, page, passed = false;
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
-  const launch = () => electron.launch({ args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
+  const launch = () => electron.launch(process.env.WORKSTATION_EXECUTABLE
+    ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env, timeout: 20000 }
+    : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
   async function close() { await app.evaluate(({ app }) => app.exit(0)); await app.close().catch(() => {}); app = null; }
   try {
     await fs.mkdir(path.join(vault, 'notes'), { recursive: true });
     await fs.mkdir(path.join(userData, 'workstation-data'), { recursive: true });
-    await fs.writeFile(path.join(vault, 'notes', 'test.md'), '# 笔记\n\n原内容');
     const configFile = path.join(userData, 'workstation-data', 'settings.json');
     await fs.writeFile(configFile, JSON.stringify({ schemaVersion: 5, vaultDir: vault, syncEnabled: false, device: 'guide' }));
     app = await launch(); page = await app.firstWindow();
     page.setDefaultTimeout(5000);
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // 减少动效时高亮框直接就位，测量不必等过渡动画。
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    // 首次打开：欢迎页居中，没有「上一步」，可以「以后再说」。
     await page.waitForSelector('#onboarding[open]');
-    assert.match(await page.locator('#guide-title').textContent(), /先认识/);
-    assert.equal(await page.locator('[data-guide-prev]').isDisabled(), true);
-    for (let i = 0; i < 3; i++) {
-      await page.locator('[data-guide-next]').click();
-      await page.waitForFunction(step => document.querySelector('[data-guide-progress]').textContent === step + ' / 8', i + 2);
-    }
+    assert.match(await page.locator('#guide-title').textContent(), /欢迎/);
+    assert.equal(await page.locator('[data-guide-prev]').isVisible(), false);
+    assert.equal(await page.locator('[data-guide-later]').isVisible(), true);
+    assert.equal(await page.locator('#onboarding').evaluate(e => e.classList.contains('is-centered')), true);
+
+    // 每一站高亮侧栏里的真实入口。
+    await page.locator('[data-guide-next]').click();
+    await page.waitForFunction(progressIs, '1 / 6');
+    assertSpotlight(await spotlightOf(page, '.workspace-search'), '搜索');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(progressIs, '2 / 6');
+    assertSpotlight(await spotlightOf(page, '[data-nav="notes"]'), '笔记');
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForFunction(progressIs, '1 / 6');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(progressIs, '3 / 6');
+    assert.match(await page.locator('#guide-title').textContent(), /研究项目与计划/);
+    assertSpotlight(await spotlightOf(page, '[data-nav="projects"], [data-nav="plan"]'), '研究项目与计划');
+
+    // 进度跨页面保留。
     await page.reload();
     await page.waitForSelector('#onboarding[open]');
-    assert.match(await page.locator('#guide-title').textContent(), /计划/);
-    await page.locator('[data-guide-prev]').click();
-    assert.match(await page.locator('#guide-title').textContent(), /找回/);
-    for (let i = 0; i < 3; i++) {
-      await page.locator('[data-guide-next]').click();
-      await page.waitForFunction(step => document.querySelector('[data-guide-progress]').textContent === step + ' / 8', i + 4);
+    await page.waitForFunction(progressIs, '3 / 6');
+
+    // 最小窗口、明暗主题下卡片和高亮都完整可见。
+    await page.setViewportSize({ width: 900, height: 620 });
+    // 矮窗口里侧栏换成紧凑排布，导览在缩放停下后会再对齐一次。
+    await page.waitForTimeout(300);
+    for (const scheme of ['dark', 'light']) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      for (const [step, selector] of [['3 / 6', '[data-nav="projects"], [data-nav="plan"]'], ['5 / 6', '.workspace-tools'], ['6 / 6', '.workspace-sidebar-footer']]) {
+        while (await page.locator('[data-guide-progress]').textContent() !== step) {
+          await page.locator('[data-guide-next]').click();
+        }
+        assertSpotlight(await spotlightOf(page, selector), scheme + ' ' + step);
+        assert.notEqual(await page.locator('[data-guide-card]').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
+      }
+      await page.screenshot({ path: path.join(os.tmpdir(), 'workstation-tour-' + scheme + '.png') });
+      while (await page.locator('[data-guide-progress]').textContent() !== '3 / 6') {
+        await page.locator('[data-guide-prev]').click();
+      }
     }
-    assert.match(await page.locator('#guide-title').textContent(), /先准备/);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // Esc 等同于跳过：关掉、记住，不再自动弹出。
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('#onboarding', { state: 'hidden' });
+    assert.equal((await page.evaluate(() => window.workstationDesktop.getGuide())).status, 'skipped');
+    await page.reload();
+    await page.waitForSelector('[data-onboarding-card]');
+    assert.equal(await page.locator('#onboarding').isVisible(), false);
+
+    // 今日页的上手清单：新资料库从第一步开始，可以隐藏。
+    assert.match(await page.locator('[data-onboarding-card]').textContent(), /下一步：写下第一篇笔记/);
+    await page.locator('[data-onboarding-hide]').click();
+    await page.waitForSelector('[data-onboarding-card]', { state: 'hidden' });
+    assert.equal((await page.evaluate(() => window.workstationDesktop.getGuide())).checklist, 'hidden');
+    await page.reload();
+    await page.waitForSelector('.desk-header');
+    assert.equal(await page.locator('[data-onboarding-card]').count(), 0);
+
+    // 重启后状态仍在；侧栏问号打开上手指南页，可以把清单找回来。
+    await close();
+    app = await launch(); page = await app.firstWindow();
+    page.setDefaultTimeout(5000);
+    page.on('pageerror', e => errors.push(e.message));
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForSelector('.workspace-sidebar');
+    await page.waitForFunction(() => Boolean(window.workstationDesktop));
+    assert.deepEqual(await page.evaluate(() => window.workstationDesktop.getGuide()), { version: 2, step: 3, status: 'skipped', checklist: 'hidden' });
+    assert.equal(await page.locator('#onboarding').isVisible(), false);
+    await page.locator('[data-nav="guide"]').click();
+    await page.waitForSelector('.guide-page');
+    assert.equal(await page.locator('[data-nav="guide"]').getAttribute('aria-current'), 'page');
+    await page.locator('[data-onboarding-show]').click();
+    await page.waitForSelector('[data-onboarding-restore]', { state: 'hidden' });
+    assert.equal((await page.evaluate(() => window.workstationDesktop.getGuide())).checklist, 'shown');
+
+    // Git 一节：按真实路径生成命令，可以一键复制；打开设置不替用户开启同步。
     const commands = await page.locator('[data-guide-git-commands]').textContent();
     assert.ok(commands.includes("vault'\"'\"'s notes"));
     assert.match(commands, /git init/);
-    assert.match(commands, /git config user.name/);
-    await page.setViewportSize({ width: 900, height: 620 });
-    for (const scheme of ['dark', 'light']) {
-      await page.emulateMedia({ colorScheme: scheme });
-      assert.ok(await page.locator('[data-guide-skip]').isVisible());
-      assert.notEqual(await page.locator('#onboarding').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
-      await page.locator('[data-guide-next]').scrollIntoViewIfNeeded();
-      assert.equal(await page.locator('#onboarding').evaluate(e => e.scrollWidth <= e.clientWidth), true);
-    }
-    await page.screenshot({ path: '/tmp/workstation-guide-git.png' });
-    await page.locator('[data-guide-next]').click();
-    assert.match(await page.locator('#guide-title').textContent(), /保存同步设置/);
+    await page.locator('[data-copy="git-commands"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-copy="git-commands"]').textContent === '已复制');
+    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), commands);
     const newWindow = app.waitForEvent('window');
     await page.locator('[data-guide-settings]').click();
     const settings = await newWindow;
     await settings.waitForSelector('#settings-form');
     assert.equal(await settings.locator('[name=syncEnabled]').isChecked(), false);
     await settings.close();
-    await page.locator('[data-guide-skip]').click();
-    await page.waitForSelector('#onboarding', { state: 'hidden' });
-    await page.reload();
-    assert.equal(await page.locator('#onboarding').isVisible(), false);
-    await close();
-    app = await launch(); page = await app.firstWindow();
-    await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(() => Boolean(window.workstationDesktop));
-    const saved = await page.evaluate(() => window.workstationDesktop.getGuide());
-    assert.equal(saved.status, 'skipped');
-    assert.equal(await page.locator('#onboarding').isVisible(), false);
-    await page.locator('[data-guide-open]').click();
+
+    // 从指南页重看导览：直接从第一站开始，看完记为完成，焦点回到按钮。
+    await page.locator('[data-guide-start]').click();
     await page.waitForSelector('#onboarding[open]');
-    assert.match(await page.locator('#guide-title').textContent(), /先认识/);
-    for (let i = 0; i < 7; i++) {
+    await page.waitForFunction(progressIs, '1 / 6');
+    for (let i = 2; i <= 6; i++) {
       await page.locator('[data-guide-next]').click();
-      await page.waitForFunction(step => document.querySelector('[data-guide-progress]').textContent === step + ' / 8', i + 2);
+      await page.waitForFunction(progressIs, i + ' / 6');
     }
-    await page.getByRole('button', { name: '完成指引', exact: true }).click();
+    await page.getByRole('button', { name: '完成', exact: true }).click();
     await page.waitForSelector('#onboarding', { state: 'hidden' });
     assert.equal((await page.evaluate(() => window.workstationDesktop.getGuide())).status, 'completed');
-    await page.locator('[data-guide-open]').click();
-    await page.waitForSelector('#onboarding[open]');
-    await page.keyboard.press('Escape');
-    await page.waitForSelector('#onboarding', { state: 'hidden' });
-    assert.equal(await page.locator('[data-guide-open]').evaluate(e => e === document.activeElement), true);
+    assert.equal(await page.locator('[data-guide-start]').evaluate(e => e === document.activeElement), true);
+
+    // 最后一站的链接：记为完成并去上手指南。
     const origin = new URL(page.url()).origin;
+    await page.evaluate(() => window.workstationDesktop.saveGuide({ step: 6, status: 'active' }));
+    await page.goto(origin + '/');
+    await page.waitForSelector('#onboarding[open]');
+    await page.locator('[data-guide-finish]').click();
+    await page.waitForURL(origin + '/guide');
+    assert.equal((await page.evaluate(() => window.workstationDesktop.getGuide())).status, 'completed');
+
+    // 自动导览不打断编辑。
     await page.evaluate(() => window.workstationDesktop.saveGuide({ step: 1, status: 'active' }));
-    await page.goto(origin + '/edit/test.md');
+    await page.goto(origin + '/new');
+    await page.waitForSelector('[name=path]');
     assert.equal(await page.locator('#onboarding').isVisible(), false, '编辑时不得自动打断');
+
+    // 整个过程不改资料库、不开同步、不建仓库。
     assert.equal(JSON.parse(await fs.readFile(configFile)).syncEnabled, false);
     await assert.rejects(fs.stat(path.join(vault, '.git')), { code: 'ENOENT' });
-    assert.equal(await fs.readFile(path.join(vault, 'notes', 'test.md'), 'utf8'), '# 笔记\n\n原内容');
+    assert.deepEqual(await fs.readdir(path.join(vault, 'notes')), []);
     assert.deepEqual(errors, []);
     passed = true;
   } finally {

@@ -8,7 +8,7 @@
     <h1>历史与草稿</h1>
     <p class="page-meta">只保存在本机，不随 Git 同步。</p>
   </div>
-  <% if (notePath) { %><p class="history-filter"><span class="chip"><%= notePath %></span><a href="/history">查看全部</a></p><% } %>
+  <% const filter = notePath || deckPath; if (filter) { %><p class="history-filter"><span class="chip"><%= filter %></span><a href="/history">查看全部</a></p><% } %>
 </header>
 
 <div class="history-layout<%= selected ? ' has-preview' : '' %>">
@@ -19,13 +19,21 @@
       <ul class="history-list notelist">
         <% records.forEach(record => { const active = selected && selected.id === record.id; %>
           <li>
-            <a href="/history?path=<%= encodeURIComponent(notePath) %>&id=<%= record.id %>"<% if (active) { %> aria-current="true" class="is-active"<% } %>>
+            <a href="/history?id=<%= encodeURIComponent(record.id) %><%= notePath ? '&path=' + encodeURIComponent(notePath) : '' %><%= deckPath ? '&deck=' + encodeURIComponent(deckPath) : '' %><%= page > 1 ? '&page=' + page : '' %>"<% if (active) { %> aria-current="true" class="is-active"<% } %>>
               <span class="history-path"><%= record.path %></span>
-              <span class="history-meta"><span class="history-kind <%= kindClass(record) %>"><%= kindLabel(record) %></span><time datetime="<%= record.at %>"><%= ui.dateTimeLabel(record.at) %></time></span>
+              <span class="history-meta"><% if (record.source === 'deck') { %><span class="history-kind is-deck">卡组</span><% } %><span class="history-kind <%= kindClass(record) %>"><%= kindLabel(record) %></span><time datetime="<%= record.at %>"><%= ui.dateTimeLabel(record.at) %></time></span>
             </a>
           </li>
         <% }) %>
       </ul>
+      <% if (page > 1 || hasMore) { %>
+        <nav class="history-pager" aria-label="翻页">
+          <% const pageHref = n => '/history?page=' + n + (notePath ? '&path=' + encodeURIComponent(notePath) : '') + (deckPath ? '&deck=' + encodeURIComponent(deckPath) : ''); %>
+          <% if (page > 1) { %><a href="<%= pageHref(page - 1) %>">← 较新的记录</a><% } %>
+          <span>共 <%= total %> 条</span>
+          <% if (hasMore) { %><a href="<%= pageHref(page + 1) %>">更早的记录 →</a><% } %>
+        </nav>
+      <% } %>
     <% } %>
   </section>
 
@@ -36,7 +44,12 @@
           <h2 id="history-preview-title"><%= selected.path %></h2>
           <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %></p>
         </div>
-        <% if (!readOnly) { %><a class="button primary" href="/recover/<%= selected.id %>">载入编辑器</a><% } %>
+        <% if (!readOnly && selected.source === 'deck') { %>
+          <form action="/history/restore-deck" method="post" data-confirm="用这个版本覆盖当前的卡组文件？覆盖前的内容会先存进历史。">
+            <input type="hidden" name="id" value="<%= selected.id %>">
+            <button class="button primary" type="submit">恢复这个卡组版本</button>
+          </form>
+        <% } else if (!readOnly) { %><a class="button primary" href="/recover/<%= encodeURIComponent(selected.id) %>">载入编辑器</a><% } %>
       </header>
       <pre class="history-preview"><%= selected.raw %></pre>
     </section>

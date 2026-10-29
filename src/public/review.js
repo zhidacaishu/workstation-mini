@@ -18,6 +18,10 @@
   const doneTitle = document.getElementById('review-done-title');
   const failuresEl = document.getElementById('review-failures');
   const meterEl = document.getElementById('review-meter-fill');
+  const relearnEl = document.getElementById('review-relearn');
+  const editEl = document.getElementById('review-edit');
+  const suspendEl = document.getElementById('review-suspend');
+  const returnTo = root.dataset?.returnTo || '/review';
 
   let queue;
   try {
@@ -32,6 +36,9 @@
   let answered = 0;
   let pendingAnswers = 0;
   let anySynced = false;
+  // 评过分的卡（按卡计，不按次数）和本轮选过「忘了」的卡。
+  const reviewedCards = new Set();
+  const relearnedCards = new Set();
   const failedAnswers = new Set();
   const retryingAnswers = new Set();
 
@@ -53,6 +60,9 @@
         ratingsEl.hidden = true;
         revealBtn.hidden = true;
         remainingEl.textContent = '0';
+        // 没有当前卡了：「编辑」「暂停这张」无从谈起。
+        if (editEl) editEl.hidden = true;
+        if (suspendEl) suspendEl.hidden = true;
         return;
       }
       finish();
@@ -71,6 +81,15 @@
     ratingsEl.hidden = true;
     revealBtn.hidden = false;
     deckEl.textContent = card.deck || '';
+    if (relearnEl) relearnEl.hidden = !card.relearn;
+    if (editEl) {
+      editEl.hidden = false;
+      editEl.href = '/cards/edit?id=' + encodeURIComponent(card.id) + '&returnTo=' + encodeURIComponent(returnTo);
+    }
+    if (suspendEl) {
+      suspendEl.hidden = false;
+      suspendEl.disabled = false;
+    }
     if (meterEl?.style) meterEl.style.width = `${Math.round((index / Math.max(queue.length, 1)) * 100)}%`;
     remainingEl.textContent = String(queue.length - index);
     revealed = false;
@@ -83,6 +102,9 @@
     backEl.hidden = false;
     revealBtn.hidden = true;
     ratingsEl.hidden = false;
+    // 焦点交给复习区（保住数字快捷键），读屏软件不会因此念出答案；用一个播报区念一遍。
+    const announcer = document.getElementById('review-announcer');
+    if (announcer) announcer.textContent = '答案：' + String(backEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     // Windows 隐藏按钮后可能仍保留焦点，显式交还给复习区域以恢复数字快捷键。
     root.focus({ preventScroll: true });
   }
@@ -106,10 +128,10 @@
 
   function updateSaveNotice() {
     const failures = failedAnswers.size
-      ? `${failedAnswers.size} 次评分未保存，请刷新卡片后重新复习。`
+      ? `${failedAnswers.size} 次评分未保存${lastFailureMessage ? `（${lastFailureMessage}）` : ''}，请处理后刷新页面重新复习。`
       : '';
     const retrying = retryingAnswers.size
-      ? `${retryingAnswers.size} 次评分响应中断，正在用同一事件自动重试…`
+      ? `${retryingAnswers.size} 次评分还没保存上，正在重试…`
       : '';
     retryNotice([failures, retrying].filter(Boolean).join(' '));
     if (failuresEl) {
@@ -118,39 +140,56 @@
     }
   }
 
+  // 服务端出错（磁盘满、没有写权限）不会自己好：最多重试这么多次，然后如实报告。
+  // 以前无限重试，页面停在「正在保存最后的评分…」，离不开也退不出。
+  const MAX_ATTEMPTS = 5;
+  let lastFailureMessage = '';
+
   async function submitAnswer(payload) {
     let delay = 1000;
-    for (;;) {
+    for (let attempt = 1; ; attempt += 1) {
+      let serverMessage = '';
       try {
         const response = await fetch('/review/answer', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (!response.ok) {
-          if (response.status >= 400 && response.status < 500) {
-            retryingAnswers.delete(payload.eventId);
-            failedAnswers.add(payload.eventId);
-            updateSaveNotice();
-            return false;
-          }
-          throw new Error(String(response.status));
+        if (response.ok) {
+          retryingAnswers.delete(payload.eventId);
+          updateSaveNotice();
+          return true;
         }
-        retryingAnswers.delete(payload.eventId);
-        updateSaveNotice();
-        return true;
+        const body = await Promise.resolve().then(() => response.json()).catch(() => ({}));
+        serverMessage = body?.message || `服务端返回 ${response.status}`;
+        if (response.status >= 400 && response.status < 500) {
+          lastFailureMessage = serverMessage;
+          retryingAnswers.delete(payload.eventId);
+          failedAnswers.add(payload.eventId);
+          updateSaveNotice();
+          return false;
+        }
       } catch {
-        retryingAnswers.add(payload.eventId);
-        updateSaveNotice();
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay = Math.min(delay * 2, 30_000);
+        serverMessage = '连接不上本地服务';
       }
+      if (attempt >= MAX_ATTEMPTS) {
+        lastFailureMessage = serverMessage;
+        retryingAnswers.delete(payload.eventId);
+        failedAnswers.add(payload.eventId);
+        updateSaveNotice();
+        return false;
+      }
+      retryingAnswers.add(payload.eventId);
+      updateSaveNotice();
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, 8_000);
     }
   }
 
   async function answer(rating) {
     const card = current();
-    if (!card || !revealed) return;
+    // 正在暂停这张卡时不评分：否则它会被记一次分，还被算成「本轮重学」。
+    if (!card || !revealed || suspending) return;
 
     const payload = {
       eventId: createEventId(),
@@ -160,11 +199,19 @@
     };
     pendingAnswers += 1;
     updateBusyState();
+    // 「忘了」的卡在这一轮末尾再出现一次，直到想起来为止；随时可以离开，评分都已记录。
+    if (rating === 1) {
+      queue.push({ ...card, relearn: true });
+      relearnedCards.add(card.id);
+    }
     index += 1;
     render();
 
     try {
-      if (await submitAnswer(payload)) answered += 1;
+      if (await submitAnswer(payload)) {
+        answered += 1;
+        reviewedCards.add(card.id);
+      }
     } finally {
       pendingAnswers -= 1;
       updateBusyState();
@@ -175,7 +222,9 @@
   async function finish() {
     root.hidden = true;
     doneEl.hidden = false;
-    summaryEl.textContent = `复习了 ${answered} 张。`;
+    summaryEl.textContent = relearnedCards.size
+      ? `复习了 ${reviewedCards.size} 张，其中 ${relearnedCards.size} 张本轮重学过。`
+      : `复习了 ${reviewedCards.size} 张。`;
     if (doneTitle) doneTitle.textContent = failedAnswers.size ? '部分评分未保存' : '这一轮复习完了';
     updateSaveNotice();
     doneEl.focus();
@@ -219,6 +268,33 @@
     event.returnValue = '';
   });
 
+  // 暂停当前这张：从本轮队列里拿掉（包括排在后面的重学），复习记录保留。
+  let suspending = false;
+  async function suspendCurrent() {
+    const card = current();
+    if (!card || !suspendEl || suspending) return;
+    suspending = true;
+    suspendEl.disabled = true;
+    try {
+      const response = await fetch('/cards/suspend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ id: card.id, suspended: true })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.message || `暂停失败（${response.status}）`);
+      queue = queue.filter((item, position) => position < index || item.id !== card.id);
+      window.workstationUI?.notify?.('已暂停这张卡，可以在卡组的卡片列表里恢复。', { type: 'success' });
+      render();
+    } catch (error) {
+      suspendEl.disabled = false;
+      window.workstationUI?.notify?.(error.message, { type: 'error' });
+    } finally {
+      suspending = false;
+    }
+  }
+  suspendEl?.addEventListener('click', suspendCurrent);
+
   revealBtn.addEventListener('click', reveal);
   for (const button of ratingsEl.querySelectorAll('[data-rating]')) {
     button.addEventListener('click', () => answer(Number(button.dataset.rating)));
@@ -226,7 +302,7 @@
 
   document.addEventListener('keydown', event => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-    const ui = typeof window === 'undefined' ? {} : (window.workstationUI || {});
+    const ui = window.workstationUI || {};
     const active = document.activeElement;
     const isInteractiveTarget = ui.isInteractiveTarget || (target => {
       const tag = target?.tagName;

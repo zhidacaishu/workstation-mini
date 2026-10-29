@@ -29,7 +29,7 @@ function setup() {
     fetch(url, options) {
       if (!options) return Promise.resolve({ ok: true, json: async () => ({ count: 0 }) });
       const wait = deferred();
-      requests.push({ url, method: options.method, body: JSON.parse(options.body), wait });
+      requests.push({ url, method: options.method, body: JSON.parse(options.body), keepalive: options.keepalive === true, wait });
       return wait.promise;
     }
   };
@@ -72,11 +72,38 @@ test('failed autosave remains visible and next input can persist the latest cont
   const c = setup();
   c.fields.body.value = 'first';
   const first = c.ui.flush(); await c.tick();
-  c.requests[0].wait.reject(new Error('network')); await first;
+  c.requests[0].wait.reject(new Error('network')); assert.equal(await first, false);
   assert.match(c.status.textContent, /未确认保存/);
   c.fields.body.value = 'latest';
   const second = c.ui.flush(); await c.tick();
   assert.equal(c.requests[1].body.raw, 'latest');
-  c.requests[1].wait.resolve({ ok: true }); await second;
+  c.requests[1].wait.resolve({ ok: true }); assert.equal(await second, true);
   assert.match(c.status.textContent, /已保存在本机/);
+});
+
+test('离开页面时立刻发出草稿（带 keepalive），不排在还没回来的请求后面', async () => {
+  const c = setup();
+  c.fields.body.value = 'first';
+  const first = c.ui.flush(); await c.tick();
+  assert.equal(c.requests.length, 1);
+  c.fields.body.value = '刚打的几个字';
+  c.ui.flush({ leaving: true });
+  assert.equal(c.requests.length, 2, '不等第一个请求回来');
+  assert.equal(c.requests[1].body.raw, '刚打的几个字');
+  assert.equal(c.requests[1].body.sequence, 2, '序号更大，服务端不会被旧请求覆盖');
+  assert.equal(c.requests[1].keepalive, true);
+  c.requests[0].wait.resolve({ ok: true });
+  c.requests[1].wait.resolve({ ok: true });
+  await first;
+});
+
+test('离开时内容没变或没填路径就不发草稿；太长的草稿不用 keepalive', async () => {
+  const c = setup();
+  c.ui.flush({ leaving: true });
+  assert.equal(c.requests.length, 0);
+  c.fields.body.value = 'x'.repeat(30_000);
+  c.ui.flush({ leaving: true });
+  assert.equal(c.requests.length, 1);
+  assert.equal(c.requests[0].keepalive, false);
+  c.requests[0].wait.resolve({ ok: true });
 });

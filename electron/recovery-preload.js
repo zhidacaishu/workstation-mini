@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('workstationRecovery', {
   activate: () => invoke('recovery:activate'),
   discardOwnedStaging: () => invoke('recovery:discard-owned-staging'),
   openCurrentVault: () => invoke('recovery:open-current-vault'),
+  dismissResidue: () => invoke('recovery:dismiss-residue'),
   createVault: () => invoke('recovery:create-vault'),
   openExistingVault: () => invoke('recovery:open-existing-vault'),
   onStateChanged: callback => {

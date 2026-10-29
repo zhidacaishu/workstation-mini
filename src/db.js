@@ -17,9 +17,11 @@ const Database = require('better-sqlite3');
 //     需要还原成原本的日期字面量。
 // v4：新增 tasks 表，从笔记正文的 `- [ ]` 抽取。任务不新建存储，
 //     真相是 Markdown 里那一行，这张表只是派生索引。
-// v5：新增 literature_annotations 表，从文献笔记 managed marker 派生。
-// v6：新增 MinerU PDF 文档、分块与独立全文索引。
-const SCHEMA_VERSION = 7;
+// v5–v7：文献标注、PDF 分块和大文件对账表（对应功能已在 Mini 中移除）。
+// v8：删掉上面那几张表；只保留笔记、全文、标签、双链和待办。
+// v9：表结构不变。待办改由 markdown-it 识别（代码块、公式块里的 `- [ ]` 不算），
+//     附件嵌入（`![[图.png]]`）不再算双链。重建一次，旧索引里按老规则抽出的条目才会消失。
+const SCHEMA_VERSION = 9;
 
 const SCHEMA = `
   -- 每篇笔记一行。body_raw / title_raw 是原文缓存，供 LIKE 兜底和渲染使用；
@@ -70,72 +72,11 @@ const SCHEMA = `
     PRIMARY KEY (path, line)
   );
 
-  CREATE TABLE IF NOT EXISTS literature_annotations (
-    note_path      TEXT NOT NULL,
-    annotation_id  TEXT NOT NULL,
-    item_key       TEXT NOT NULL,
-    item_id        INTEGER NOT NULL,
-    status         TEXT NOT NULL,
-    text           TEXT NOT NULL DEFAULT '',
-    page           TEXT NOT NULL DEFAULT '',
-    outputs_json   TEXT NOT NULL DEFAULT '[]',
-    PRIMARY KEY (note_path, annotation_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS pdf_documents (
-    document_id     TEXT PRIMARY KEY,
-    library_id      TEXT NOT NULL,
-    attachment_key  TEXT NOT NULL,
-    parent_key      TEXT NOT NULL DEFAULT '',
-    title           TEXT NOT NULL DEFAULT '',
-    file_name       TEXT NOT NULL,
-    source_sha256   TEXT NOT NULL,
-    cache_path      TEXT NOT NULL,
-    page_count      INTEGER NOT NULL DEFAULT 0,
-    indexed_at      TEXT NOT NULL,
-    UNIQUE (library_id, attachment_key)
-  );
-
-  CREATE TABLE IF NOT EXISTS pdf_chunks (
-    document_id   TEXT NOT NULL,
-    chunk_index   INTEGER NOT NULL,
-    page_index    INTEGER NOT NULL,
-    heading       TEXT NOT NULL DEFAULT '',
-    body_raw      TEXT NOT NULL,
-    markdown_raw  TEXT NOT NULL,
-    PRIMARY KEY (document_id, chunk_index),
-    FOREIGN KEY (document_id) REFERENCES pdf_documents(document_id) ON DELETE CASCADE
-  );
-
-  CREATE VIRTUAL TABLE IF NOT EXISTS pdf_chunks_fts USING fts5(
-    document_id UNINDEXED,
-    chunk_index UNINDEXED,
-    title,
-    heading,
-    body,
-    tokenize='unicode61'
-  );
-
-  -- 大文件对账的本机记录：上次对账结束时两边都有、且大小一致的文件。
-  -- 只用来分辨「一边缺」是新增还是删除（见 blobs/reconcile.js）。丢了也无妨，
-  -- 对账会退回只补齐、不删除的保守行为，所以它和整库一样是可删除的派生数据。
-  -- 新增表用 IF NOT EXISTS 就能落到旧库上，不需要为它升 SCHEMA_VERSION 重建索引。
-  CREATE TABLE IF NOT EXISTS blob_sync_state (
-    server TEXT NOT NULL,
-    path   TEXT NOT NULL,
-    size   INTEGER NOT NULL,
-    sha256 TEXT,
-    PRIMARY KEY (server, path)
-  );
-
   CREATE INDEX IF NOT EXISTS notes_section_idx ON notes(section);
   CREATE INDEX IF NOT EXISTS tasks_due_idx ON tasks(due);
   CREATE INDEX IF NOT EXISTS tasks_done_idx ON tasks(done);
   CREATE INDEX IF NOT EXISTS tags_tag_idx ON tags(tag);
   CREATE INDEX IF NOT EXISTS links_to_path_idx ON links(to_path);
-  CREATE INDEX IF NOT EXISTS literature_annotations_status_idx ON literature_annotations(status);
-  CREATE INDEX IF NOT EXISTS pdf_documents_attachment_idx ON pdf_documents(library_id, attachment_key);
-  CREATE INDEX IF NOT EXISTS pdf_chunks_page_idx ON pdf_chunks(document_id, page_index, chunk_index);
 `;
 
 // 文件本身坏了（不是 SQLite、页损坏）。只认这两类：权限、磁盘满、被别的进程
@@ -231,60 +172,12 @@ function openDatabase(dbPath, { logger = console } = {}) {
     deleteLinks: db.prepare(`DELETE FROM links WHERE from_path = ?`),
     deleteTasks: db.prepare(`DELETE FROM tasks WHERE path = ?`),
     insertTask: db.prepare(`INSERT OR REPLACE INTO tasks (path, line, done, title, due) VALUES (?, ?, ?, ?, ?)`),
-    deleteAnnotations: db.prepare(`DELETE FROM literature_annotations WHERE note_path = ?`),
-    insertAnnotation: db.prepare(`
-      INSERT OR REPLACE INTO literature_annotations
-      (note_path, annotation_id, item_key, item_id, status, text, page, outputs_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `),
     insertLink: db.prepare(`INSERT OR IGNORE INTO links (from_path, to_target, to_path) VALUES (?, ?, ?)`),
     allIndexed: db.prepare(`SELECT path, hash, size, mtime_ms AS mtimeMs FROM notes`),
     oneIndexed: db.prepare(`SELECT path, hash, size, mtime_ms AS mtimeMs FROM notes WHERE path = ?`),
     allPaths: db.prepare(`SELECT path FROM notes ORDER BY path`),
     getNote: db.prepare(`SELECT * FROM notes WHERE path = ?`),
-    countNotes: db.prepare(`SELECT count(*) AS c FROM notes`),
-    upsertPdfDocument: db.prepare(`
-      INSERT INTO pdf_documents
-      (document_id, library_id, attachment_key, parent_key, title, file_name,
-       source_sha256, cache_path, page_count, indexed_at)
-      VALUES (@documentId, @libraryId, @attachmentKey, @parentKey, @title, @fileName,
-              @sourceSha256, @cachePath, @pageCount, @indexedAt)
-      ON CONFLICT(document_id) DO UPDATE SET
-        library_id = excluded.library_id,
-        attachment_key = excluded.attachment_key,
-        parent_key = excluded.parent_key,
-        title = excluded.title,
-        file_name = excluded.file_name,
-        source_sha256 = excluded.source_sha256,
-        cache_path = excluded.cache_path,
-        page_count = excluded.page_count,
-        indexed_at = excluded.indexed_at
-    `),
-    deletePdfDocument: db.prepare(`DELETE FROM pdf_documents WHERE document_id = ?`),
-    deletePdfChunks: db.prepare(`DELETE FROM pdf_chunks WHERE document_id = ?`),
-    insertPdfChunk: db.prepare(`
-      INSERT INTO pdf_chunks (document_id, chunk_index, page_index, heading, body_raw, markdown_raw)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `),
-    deletePdfFts: db.prepare(`DELETE FROM pdf_chunks_fts WHERE document_id = ?`),
-    insertPdfFts: db.prepare(`
-      INSERT INTO pdf_chunks_fts (document_id, chunk_index, title, heading, body)
-      VALUES (?, ?, ?, ?, ?)
-    `),
-    getPdfDocument: db.prepare(`
-      SELECT document_id AS documentId, library_id AS libraryId,
-             attachment_key AS attachmentKey, parent_key AS parentKey,
-             title, file_name AS fileName, source_sha256 AS sourceSha256,
-             cache_path AS cachePath, page_count AS pageCount, indexed_at AS indexedAt
-      FROM pdf_documents WHERE document_id = ?
-    `),
-    listPdfDocuments: db.prepare(`
-      SELECT document_id AS documentId, library_id AS libraryId,
-             attachment_key AS attachmentKey, parent_key AS parentKey,
-             title, file_name AS fileName, source_sha256 AS sourceSha256,
-             cache_path AS cachePath, page_count AS pageCount, indexed_at AS indexedAt
-      FROM pdf_documents ORDER BY title, file_name
-    `)
+    countNotes: db.prepare(`SELECT count(*) AS c FROM notes`)
   };
 
   // 一篇笔记的全部派生行一次性替换。分成多条语句写会在崩溃时留下
@@ -317,20 +210,6 @@ function openDatabase(dbPath, { logger = console } = {}) {
     for (const task of record.tasks || []) {
       statements.insertTask.run(record.path, task.line, task.done ? 1 : 0, task.title, task.due);
     }
-
-    statements.deleteAnnotations.run(record.path);
-    for (const annotation of record.annotations || []) {
-      statements.insertAnnotation.run(
-        record.path,
-        annotation.id,
-        annotation.itemKey,
-        annotation.itemId,
-        annotation.status,
-        annotation.text,
-        annotation.page,
-        JSON.stringify(annotation.outputs || [])
-      );
-    }
   });
 
   const removeNote = db.transaction(notePath => {
@@ -339,48 +218,8 @@ function openDatabase(dbPath, { logger = console } = {}) {
     statements.deleteTags.run(notePath);
     statements.deleteLinks.run(notePath);
     statements.deleteTasks.run(notePath);
-    statements.deleteAnnotations.run(notePath);
     // 指向这篇的链接不删：笔记被删掉后，那些链接变回「待建」状态，
     // 而不是凭空消失。重新解析时 to_path 会被置空。
-  });
-
-  const replacePdfDocument = db.transaction(record => {
-    statements.deletePdfFts.run(record.documentId);
-    statements.deletePdfChunks.run(record.documentId);
-    statements.upsertPdfDocument.run({
-      documentId: record.documentId,
-      libraryId: String(record.libraryId),
-      attachmentKey: record.attachmentKey,
-      parentKey: record.parentKey || '',
-      title: record.title || record.fileName,
-      fileName: record.fileName,
-      sourceSha256: record.sourceSha256,
-      cachePath: record.cachePath,
-      pageCount: record.pageCount,
-      indexedAt: record.indexedAt
-    });
-    for (const chunk of record.chunks) {
-      statements.insertPdfChunk.run(
-        record.documentId,
-        chunk.chunkIndex,
-        chunk.pageIndex,
-        chunk.heading,
-        chunk.body,
-        chunk.markdown
-      );
-      statements.insertPdfFts.run(
-        record.documentId,
-        chunk.chunkIndex,
-        record.titleTokens,
-        chunk.headingTokens,
-        chunk.bodyTokens
-      );
-    }
-  });
-
-  const removePdfDocument = db.transaction(documentId => {
-    statements.deletePdfFts.run(documentId);
-    statements.deletePdfDocument.run(documentId);
   });
 
   return {
@@ -400,31 +239,6 @@ function openDatabase(dbPath, { logger = console } = {}) {
 
     replaceNote,
     removeNote,
-    replacePdfDocument,
-    removePdfDocument,
-
-    getPdfDocument(documentId) {
-      return statements.getPdfDocument.get(documentId);
-    },
-
-    listPdfDocuments() {
-      return statements.listPdfDocuments.all();
-    },
-
-    listPdfChunks(documentId, { pageIndex } = {}) {
-      if (Number.isInteger(pageIndex)) {
-        return db.prepare(`
-          SELECT chunk_index AS chunkIndex, page_index AS pageIndex, heading,
-                 body_raw AS body, markdown_raw AS markdown
-          FROM pdf_chunks WHERE document_id = ? AND page_index = ? ORDER BY chunk_index
-        `).all(documentId, pageIndex);
-      }
-      return db.prepare(`
-        SELECT chunk_index AS chunkIndex, page_index AS pageIndex, heading,
-               body_raw AS body, markdown_raw AS markdown
-        FROM pdf_chunks WHERE document_id = ? ORDER BY chunk_index
-      `).all(documentId);
-    },
 
     touchNote(notePath, mtimeMs, size, indexedAt) {
       statements.touchNote.run(mtimeMs, size, indexedAt, notePath);
@@ -500,13 +314,14 @@ function openDatabase(dbPath, { logger = console } = {}) {
     }),
 
     backlinks(notePath) {
+      // 同一篇笔记用两种写法（[[B]] 和 [[research/B]]）链过来只算一次；自己链自己不算反链。
       return db.prepare(`
-        SELECT links.from_path AS path, notes.title_raw AS title, notes.section AS section
+        SELECT DISTINCT links.from_path AS path, notes.title_raw AS title, notes.section AS section
         FROM links
         JOIN notes ON notes.path = links.from_path
-        WHERE links.to_path = ?
+        WHERE links.to_path = ? AND links.from_path != ?
         ORDER BY notes.path
-      `).all(notePath);
+      `).all(notePath, notePath);
     },
 
     outboundLinks(notePath) {
@@ -515,38 +330,6 @@ function openDatabase(dbPath, { logger = console } = {}) {
         FROM links LEFT JOIN notes ON notes.path = links.to_path
         WHERE links.from_path = ? ORDER BY links.to_target
       `).all(notePath);
-    },
-
-    countPendingAnnotations() {
-      return db.prepare(`SELECT count(*) AS count FROM literature_annotations WHERE status = 'pending'`).get().count;
-    },
-
-    listPendingAnnotations({ limit = 50, itemKey = '' } = {}) {
-      return db.prepare(`
-        SELECT literature_annotations.note_path AS notePath,
-               literature_annotations.annotation_id AS id,
-               literature_annotations.item_key AS itemKey,
-               literature_annotations.item_id AS itemId,
-               literature_annotations.text,
-               literature_annotations.page,
-               notes.title_raw AS noteTitle,
-               notes.hash
-        FROM literature_annotations
-        JOIN notes ON notes.path = literature_annotations.note_path
-        WHERE literature_annotations.status = 'pending'
-          AND (? = '' OR literature_annotations.item_key = ?)
-        ORDER BY notes.mtime_ms DESC, literature_annotations.annotation_id
-        LIMIT ?
-      `).all(String(itemKey), String(itemKey), Math.max(1, Number(limit) || 50));
-    },
-
-    annotationCountsByItem() {
-      return db.prepare(`
-        SELECT item_key AS itemKey,
-               count(*) AS total,
-               sum(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending
-        FROM literature_annotations GROUP BY item_key
-      `).all();
     },
 
     listTasks({ includeDone = false } = {}) {
@@ -566,22 +349,6 @@ function openDatabase(dbPath, { logger = console } = {}) {
         FROM notes WHERE section = ? ORDER BY path
       `).all(section);
     },
-
-    /** 某个存储服务、某个前缀下的对账记录：path → size。 */
-    listBlobSyncState(server, prefix) {
-      const rows = db.prepare(`
-        SELECT path, size, sha256 FROM blob_sync_state
-        WHERE server = ? AND substr(path, 1, ?) = ?
-      `).all(String(server), String(prefix).length + 1, `${prefix}/`);
-      return new Map(rows.map(row => [row.path, row.sha256 ? { size: row.size, sha256: row.sha256 } : row.size]));
-    },
-
-    replaceBlobSyncState: db.transaction((server, prefix, entries) => {
-      db.prepare(`DELETE FROM blob_sync_state WHERE server = ? AND substr(path, 1, ?) = ?`)
-        .run(String(server), String(prefix).length + 1, `${prefix}/`);
-      const insert = db.prepare(`INSERT INTO blob_sync_state (server, path, size, sha256) VALUES (?, ?, ?, ?)`);
-      for (const [blobPath, value] of entries) insert.run(String(server), blobPath, typeof value === 'number' ? value : value.size, value.sha256 || null);
-    }),
 
     listTags() {
       return db.prepare(`

@@ -7,7 +7,9 @@
   const review = snapshot.review || {};
   const reviewCount = (review.due || 0) + (review.fresh || 0);
   const tasks = snapshot.tasks || {};
-  const topTasks = (tasks.top || []).slice(0, 5);
+  const dueNow = tasks.dueNow || [];
+  const topTasks = dueNow.slice(0, 5);
+  const upcoming = tasks.upcoming || [];
   // 月历备注已经在计划页里，不再挤进「最近的笔记」。
   const recentNotes = (recent || []).filter(item => item.section !== 'calendar' && (!featured || item.path !== featured.path)).slice(0, 4);
   const traceOf = project => [
@@ -29,6 +31,10 @@
   <a class="desk-metric is-action" href="<%= reviewCount ? '/review' : '/decks' %>"><span class="desk-metric-label">今日复习</span><strong><%= reviewCount %></strong><% if (reviewCount) { %><span class="desk-metric-go" aria-hidden="true">开始 →</span><% } %></a>
 </nav>
 
+<% if (typeof onboarding !== 'undefined' && onboarding) { %>
+  <%- include('partials/onboarding', { progress: onboarding, variant: 'today' }) %>
+<% } %>
+
 <div class="desk-layout">
   <div class="desk-main">
     <section class="panel desk-research" aria-labelledby="continue-title">
@@ -48,7 +54,7 @@
       <% } else { %>
         <div class="empty-state">
           <p>还没有进行中的研究项目。</p>
-          <% if (!readOnly) { %><a class="button" href="/new?path=experiments/new-project">新建项目</a><% } %>
+          <% if (!readOnly) { %><a class="button" href="/new?folder=experiments">新建项目</a><% } %>
         </div>
       <% } %>
     </section>
@@ -72,9 +78,7 @@
 
   <section class="panel desk-side" aria-labelledby="task-title">
     <div class="section-head"><h2 id="task-title">今天需要处理</h2><a href="/plan?view=list">全部计划</a></div>
-    <% if (topTasks.length) { %>
-      <ul class="desk-tasks">
-        <% topTasks.forEach(task => { const overdue = task.due && task.due < date; const dueToday = task.due === date; %>
+    <% const taskRow = task => { const overdue = task.due && task.due < date; const dueToday = task.due === date; %>
           <li class="desk-task">
             <% if (!readOnly) { %>
               <form class="desk-task-form" action="/tasks/update" method="post" data-task-form data-task-quick>
@@ -90,10 +94,22 @@
             <a class="desk-task-title" href="/note/<%= encodePath(task.path) %>#L<%= task.line %>" title="<%= task.noteTitle %>"><%= task.title %></a>
             <% if (task.due) { %><time class="due-tag<%= overdue ? ' is-overdue' : dueToday ? ' is-today' : '' %>" datetime="<%= task.due %>"><%= overdue ? `逾期 ${ui.shortDate(task.due, date)}` : dueToday ? '今天' : ui.shortDate(task.due, date) %></time><% } %>
           </li>
-        <% }) %>
+    <% } %>
+    <% if (topTasks.length) { %>
+      <ul class="desk-tasks">
+        <% topTasks.forEach(taskRow) %>
       </ul>
+      <% if (dueNow.length > topTasks.length) { %>
+        <a class="desk-more" href="/plan?view=list">还有 <%= dueNow.length - topTasks.length %> 条 →</a>
+      <% } %>
     <% } else { %>
-      <p class="desk-quiet">今天没有待办。</p>
+      <p class="desk-quiet">今天没有到期的待办。</p>
+      <% if (upcoming.length) { %>
+        <h3 class="desk-sublabel">接下来</h3>
+        <ul class="desk-tasks">
+          <% upcoming.forEach(taskRow) %>
+        </ul>
+      <% } %>
     <% } %>
   </section>
 </div>

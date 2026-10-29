@@ -105,54 +105,15 @@
       : Boolean(event.ctrlKey) && !event.metaKey;
   }
 
-  const pendingEditorWork = new Set();
-  const editorWorkWaiters = new Set();
-  let editorIdleCheckScheduled = false;
-
-  function scheduleEditorIdleCheck() {
-    if (editorIdleCheckScheduled || pendingEditorWork.size > 0) return;
-    editorIdleCheckScheduled = true;
-    Promise.resolve().then(() => {
-      editorIdleCheckScheduled = false;
-      if (pendingEditorWork.size > 0) return;
-      for (const resolve of editorWorkWaiters) resolve();
-      editorWorkWaiters.clear();
-    });
-  }
-
-  function beginEditorWork() {
-    const token = {};
-    pendingEditorWork.add(token);
-    let finished = false;
-    return () => {
-      if (finished) return;
-      finished = true;
-      pendingEditorWork.delete(token);
-      scheduleEditorIdleCheck();
-    };
-  }
-
-  function hasPendingEditorWork() {
-    return pendingEditorWork.size > 0;
-  }
-
-  function waitForEditorWork() {
-    if (pendingEditorWork.size === 0) return Promise.resolve();
-    return new Promise(resolve => editorWorkWaiters.add(resolve));
-  }
-
   window.workstationUI = {
     requestJson,
     notify,
     hasOpenDialog,
     isInteractiveTarget,
-    isExactPrimaryShortcut,
-    beginEditorWork,
-    hasPendingEditorWork,
-    waitForEditorWork
+    isExactPrimaryShortcut
   };
 
-  async function updateBoardStatus(select) {
+  async function updateBoardStatus(select, { restoreFocus = true } = {}) {
     const form = select.form;
     const card = form?.closest('[data-board-card]');
     const board = form?.closest('[data-board]');
@@ -228,18 +189,55 @@
       card.classList.remove('is-pending');
       card.removeAttribute('aria-busy');
       select.disabled = false;
-      select.focus();
+      // 提交是因为焦点离开了下拉框：不把焦点拽回来。
+      if (restoreFocus) select.focus();
     }
   }
 
-  document.addEventListener('change', event => {
-    const select = event.target.closest('[data-auto-submit]');
-    if (!select) return;
+  // 下拉框选中即提交。但用键盘的方向键浏览选项时，每按一下就会触发一次 change：
+  // 看板上按两下 ↓，项目状态就被连写两次；筛选按一下就跳页，键盘用户选不到后面的项。
+  // 所以方向键带来的改动先等一等：停下来 1.2 秒、按回车，或者离开下拉框时才提交。
+  const keyboardSelects = new WeakMap();
+  const KEYBOARD_SETTLE_MS = 1200;
+  function commitAutoSubmit(select, { restoreFocus = true } = {}) {
+    const pending = keyboardSelects.get(select);
+    if (pending) clearTimeout(pending.timer);
+    keyboardSelects.delete(select);
     if (select.form?.matches('.statusform') && select.closest('[data-board]')) {
-      updateBoardStatus(select);
+      updateBoardStatus(select, { restoreFocus });
       return;
     }
     select.form?.requestSubmit();
+  }
+  document.addEventListener('keydown', event => {
+    const select = event.target?.closest?.('[data-auto-submit]');
+    if (!select) return;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+      const pending = keyboardSelects.get(select) || { dirty: false, timer: 0 };
+      keyboardSelects.set(select, pending);
+    } else if (event.key === 'Enter' && keyboardSelects.get(select)?.dirty) {
+      event.preventDefault();
+      commitAutoSubmit(select);
+    }
+  }, true);
+  document.addEventListener('change', event => {
+    const select = event.target.closest('[data-auto-submit]');
+    if (!select) return;
+    const pending = keyboardSelects.get(select);
+    if (!pending) {
+      commitAutoSubmit(select);
+      return;
+    }
+    pending.dirty = true;
+    clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => commitAutoSubmit(select, { restoreFocus: document.activeElement === select }), KEYBOARD_SETTLE_MS);
+  });
+  document.addEventListener('focusout', event => {
+    const select = event.target?.closest?.('[data-auto-submit]');
+    const pending = select && keyboardSelects.get(select);
+    if (!pending) return;
+    if (pending.dirty) commitAutoSubmit(select, { restoreFocus: false });
+    else keyboardSelects.delete(select);
   });
 
   // 更多操作是弹出菜单，和长期展开的帮助内容区别处理。
@@ -260,6 +258,25 @@
     event.preventDefault();
   });
 
+  // 普通表单（卡片编辑页等）改了没保存就离开时提醒：和编辑器同一套离开确认。
+  for (const form of document.querySelectorAll?.('form[data-guard-unsaved]') || []) {
+    const snapshot = () => new URLSearchParams(new FormData(form)).toString();
+    const initial = snapshot();
+    let submitting = false;
+    form.addEventListener('submit', () => { submitting = true; });
+    window.addEventListener('beforeunload', event => {
+      if (submitting || snapshot() === initial) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+  }
+
+  // 其它需要确认的表单在 data-confirm 里写好提示语。
+  document.addEventListener('submit', event => {
+    const message = event.target.dataset?.confirm;
+    if (message && !window.confirm(message)) event.preventDefault();
+  });
+
   document.addEventListener('submit', event => {
     if (!event.target.matches('[data-confirm-delete]')) return;
     if (!window.confirm('删除这篇笔记？删除前会保存本地版本，可在“历史与草稿”恢复。')) event.preventDefault();
@@ -275,7 +292,10 @@
     const status = editorForm.querySelector('[data-editor-status]');
     const saveButton = editorForm.querySelector('[data-editor-save]');
     const serializeEditor = () => new URLSearchParams(new FormData(editorForm)).toString();
-    let baseline = editorForm.dataset?.recovered === '1' ? '' : serializeEditor();
+    // 恢复页的基线也是载入时的内容：没改就能离开。「恢复内容尚未保存」只是提示，
+    // 不当成未保存的更改去拦截离开和退出。
+    let baseline = serializeEditor();
+    const recovered = editorForm.dataset?.recovered === '1';
     let saving = false;
     let navigating = false;
 
@@ -288,8 +308,8 @@
       if (saving) return;
       const dirty = serializeEditor() !== baseline;
       const newNote = editorForm.querySelector('[name="isNew"]')?.value === '1';
-      const cleanMessage = newNote ? '新笔记尚未保存' : '所有更改均已保存';
-      renderEditorState(dirty ? 'dirty' : 'clean', dirty ? (editorForm.dataset?.recovered === '1' ? '恢复内容尚未保存' : '有未保存的更改') : cleanMessage);
+      const cleanMessage = recovered ? '已载入恢复内容，保存后才会写入笔记' : newNote ? '新笔记尚未保存' : '所有更改均已保存';
+      renderEditorState(dirty ? 'dirty' : 'clean', dirty ? '有未保存的更改' : cleanMessage);
     };
 
     editorForm.addEventListener('input', refreshEditorState);
@@ -302,18 +322,11 @@
       saveButton.setAttribute('aria-busy', 'true');
       const pathInput = editorForm.querySelector('[name="path"]');
       const pathWasReadOnly = Boolean(pathInput?.readOnly);
+      let lockPath = false;
       if (pathInput) pathInput.readOnly = true;
 
       try {
-        if (window.workstationUI.hasPendingEditorWork()) {
-          renderEditorState('saving', '正在等待附件上传…');
-          while (window.workstationUI.hasPendingEditorWork()) {
-            await window.workstationUI.waitForEditorWork();
-          }
-          renderEditorState('saving', '附件上传完成，正在保存…');
-        } else {
-          renderEditorState('saving', '正在保存…');
-        }
+        renderEditorState('saving', '正在保存…');
         const submitted = new FormData(editorForm);
         const response = await fetch(editorForm.action, {
           method: 'POST',
@@ -322,19 +335,31 @@
         });
         const payload = await parseResponse(response);
         if (!response.ok) {
-          throw new Error(payload.message || `保存失败（${response.status}）`);
+          throw Object.assign(new Error(payload.message || `保存失败（${response.status}）`), { status: response.status });
         }
         const expectedHash = editorForm.querySelector('[name="expectedHash"]');
         const isNew = editorForm.querySelector('[name="isNew"]');
+        const autoPath = editorForm.querySelector('[name="autoPath"]');
         const submittedPath = String(submitted.get('path') || '');
-        const samePath = !pathInput || pathInput.value === submittedPath;
+        // 服务端可能补了 .md、或因为重名换成了「标题 2」：路径框跟着改成真正保存的位置，
+        // 后面继续编辑、再次保存都落在同一个文件上。
+        const savedPath = payload.path || submittedPath;
+        // 新笔记第一次保存之后，路径就固定在实际保存的位置，后面的保存都是修改这篇。
+        const wasNew = isNew?.value === '1';
+        if (pathInput && (wasNew || pathInput.value === submittedPath)) pathInput.value = savedPath;
+        const samePath = !pathInput || pathInput.value === savedPath;
         if (samePath && expectedHash && payload.hash) expectedHash.value = payload.hash;
         if (samePath && isNew) isNew.value = '0';
+        if (samePath && autoPath) autoPath.value = '0';
+        if (samePath) pathInput?.removeAttribute?.('data-auto-path');
+        if (samePath && wasNew) lockPath = true;
         const savedSnapshot = new URLSearchParams(submitted);
+        savedSnapshot.set('path', savedPath);
         if (payload.hash) savedSnapshot.set('expectedHash', payload.hash);
         savedSnapshot.set('isNew', '0');
+        if (autoPath) savedSnapshot.set('autoPath', '0');
         baseline = savedSnapshot.toString();
-        await window.workstationDrafts?.saved(submitted);
+        await window.workstationDrafts?.saved(submitted, savedPath);
         const dirty = serializeEditor() !== baseline;
         if (dirty) {
           renderEditorState('dirty', '提交时的版本已保存；还有未保存的更改');
@@ -346,12 +371,27 @@
         }
       } catch (error) {
         renderEditorState('error', `保存失败：${error.message}`);
-        notify('保存失败，草稿仍保留在编辑器中。', { type: 'error' });
+        if (error.status === 409 && editorForm.querySelector('[name="isNew"]')?.value !== '1') {
+          // 别处改过这篇笔记：现在的内容先存成本机草稿，再问要不要载入最新版本。
+          // 不载入就留在这里，可以把内容复制出来再刷新。
+          const draftSaved = await window.workstationDrafts?.flush?.();
+          if (draftSaved !== true) {
+            renderEditorState('error', '草稿未确认保存，请保留此页面并复制内容备份后再处理冲突。');
+            return;
+          }
+          if (window.confirm('这篇笔记已在别处修改，现在的内容不能直接覆盖它。\n\n你写的内容已存为本机草稿，可在「历史与草稿」找回。要载入最新版本吗？')) {
+            navigating = true;
+            window.location.reload();
+            return;
+          }
+        } else {
+          notify('保存失败，草稿仍保留在编辑器中。', { type: 'error' });
+        }
       } finally {
         saving = false;
         saveButton.disabled = false;
         saveButton.removeAttribute('aria-busy');
-        if (pathInput) pathInput.readOnly = pathWasReadOnly;
+        if (pathInput) pathInput.readOnly = lockPath || pathWasReadOnly;
       }
     });
 
@@ -359,7 +399,9 @@
     window.addEventListener('beforeunload', event => {
       if (navigating) return;
       const dirty = serializeEditor() !== baseline;
-      if (!saving && !window.workstationUI.hasPendingEditorWork() && !dirty) return;
+      if (!saving && !dirty) return;
+      // 先把草稿发出去：接下来要是选了「离开」，刚打的几个字也能在「历史与草稿」里找回。
+      if (dirty) window.workstationDrafts?.flush?.({ leaving: true });
       event.preventDefault();
       event.returnValue = '';
     });
@@ -402,7 +444,15 @@
         path.textContent = failure.path;
         const reason = document.createElement('span');
         reason.textContent = failure.reason;
-        item.append(path, reason);
+        // 属性区写坏的笔记照样能打开（阅读页显示原文和「打开编辑器修复」），直接给个入口。
+        if (failure.code === 'invalid-frontmatter' && /\.md$/i.test(failure.path || '')) {
+          const link = document.createElement('a');
+          link.href = '/note/' + String(failure.path).split('/').map(encodeURIComponent).join('/');
+          link.append(path);
+          item.append(link, reason);
+        } else {
+          item.append(path, reason);
+        }
         failures.append(item);
       }
       failures.hidden = failures.children.length === 0;
@@ -417,6 +467,11 @@
 
     function render(status) {
       lastPhase = status.phase;
+      // 后台对账（窗口聚焦、定时轮询、外部改动）和单篇增量只是确认一遍有没有变化，
+      // 搜索结果并没有变得不完整。为它们弹横幅只会在打字时冒出「刷新页面」这种误导。
+      if (status.phase === 'indexing' && (status.scanKind === 'background' || status.scanKind === 'incremental')) {
+        return wasIncomplete ? 1000 : 15000;
+      }
       banner.dataset.phase = status.phase;
       banner.removeAttribute('role');
       banner.setAttribute('role', status.phase === 'error' ? 'alert' : 'status');

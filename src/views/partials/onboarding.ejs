@@ -1,0 +1,101 @@
+<%
+  // 上手清单。今日页（variant: 'today'）只给出下一步，上手指南页（'guide'）列出每一步的做法。
+  // 是否完成由 src/onboarding.js 根据资料库实际内容判断，这里只负责文案和入口。
+  const isGuide = variant === 'guide';
+  const steps = progress.steps;
+  const doneCount = progress.done;
+  const percent = Math.round(doneCount / progress.total * 100);
+  const due = ui.addDays(today, 7);
+  const hasCard = steps.find(step => step.id === 'card')?.done;
+  const latest = progress.latestNote;
+  const titles = {
+    note: '写下第一篇笔记',
+    task: '把一件事写进计划',
+    card: '做第一张复习卡片',
+    review: '完成第一次复习'
+  };
+  const actions = {
+    note: { href: '/new', label: '新建笔记' },
+    task: { href: '/new', label: '新建笔记写待办' },
+    card: latest
+      ? { href: '/note/' + encodePath(latest.path), label: '打开最近的笔记', title: latest.title }
+      : { href: '/search', label: '打开笔记' },
+    review: hasCard ? { href: '/review', label: '开始复习' } : null
+  };
+  const check = '<svg class="onboarding-mark-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+%>
+<% const how = id => { %>
+  <% if (id === 'note') { %>
+    <p>点侧栏底部的「+」，或在命令面板里选「新建笔记」。先写标题，笔记会存进 <code>inbox/</code>；正文就是 Markdown，用 <code>[[笔记名]]</code> 可以连到别的笔记。</p>
+  <% } else if (id === 'task') { %>
+    <p>在任意笔记里写一行 <code>- [ ] 读完论文 @<%= due %></code>，保存后它会出现在「计划」里，到期当天排进「今日」，在笔记阅读页也能直接勾选。日期是截止日，也可以不写。</p>
+  <% } else if (id === 'card') { %>
+    <p>打开一篇笔记，选中一段文字，点浮出的「建卡片」，确认正面和背面后保存。</p>
+  <% } else if (id === 'review') { %>
+    <p>进入「复习」，先在心里回忆答案，按空格翻面，再按 <kbd>1</kbd>–<kbd>4</kbd> 如实评分。之后到期的卡片会自动排进今日复习。</p>
+  <% } %>
+<% } %>
+<% const actionLink = (id, primary) => { const action = actions[id]; if (!action || readOnly) return; %>
+  <a class="button small<%= primary ? ' primary' : '' %>" href="<%= action.href %>"<% if (action.title) { %> title="<%= action.title %>"<% } %>><%= action.label %></a>
+<% } %>
+
+<% if (!isGuide) { const nextId = progress.next; %>
+<section class="panel onboarding-card" data-onboarding-card aria-labelledby="onboarding-title">
+  <div class="onboarding-head">
+    <h2 id="onboarding-title">开始使用</h2>
+    <span class="onboarding-count">已完成 <%= doneCount %> / <%= progress.total %></span>
+    <div class="onboarding-tools">
+      <a href="/guide">上手指南</a>
+      <button type="button" class="button quiet small" data-onboarding-hide>隐藏</button>
+    </div>
+  </div>
+  <div class="onboarding-meter" role="progressbar" aria-label="上手进度" aria-valuemin="0" aria-valuemax="<%= progress.total %>" aria-valuenow="<%= doneCount %>"><span style="width: <%= percent %>%"></span></div>
+  <ol class="onboarding-steps">
+    <% steps.forEach(step => { const isNext = step.id === nextId; const state = step.done ? 'is-done' : isNext ? 'is-next' : ''; %>
+      <li<% if (state) { %> class="<%= state %>"<% } %><% if (isNext) { %> aria-current="step"<% } %>>
+        <span class="onboarding-mark"><%- step.done ? check : '' %></span>
+        <span><%= titles[step.id] %></span>
+        <% if (step.done) { %><span class="visually-hidden">（已完成）</span><% } %>
+      </li>
+    <% }) %>
+  </ol>
+  <% if (nextId) { %>
+    <div class="onboarding-next">
+      <div class="onboarding-next-text">
+        <p class="onboarding-next-title">下一步：<%= titles[nextId] %></p>
+        <% how(nextId) %>
+      </div>
+      <% actionLink(nextId, true) %>
+    </div>
+  <% } %>
+</section>
+<% } else { %>
+<section class="panel guide-start" id="start" aria-labelledby="start-title">
+  <div class="onboarding-head">
+    <h2 id="start-title">上手清单</h2>
+    <span class="onboarding-count">已完成 <%= doneCount %> / <%= progress.total %></span>
+  </div>
+  <div class="onboarding-meter" role="progressbar" aria-label="上手进度" aria-valuemin="0" aria-valuemax="<%= progress.total %>" aria-valuenow="<%= doneCount %>"><span style="width: <%= percent %>%"></span></div>
+  <% if (readOnly) { %><p class="guide-muted">当前是只读模式，清单里的事情需要先在设置里关闭只读模式才能做。</p><% } %>
+  <ol class="guide-checklist">
+    <% steps.forEach(step => { const isNext = step.id === progress.next; %>
+      <li class="guide-check<%= step.done ? ' is-done' : isNext ? ' is-next' : '' %>"<% if (isNext) { %> aria-current="step"<% } %>>
+        <span class="onboarding-mark"><%- step.done ? check : '' %></span>
+        <div class="guide-check-text">
+          <h3><%= titles[step.id] %><% if (step.done) { %><span class="guide-check-state">已完成</span><% } %></h3>
+          <% how(step.id) %>
+        </div>
+        <% if (!step.done) actionLink(step.id, isNext) %>
+      </li>
+    <% }) %>
+    <li class="guide-check is-optional<%= git.ready ? ' is-done' : '' %>">
+      <span class="onboarding-mark"><%- git.ready ? check : '' %></span>
+      <div class="guide-check-text">
+        <h3>开启 Git 版本记录<span class="guide-check-state"><%= git.ready ? '已开启' : '可选' %></span></h3>
+        <p>想在多台设备间同步，或者要一份完整的提交历史时再开。不开也不影响上面这些功能。</p>
+      </div>
+      <% if (!git.ready) { %><a class="button small" href="#git">查看步骤</a><% } %>
+    </li>
+  </ol>
+</section>
+<% } %>

@@ -1,9 +1,24 @@
 const { maskCode } = require('./vault/wikilink');
 
+// 笔记正文按这三种换行切行，与 markdown-it 的行号一致。
+const LINE_BREAK = /\r\n|\r|\n/;
+
 // - [ ] 待办    /    - [x] 已完成    /    * [X] 也认
 const TASK_LINE = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/;
 // @2026-08-10 表示截止日期
 const DUE_TAG = /@(\d{4}-\d{2}-\d{2})\b/;
+
+/**
+ * 一行里的截止日期标记的位置；这一行里的行内代码不算。给了 date 就只找那一个日期。
+ * 「是不是截止日期」由解析结果决定（跨行的行内代码只有解析器认得出来），
+ * 这里只负责在原文里找到它好改写或去掉。
+ */
+function dueTagOf(line, date = '') {
+  const masked = maskCode(line);
+  if (!date) return masked.match(DUE_TAG);
+  const index = masked.indexOf('@' + date);
+  return index < 0 ? null : Object.assign(['@' + date, date], { index });
+}
 
 /**
  * 从笔记正文里抽取任务。
@@ -12,37 +27,38 @@ const DUE_TAG = /@(\d{4}-\d{2}-\d{2})\b/;
  * 这样写日记时顺手记的待办会自动进系统，不用两头维护，也不会出现
  * 「笔记里勾掉了但任务列表还亮着」这种两份数据打架的情况。
  *
- * 代码块里的 `- [ ]` 不算任务 —— 贴一段 Markdown 示例不该凭空生成待办。
+ * 哪些行算待办由阅读页渲染用的同一遍 Markdown 解析决定（listTaskItems）：
+ * 围栏代码块、缩进代码块、$$ 公式块里的 `- [ ]` 都不算，阅读页上能看到的待办
+ * 也一定能在计划里找到。
  */
 function extractTasks(body) {
   const source = String(body ?? '');
-  // 用 maskCode 屏蔽围栏与行内代码，但保留行结构，行号才对得上。
-  const masked = maskCode(source);
-  const maskedLines = masked.split('\n');
-  const rawLines = source.split('\n');
+  if (!/\[[ xX]\]/.test(source)) return [];
+  // 延迟加载：markdown.js 体积大，而且它也是这个模块的使用方之一。
+  const { listTaskItems } = require('./markdown');
+  const rawLines = source.split(LINE_BREAK);
 
   const tasks = [];
-  maskedLines.forEach((line, index) => {
-    const match = line.match(TASK_LINE);
-    if (!match) return;
+  for (const item of listTaskItems(source)) {
+    const { line } = item;
+    const rawLine = rawLines[line - 1] ?? '';
+    const match = rawLine.match(TASK_LINE);
+    if (!match) continue;
+    const text = match[3].trim();
+    if (!text) continue;
 
-    // 用原文那一行取内容：masked 版本里代码片段被空格替换过。
-    const rawMatch = rawLines[index].match(TASK_LINE);
-    const text = (rawMatch ? rawMatch[3] : match[3]).trim();
-    if (!text) return;
-
-    const due = line.match(DUE_TAG);
-    const titleLine = due ? rawLines[index].slice(0, due.index) + rawLines[index].slice(due.index + due[0].length) : rawLines[index];
+    const due = item.due ? dueTagOf(rawLine, item.due) : null;
+    const titleLine = due ? rawLine.slice(0, due.index) + rawLine.slice(due.index + due[0].length) : rawLine;
     tasks.push({
-      line: index + 1,
+      line,
       done: match[2].toLowerCase() === 'x',
       text,
       // 显示时把 @日期 标记去掉，日期单独成字段。
       title: (titleLine.match(TASK_LINE)?.[3] || text).replace(/\s{2,}/g, ' ').trim() || text,
-      due: due ? due[1] : null,
+      due: item.due,
       indent: match[1].length
     });
-  });
+  }
 
   return tasks;
 }
@@ -77,4 +93,4 @@ function summarize(tasks, today) {
   };
 }
 
-module.exports = { extractTasks, sortTasks, summarize };
+module.exports = { extractTasks, sortTasks, summarize, dueTagOf, LINE_BREAK };

@@ -109,12 +109,17 @@
       status.classList.toggle('is-error', isError);
     };
 
+    // 按 Esc、点遮罩很容易是误触：改过内容时先确认，不一下子把已填的卡片丢掉。
+    // 点「取消」按钮是明确的选择，直接关。
+    const snapshot = () => [...form.querySelectorAll('input, textarea, select')].map(field => field.value).join('\u0000');
+    let initial = '';
+    const confirmDiscard = () => snapshot() === initial || window.confirm('放弃这张卡片？已填的内容不会保存。');
     dialog.addEventListener('close', () => cleanupDialog(dialog), { once: true });
     dialog.addEventListener('cancel', event => {
-      if (saving) event.preventDefault();
+      if (saving || !confirmDiscard()) event.preventDefault();
     });
     dialog.addEventListener('click', event => {
-      if (event.target === dialog) closeForm();
+      if (event.target === dialog && confirmDiscard()) closeForm();
     });
     form.querySelector('[data-cancel]').addEventListener('click', closeForm);
     form.addEventListener('submit', async event => {
@@ -164,6 +169,7 @@
       form.querySelector('[name=back]').value = selected;
       front.value = '公式与笔记';
     } else front.value = selected;
+    initial = snapshot();
     front.focus();
     front.select();
   }

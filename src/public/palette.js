@@ -61,13 +61,16 @@
   function commandCatalog(query) {
     return [
       {
+        // 输入里带斜杠或 .md 的当作路径，其余当作标题：新笔记按标题自动生成路径。
         label: '新建笔记',
-        hint: query ? `路径 ${query}` : '',
+        hint: query ? (/[\\/]|\.md$/i.test(query) ? `路径 ${query}` : `标题「${query}」`) : '',
         icon: '写入',
         writes: true,
         fallback: true,
         defaultVisible: true,
-        run: () => navigate(`/new${query ? `?path=${encodeURIComponent(query)}` : ''}`)
+        run: () => navigate(query
+          ? `/new?${/[\\/]|\.md$/i.test(query) ? 'path' : 'title'}=${encodeURIComponent(query)}`
+          : '/new')
       },
       {
         label: '计划',
@@ -81,6 +84,13 @@
         hint: '',
         icon: '工具',
         run: () => navigate('/plan?view=list&filter=deadlines')
+      },
+      {
+        label: '上手指南',
+        hint: '上手清单、语法速查与 Git 同步',
+        icon: '帮助',
+        keywords: ['帮助', '新手', '指引', '导览', '快捷键', 'git', 'help', 'guide'],
+        run: () => navigate('/guide')
       },
       {
         label: query ? `全文搜索「${query}」` : '全文搜索',
@@ -126,9 +136,18 @@
     }
 
     const needle = query.toLowerCase();
+    // 输入的就是「新建」「新建笔记」这类命令名的开头：给一个不带标题的「新建笔记」，
+    // 排在最前面。否则回车会打开一篇标题里带「新建」的笔记，或者新建一篇叫「新建笔记」的笔记。
+    const exactNew = !readOnly && needle.length >= 2 && '新建笔记'.startsWith(needle)
+      ? [{ label: '新建笔记', hint: '', icon: '写入', writes: true, run: () => navigate('/new') }]
+      : [];
     return {
-      matched: all.filter(command => !command.fallback && command.label.toLowerCase().includes(needle)),
-      fallback: all.filter(command => command.fallback)
+      matched: [...exactNew, ...all.filter(command => !command.fallback && (
+        command.label.toLowerCase().includes(needle)
+        // 别名只按词头匹配，而且至少两个字符：单个字母不该把命令顶到笔记前面。
+        || (needle.length >= 2 && (command.keywords || []).some(keyword => keyword.startsWith(needle)))
+      ))],
+      fallback: all.filter(command => command.fallback && !(exactNew.length && command.label === '新建笔记'))
     };
   }
 
@@ -189,12 +208,20 @@
     updateActiveItem();
   }
 
+  // 当前列表是不是已经对应输入框里的内容。没对上之前按回车，要等搜索结果回来再选，
+  // 不能选中上一轮留下的结果，也不能什么都不做。
+  let settled = Promise.resolve();
+  let fresh = true;
+
   async function refresh() {
     const query = input.value.trim();
     const token = ++requestToken;
     requestController?.abort();
     requestController = typeof AbortController === 'function' ? new AbortController() : null;
-    items = [];
+    // 命令是本地的，立刻按新输入排出来；笔记搜索结果到了再补上。
+    // 旧结果先留着，列表不会每按一个键就清空再填回、上下跳动。
+    const { matched, fallback } = commands(query);
+    items = [...matched, ...items.filter(item => item.icon === '笔记'), ...fallback];
     activeIndex = 0;
     render();
     setStatus(query ? '正在搜索…' : '正在加载最近笔记…');
@@ -218,9 +245,9 @@
     if (token !== requestToken) return;
     requestController = null;
 
-    const { matched, fallback } = commands(query);
     items = [...matched, ...notes, ...fallback];
     activeIndex = 0;
+    fresh = true;
     render();
 
     if (searchError) {
@@ -250,7 +277,8 @@
     dialog.showModal();
     input.setAttribute('aria-expanded', 'true');
     input.focus?.();
-    refresh();
+    fresh = false;
+    settled = refresh();
     return true;
   }
 
@@ -285,19 +313,28 @@
   input.addEventListener('compositionstart', () => { composing = true; });
   input.addEventListener('compositionend', () => {
     composing = false;
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(refresh, 120);
+    scheduleRefresh(120);
   });
+  function scheduleRefresh(delay) {
+    fresh = false;
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(() => {
+      debounce = 0;
+      settled = refresh();
+    }, delay);
+  }
+
   input.addEventListener('input', event => {
+    fresh = false;
+    // 旧查询的请求立刻作废：它的结果到了也不再显示。
     requestToken += 1;
     requestController?.abort();
     requestController = null;
-    items = [];
-    activeIndex = 0;
-    render();
-    if (debounce) clearTimeout(debounce);
-    if (composing || event.isComposing) return;
-    debounce = setTimeout(refresh, 120);
+    if (composing || event.isComposing) {
+      if (debounce) clearTimeout(debounce);
+      return;
+    }
+    scheduleRefresh(120);
   });
 
   input.addEventListener('keydown', event => {
@@ -312,7 +349,20 @@
       updateActiveItem({ scroll: true });
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      choose(activeIndex);
+      if (fresh) {
+        choose(activeIndex);
+        return;
+      }
+      // 输入后马上回车：先把这次搜索做完，再选第一项。
+      if (debounce) {
+        clearTimeout(debounce);
+        debounce = 0;
+        settled = refresh();
+      }
+      const token = requestToken;
+      settled.then(() => {
+        if (token === requestToken && dialog.open) choose(activeIndex);
+      });
     }
   });
 })();

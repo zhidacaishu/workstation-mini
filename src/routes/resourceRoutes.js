@@ -13,7 +13,8 @@ function createResourceRoutes({ config }) {
     return async (req, res, next) => {
       const relative = req.params.resourcePath.join('/');
       const extension = path.extname(relative).toLowerCase();
-      if (!isSafeRelativePath(relative)
+      // 以点开头的文件和目录不对外提供，和笔记索引跳过点目录的规则一致。
+      if (!isSafeRelativePath(relative) || relative.split('/').some(segment => segment.startsWith('.'))
         || (!IMAGE_EXTENSIONS.has(extension) && !MEDIA_EXTENSIONS.has(extension))) {
         next(httpError(404, '附件不存在或不是支持的媒体文件。'));
         return;
@@ -27,7 +28,9 @@ function createResourceRoutes({ config }) {
       }
       // SVG 等文件直接打开时同样只允许被动展示，不运行附件中的脚本。
       res.set('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'");
-      res.sendFile(absolute, error => { if (error) next(error); });
+      // dotfiles: 'allow'：send 默认检查绝对路径的每一段，资料库放在 ~/.notes 这类
+      // 点目录下时所有附件都会 404。附件自身的相对路径上面已经排除了点开头的段。
+      res.sendFile(absolute, { dotfiles: 'allow' }, error => { if (error) next(error); });
     };
   }
   router.get('/attachments/*resourcePath', serve('attachments'));

@@ -55,7 +55,16 @@
       </section>
     <% } %>
 
-    <div class="prose"><%- html %></div>
+    <% if (parseError) { %>
+      <section class="notice is-warn note-parse-error" role="alert">
+        <p><strong>这篇笔记的 frontmatter 无法解析，下面显示的是原文。</strong></p>
+        <p><%= parseError %></p>
+        <% if (!readOnly) { %><a class="button small" href="/edit/<%= encodePath(note.path) %>">打开编辑器修复</a><% } %>
+      </section>
+      <pre class="note-raw"><%= note.raw %></pre>
+    <% } else { %>
+      <div class="prose" data-note-hash="<%= note.hash %>"><%- html %></div>
+    <% } %>
   </article>
 
   <% if (hasLinks) { %>
@@ -75,7 +84,7 @@
           <h2>待建 <span class="count"><%= pending.length %></span></h2>
           <ul class="notelist is-pending">
             <% pending.forEach(link => { %>
-              <li><a class="wikilink-missing" href="/new?path=<%= encodeURIComponent(link.target) %>" title="<%= readOnly ? link.target : '新建这篇笔记' %>"><%= link.target %></a></li>
+              <li><% if (readOnly) { %><span class="wikilink-missing" title="只读模式下不能新建笔记"><%= link.target %></span><% } else { %><a class="wikilink-missing" href="/new?path=<%= encodeURIComponent(link.target) %>" title="新建这篇笔记"><%= link.target %></a><% } %></li>
             <% }) %>
           </ul>
         </section>

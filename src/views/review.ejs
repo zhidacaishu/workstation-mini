@@ -7,7 +7,7 @@
     <a class="button" href="/decks">查看卡组</a>
   </section>
 <% } else { %>
-  <section id="reviewer" class="reviewer" tabindex="-1" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>">
+  <section id="reviewer" class="reviewer" tabindex="-1" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>" data-return-to="<%= returnTo %>">
     <h1 class="visually-hidden"><%= deck ? `复习 · ${deck}` : '复习' %></h1>
     <div class="review-progress">
       <div class="review-progress-row">
@@ -20,9 +20,17 @@
     <article class="reviewcard">
       <div class="review-card-meta">
         <span id="review-deck" class="review-deck"></span>
+        <span id="review-relearn" class="review-state" hidden>本轮重学</span>
+        <% if (!readOnly) { %>
+          <span class="review-tools">
+            <a id="review-edit" class="review-tool" href="/decks">编辑</a>
+            <button id="review-suspend" class="review-tool" type="button">暂停这张</button>
+          </span>
+        <% } %>
       </div>
       <div class="review-front" id="review-front"></div>
       <div class="review-back" id="review-back" hidden></div>
+      <p class="visually-hidden" id="review-announcer" aria-live="polite"></p>
     </article>
 
     <div class="review-actions">

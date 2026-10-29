@@ -25,7 +25,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
     const note = '---\ntags: [交互标签]\n---\n\n# 交互测试\n\n可选择文字建卡\n\n**重点**\n\n[[missing]]\n\n![示例](attachments/example.svg)\n\n- [ ] 整理资料 @' + today + '\n';
     await fs.writeFile(path.join(vault, 'notes', 'sample.md'), note);
-    await fs.writeFile(path.join(vault, 'notes', 'other.md'), '# 其他笔记\n\n其他正文\n');
+    await fs.writeFile(path.join(vault, 'notes', 'other.md'), '# 其他笔记\n\n其他正文\n\n[原图](attachments/example.svg)\n\n[丢了的图](attachments/gone.png)\n');
     await fs.writeFile(path.join(vault, 'notes', 'experiments', 'sample.md'),
       '---\ntitle: 项目测试\nstatus: running\ndeadline: 2020-01-01\nnext: 下一步测试\nresult: 结果测试\n---\n\n项目正文\n');
     await fs.writeFile(path.join(vault, 'cards', 'sample.md'), '---\ndeck: 交互卡组\n---\n\n## 题目\n\n答案\n');
@@ -37,6 +37,8 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     app = await electron.launch(process.env.WORKSTATION_EXECUTABLE
       ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env }
       : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
+    const mainOutput = [];
+    app.process().stdout?.on('data', chunk => mainOutput.push(String(chunk)));
     page = await app.firstWindow();
     page.setDefaultTimeout(5000);
     page.on('pageerror', error => errors.push(error.message));
@@ -71,6 +73,22 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), note);
       await page.getByRole('link', { name: '版本历史与草稿', exact: true }).click();
       assert.ok(page.url().includes('/history?path=sample.md'));
+    });
+    await check('点附件链接交给系统默认应用，主窗口不跳到原始文件', async () => {
+      await visit('/note/other.md');
+      // 导航被主进程取消；用 Playwright 的 click 会一直等这次导航结束，所以直接在页面里点。
+      await page.evaluate(() => {
+        const links = [...document.querySelectorAll('.prose a')];
+        links.find(link => link.textContent === '原图').click();
+        links.find(link => link.textContent === '丢了的图')
+          .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true, metaKey: true }));
+      });
+      const opened = () => mainOutput.join('');
+      for (let attempt = 0; attempt < 40 && !/打不开/.test(opened()); attempt += 1) await page.waitForTimeout(50);
+      assert.match(opened(), /用系统默认应用打开：attachments\/example\.svg/);
+      assert.match(opened(), /打不开：资料库里没有 attachments\/gone\.png/);
+      assert.ok(page.url().endsWith('/note/other.md'), page.url());
+      assert.equal(await visible('.workspace-sidebar'), true);
     });
     await check('搜索面板内部空白不关闭，遮罩与 Esc 关闭，搜索结果可打开', async () => {
       await visit('/');
@@ -262,6 +280,90 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.locator('#review-reveal').click();
       await page.locator('[data-rating="4"]').click();
       await page.waitForSelector('#review-done', { state: 'visible' });
+    });
+    await check('阅读页直接勾选待办，写回原文那一行', async () => {
+      await visit('/note/sample.md');
+      const box = page.locator('.prose input.task-toggle');
+      assert.equal(await box.count(), 1);
+      assert.equal(await page.locator('.prose time.task-due').innerText(), '今天');
+      const file = () => fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8');
+      await box.check();
+      await page.waitForFunction(() => document.querySelector('.prose li.task-item.is-done') && !document.querySelector('.prose input.task-toggle').disabled);
+      assert.match(await file(), /- \[x\] 整理资料 @/);
+      await box.uncheck();
+      await page.waitForFunction(() => !document.querySelector('.prose li.task-item.is-done') && !document.querySelector('.prose input.task-toggle').disabled);
+      assert.match(await file(), /- \[ \] 整理资料 @/);
+      await page.reload();
+      assert.equal(await box.isChecked(), false);
+    });
+    await check('新建笔记先写标题，路径自动生成，重名换成「标题 2」', async () => {
+      for (const expected of ['inbox/桌面新建.md', 'inbox/桌面新建 2.md']) {
+        await visit('/new');
+        await page.locator('[data-note-title]').fill('桌面新建');
+        assert.equal(await page.locator('[name="path"]').inputValue(), 'inbox/桌面新建.md');
+        assert.match(await page.locator('[name="body"]').inputValue(), /^# 桌面新建\n/);
+        await page.locator('[name="body"]').fill('# 桌面新建\n\n正文 ' + expected + '\n');
+        assert.equal(await page.locator('[data-note-title]').inputValue(), '桌面新建');
+        await page.locator('[data-editor-save]').click();
+        await page.waitForURL(url => decodeURIComponent(url.pathname) === '/note/' + expected);
+        assert.match(await fs.readFile(path.join(vault, 'notes', ...expected.split('/')), 'utf8'), new RegExp('正文 ' + expected));
+      }
+    });
+    await check('卡片列表里改正面、暂停、恢复和删除，复习记录保留', async () => {
+      const deckFile = path.join(vault, 'cards', 'sample.md');
+      await visit('/decks');
+      await page.locator('.deck-name').filter({ hasText: '交互卡组' }).click();
+      await page.waitForURL(url => url.pathname === '/cards');
+      await page.locator('.card-row-front').filter({ hasText: '题目' }).click();
+      await page.waitForURL(url => url.pathname === '/cards/edit');
+      await page.locator('[name="front"]').fill('题目（改）');
+      await page.locator('[name="back"]').fill('改过的答案');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.waitForURL(url => url.pathname === '/cards');
+      const row = page.locator('.card-row').filter({ hasText: '题目（改）' });
+      assert.doesNotMatch(await row.locator('.card-state').innerText(), /新卡/, '改正面后复习记录仍在');
+      const changed = await fs.readFile(deckFile, 'utf8');
+      assert.match(changed, /## 题目（改）\n<!-- workstation:card:v1 /);
+      assert.match(changed, /改过的答案/);
+      await row.getByRole('button', { name: /暂停复习/ }).click();
+      await page.waitForFunction(() => document.querySelector('.card-row.is-suspended'));
+      assert.match(await fs.readFile(deckFile, 'utf8'), /"suspended":true/);
+      await page.locator('.card-row').filter({ hasText: '题目（改）' }).getByRole('button', { name: /恢复复习/ }).click();
+      await page.waitForFunction(() => !document.querySelector('.card-row.is-suspended'));
+      await fs.writeFile(path.join(vault, 'cards', 'trash.md'), '---\ndeck: 待删卡组\n---\n\n## 要删的卡\n\n内容\n');
+      await visit('/cards?deck=' + encodeURIComponent('待删卡组'));
+      await page.locator('.card-row-front').filter({ hasText: '要删的卡' }).click();
+      page.once('dialog', dialog => dialog.accept().catch(() => {}));
+      await page.getByRole('button', { name: '删除这张卡', exact: true }).click();
+      await page.waitForURL(url => url.pathname === '/cards' && url.searchParams.get('deck') === '待删卡组');
+      assert.equal(await page.locator('.card-row').count(), 0);
+      assert.doesNotMatch(await fs.readFile(path.join(vault, 'cards', 'trash.md'), 'utf8'), /要删的卡/);
+    });
+    await check('复习中「忘了」的卡本轮末尾重学，可直接暂停当前这张', async () => {
+      await fs.writeFile(path.join(vault, 'cards', 'relearn.md'), '---\ndeck: 重学卡组\n---\n\n## Q1\n\nA1\n\n## Q2\n\nA2\n\n## Q3\n\nA3\n');
+      await visit('/review?deck=' + encodeURIComponent('重学卡组'));
+      const front = async () => (await page.locator('#review-front').innerText()).trim();
+      const rate = async rating => {
+        await page.locator('#review-reveal').click();
+        await page.keyboard.press(String(rating));
+      };
+      assert.equal(await front(), 'Q1');
+      assert.equal(await visible('#review-relearn'), false);
+      await rate(1);
+      assert.equal(await front(), 'Q2');
+      assert.equal(await page.locator('#review-remaining').innerText(), '3');
+      await page.locator('#review-suspend').click();
+      await page.waitForFunction(() => document.querySelector('#review-front').textContent.trim() === 'Q3');
+      assert.match(await fs.readFile(path.join(vault, 'cards', 'relearn.md'), 'utf8'), /## Q2\n<!-- workstation:card:v1 \{[^}]*"suspended":true/);
+      assert.match(await page.locator('#review-edit').getAttribute('href'), /^\/cards\/edit\?id=/);
+      await rate(3);
+      assert.equal(await front(), 'Q1');
+      assert.equal(await visible('#review-relearn'), true);
+      await rate(3);
+      await page.waitForSelector('#review-done', { state: 'visible' });
+      assert.match(await page.locator('#review-summary').textContent(), /复习了 2 张，其中 1 张本轮重学过/);
+      await visit('/decks');
+      assert.match(await page.locator('tr').filter({ hasText: '重学卡组' }).innerText(), /已暂停 1/);
     });
     await check('设置分组、同步反馈、恢复窗口和只读模式', async () => {
       await visit('/');

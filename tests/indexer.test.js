@@ -37,6 +37,13 @@ function snapshot(db) {
   };
 }
 
+// 清空索引后强制全量重扫：用来对照增量扫描的结果。应用本身不需要这个操作
+// （索引库损坏时整个文件删掉重建），所以只放在测试里。
+async function rebuildIndex(ctx) {
+  ctx.db.raw.exec('DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM tags; DELETE FROM links; DELETE FROM tasks;');
+  return ctx.indexer.scan({ force: true, kind: 'full' });
+}
+
 test('首次扫描把笔记、标签、双链一并建进索引', async () => {
   const ctx = await setup();
   try {
@@ -87,7 +94,7 @@ test('坏 frontmatter 不阻断后续文件，并保留上一份可用索引', a
     assert.equal(ctx.db.getNote('later.md').body_raw.trim(), '仍应入库');
     const status = ctx.indexer.getStatus();
     assert.deepEqual(status.failures, [{
-      path: 'a.md', code: 'invalid-frontmatter', reason: 'frontmatter 格式无法解析', retryable: true
+      path: 'a.md', code: 'invalid-frontmatter', reason: '属性区（frontmatter）格式有误，点路径打开后修复', retryable: true
     }]);
 
     await writeNote(ctx.vaultDir, 'a.md', { body: '修好了' });
@@ -212,7 +219,7 @@ test('周期对账时没变的笔记只 lstat，不逐个打开', async () => {
 
     // 强制重扫仍然逐个重读。
     opens = 0;
-    await ctx.indexer.rebuild();
+    await rebuildIndex(ctx);
     assert.equal(opens, 2);
   } finally {
     await ctx.cleanup();
@@ -308,7 +315,7 @@ test('删掉索引库全量重建，结果与增量更新完全一致', async ()
 
     const incremental = snapshot(ctx.db);
 
-    await ctx.indexer.rebuild();
+    await rebuildIndex(ctx);
     const rebuilt = snapshot(ctx.db);
 
     assert.deepEqual(rebuilt.notes, incremental.notes, 'notes 表应一致');
@@ -401,7 +408,7 @@ test('全量重建会清掉已删除笔记留下的任务', async () => {
     assert.equal(ctx.db.raw.prepare('SELECT count(*) AS count FROM tasks').get().count, 1);
 
     await deleteNote(ctx.vaultDir, 'old.md');
-    await ctx.indexer.rebuild();
+    await rebuildIndex(ctx);
     assert.equal(ctx.db.raw.prepare('SELECT count(*) AS count FROM tasks').get().count, 0);
   } finally {
     await ctx.cleanup();

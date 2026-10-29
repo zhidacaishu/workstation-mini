@@ -45,7 +45,10 @@ async function loadReview(fetch, queue) {
     ['review-done', createElement('review-done')],
     ['review-summary', createElement('review-summary')],
     ['review-done-title', createElement('review-done-title')],
-    ['review-failures', createElement('review-failures')]
+    ['review-failures', createElement('review-failures')],
+    ['review-relearn', createElement('review-relearn')],
+    ['review-edit', createElement('review-edit')],
+    ['review-suspend', createElement('review-suspend')]
   ]);
   elements.get('reviewer').dataset.queue = encodeURIComponent(JSON.stringify(queue));
   elements.get('reviewer').append = child => {
@@ -92,6 +95,7 @@ async function loadReview(fetch, queue) {
     document,
     beforeUnload(event) { windowListeners.get('beforeunload')?.(event); },
     reveal: () => elements.get('review-reveal').listeners.get('click')(),
+    suspend: () => elements.get('review-suspend').listeners.get('click')(),
     rate: rating => buttons[rating - 1].listeners.get('click')(),
     keydown(event) { document.listeners.keydown({ metaKey: false, ctrlKey: false, altKey: false, preventDefault() {}, ...event }); }
   };
@@ -281,4 +285,59 @@ test('评分保存和重试期间离开页面有保护，保存完成后允许�
   answer.resolve({ ok: true });
   await rating;
   assert.equal(attempt().prevented, false);
+});
+
+test('选「忘了」的卡在这一轮末尾再出现一次，并标出「本轮重学」', async () => {
+  const answers = [];
+  const ui = await loadReview(async (url, options) => {
+    if (url === '/review/answer') answers.push(JSON.parse(options.body));
+    return { ok: true, json: async () => ({ ok: true, skipped: '同步未启用' }) };
+  }, [CARD, { ...CARD, id: 'deck/other', front: '另一张' }]);
+  assert.equal(ui.elements.get('review-relearn').hidden, true);
+  assert.match(ui.elements.get('review-edit').href, /^\/cards\/edit\?id=deck%2Fcard&returnTo=/);
+  ui.reveal();
+  await ui.rate(1);
+  assert.equal(ui.elements.get('review-remaining').textContent, '2', '重学的卡排到最后，剩余数不减');
+  assert.equal(ui.elements.get('review-front').innerHTML, '另一张');
+  ui.reveal();
+  await ui.rate(3);
+  assert.equal(ui.elements.get('review-front').innerHTML, '正面');
+  assert.equal(ui.elements.get('review-relearn').hidden, false);
+  ui.reveal();
+  await ui.rate(3);
+  await flush();
+  assert.deepEqual(answers.map(answer => [answer.cardId, answer.rating]), [['deck/card', 1], ['deck/other', 3], ['deck/card', 3]]);
+  assert.equal(ui.elements.get('review-done').hidden, false);
+  assert.match(ui.elements.get('review-summary').textContent, /^复习了 2 张，其中 1 张本轮重学过。/);
+});
+
+test('复习中途暂停当前这张：从本轮队列里拿掉，后面的重学也一起拿掉', async () => {
+  const calls = [];
+  const ui = await loadReview(async (url, options) => {
+    calls.push([url, options?.body]);
+    return { ok: true, json: async () => ({ ok: true, suspended: true }) };
+  }, [CARD, { ...CARD, id: 'deck/other', front: '另一张' }]);
+  ui.reveal();
+  await ui.rate(1);
+  ui.reveal();
+  await ui.rate(3);
+  assert.equal(ui.elements.get('review-front').innerHTML, '正面', '轮到重学的那张');
+  await ui.suspend();
+  assert.deepEqual(calls.find(([url]) => url === '/cards/suspend'), ['/cards/suspend', JSON.stringify({ id: 'deck/card', suspended: true })]);
+  await flush();
+  assert.equal(ui.elements.get('review-done').hidden, false, '拿掉之后这一轮就结束了');
+});
+
+test('服务端持续出错时不会无限重试：几次之后如实报告原因', async () => {
+  let attempts = 0;
+  const ui = await loadReview(async url => {
+    if (url !== '/review/answer') return { ok: true, json: async () => ({ ok: true }) };
+    attempts += 1;
+    return { ok: false, status: 500, json: async () => ({ message: '磁盘已满' }) };
+  }, [CARD], { fastTimers: true });
+  ui.reveal();
+  await ui.rate(3);
+  for (let i = 0; i < 20 && ui.elements.get('review-done').hidden; i += 1) await flush();
+  assert.equal(attempts, 5);
+  assert.match(ui.elements.get('review-failures').textContent, /磁盘已满/);
 });

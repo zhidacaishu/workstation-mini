@@ -52,3 +52,13 @@ test('设备名始终可安全放进复习事件文件名且信息损失时带�
   assert.equal(normalizeDeviceName('中文'), normalizeDeviceName('中文'), '摘要必须稳定');
   assert.match(normalizeDeviceName('a'.repeat(200)), /^a{64}-[a-f0-9]{10}$/);
 });
+
+test('新设备的设备名：主机名打底加随机后缀，可直接用作复习日志文件名', () => {
+  const { createDeviceName, normalizeDeviceName } = require('../src/config');
+  assert.equal(createDeviceName('Zhangs-MacBook-Pro.local', 'a1b2c3'), 'zhangs-macbook-pro-a1b2c3');
+  assert.equal(createDeviceName('张三的电脑', 'a1b2c3'), 'device-a1b2c3');
+  assert.match(createDeviceName(), /^[a-z0-9-]+-[a-f0-9]{6}$/);
+  assert.notEqual(createDeviceName('same-host'), createDeviceName('same-host'), '同名主机也不会撞名');
+  const name = createDeviceName('Lab PC #3', 'ffffff');
+  assert.equal(normalizeDeviceName(name), name, '已经是规范形式，不会再被改写');
+});

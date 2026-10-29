@@ -58,8 +58,11 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
       const status = String(req.body.status || '');
       const expectedHash = String(req.body.expectedHash || '');
 
-      if (!workflowOf(workflow)) throw httpError(400, '未知的工作流。');
+      const flow = workflowOf(workflow);
+      if (!flow) throw httpError(400, '未知的工作流。');
       if (!isSafeRelativePath(notePath)) throw httpError(400, '路径不合法。');
+      // 只能改这个看板分区里的条目，不能借这个接口往任意笔记里写 status。
+      if (!notePath.startsWith(`${flow.section}/`)) throw httpError(400, '这篇笔记不在这个看板里。');
       if (!db.getNote(notePath)) throw httpError(404, '没有这个条目。');
 
       const result = await items.setStatus(workflow, notePath, status, expectedHash);

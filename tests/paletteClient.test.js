@@ -268,7 +268,7 @@ test('较早的搜索响应不会覆盖较新的结果', async () => {
   assert.ok(!ui.labels().includes('旧结果'));
 });
 
-test('输入立即让旧 items 失效并中止旧搜索', async () => {
+test('输入立即中止旧搜索；旧列表留到新结果到达，回车会等新结果', async () => {
   let firstSignal;
   const ui = await loadPalette({ fetch: (url, options = {}) => {
     if (url.includes('old')) {
@@ -287,10 +287,11 @@ test('输入立即让旧 items 失效并中止旧搜索', async () => {
   ui.runTimers();
   await flush();
 
+  const before = ui.labels();
   ui.input.value = 'new';
   ui.input.dispatch('input');
   assert.equal(firstSignal.aborted, true);
-  assert.deepEqual(ui.labels(), []);
+  assert.deepEqual(ui.labels(), before, '列表不清空，不跳动');
 });
 
 test('IME 合成期间不搜索或执行 Enter，compositionend 后只搜索一次', async () => {

@@ -5,7 +5,7 @@ const { toAbsolute, isSafeRelativePath, toPosix } = require('./paths');
 const { listNotes, parseNote, NOTE_EXTENSION } = require('./note');
 const { parseWikilinks, buildResolver } = require('./wikilink');
 const { extractTasks } = require('../tasks');
-const { parseManagedAnnotations, stripMachineDirectives } = require('../annotations');
+const { stripMachineDirectives } = require('../machineDirectives');
 
 const FAILURE_LIMIT = 50;
 
@@ -144,7 +144,21 @@ function createIndexer({
     });
   }
 
+  /**
+   * 单个文件出的错只记在这个文件名下，扫描接着往下走。以前只认权限错误和 YAML
+   * 错误，其余一律让整轮扫描失败：一个 `---toml` 开头的笔记、一个带冒号的论文
+   * 标题文件名，就能让排在后面的笔记都进不了索引、删除也不再生效。
+   * 数据库错误不经过这里（写库在 indexOne 的 try 之外），仍按整轮失败处理。
+   */
   function classifyFileError(relativePath, error, stage) {
+    if (stage === 'name') {
+      return {
+        path: relativePath,
+        code: 'unsafe-name',
+        reason: '文件名在 Windows 上不可用（含 : ? * " < > | 等字符、以点或空格结尾，或是 CON、AUX 这类保留名），请改名',
+        retryable: false
+      };
+    }
     if (error?.code === 'EACCES' || error?.code === 'EPERM') {
       return {
         path: relativePath,
@@ -153,18 +167,20 @@ function createIndexer({
         retryable: true
       };
     }
-    if (stage === 'parse' && (
-      error?.name === 'YAMLException'
-      || /yaml|front.?matter/i.test(String(error?.name || ''))
-    )) {
+    if (stage === 'parse') {
       return {
         path: relativePath,
         code: 'invalid-frontmatter',
-        reason: 'frontmatter 格式无法解析',
+        reason: error?.name === 'FrontmatterError' ? error.message : '属性区（frontmatter）格式有误，点路径打开后修复',
         retryable: true
       };
     }
-    return null;
+    return {
+      path: relativePath,
+      code: 'read-failed',
+      reason: `文件读取失败（${error?.code || error?.message || '未知错误'}）`,
+      retryable: true
+    };
   }
 
   function fatalFor(error) {
@@ -203,7 +219,6 @@ function createIndexer({
         bodyTokens: tokenizeToText([note.title, note.tags.join(' '), visibleBody].join('\n')),
         links: dedupeLinks(links),
         tasks: extractTasks(visibleBody),
-        annotations: parseManagedAnnotations(note.body),
         indexedAt: now()
       };
     } catch (error) {
@@ -221,6 +236,9 @@ function createIndexer({
   }
 
   async function indexOne(relativePath, previous, force) {
+    if (!isSafeRelativePath(relativePath)) {
+      return { kind: 'failed', failure: classifyFileError(relativePath, null, 'name') };
+    }
     let opened;
     let record;
     try {
@@ -244,9 +262,7 @@ function createIndexer({
       const currentEntries = await inspectRelativePath(fsOps, vaultDir, relativePath);
       if (!currentEntries || !sameEntries(opened.entries, currentEntries)) return { kind: 'missing' };
     } catch (error) {
-      const failure = classifyFileError(relativePath, error, error.indexStage || 'read');
-      if (failure) return { kind: 'failed', failure };
-      throw error;
+      return { kind: 'failed', failure: classifyFileError(relativePath, error, error.indexStage || 'read') };
     } finally {
       await opened?.handle.close().catch(() => {});
     }
@@ -351,9 +367,7 @@ function createIndexer({
           link = await fsOps.lstat(toAbsolute(vaultDir, relativePath));
         } catch (error) {
           if (error.code !== 'ENOENT') {
-            const failure = classifyFileError(relativePath, error, 'read');
-            if (!failure) throw error;
-            failureMap.set(relativePath, failure);
+            failureMap.set(relativePath, classifyFileError(relativePath, error, 'read'));
             done += 1;
             publish({ done, total: candidates.length });
             continue;
@@ -415,22 +429,11 @@ function createIndexer({
     });
   }
 
-  function rebuild() {
-    return enqueue(async () => {
-      const transaction = db.raw.transaction(() => {
-        db.raw.exec('DELETE FROM notes; DELETE FROM notes_fts; DELETE FROM tags; DELETE FROM links; DELETE FROM tasks; DELETE FROM literature_annotations;');
-      });
-      transaction();
-      failureMap = new Map();
-      return scanOnce({ force: true, kind: 'full' });
-    });
-  }
-
   function idle() {
     return queue;
   }
 
-  return { scan, retry, rebuild, getStatus, idle };
+  return { scan, retry, getStatus, idle };
 }
 
 module.exports = { createIndexer };

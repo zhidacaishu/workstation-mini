@@ -1,0 +1,168 @@
+<%- include('partials/head') %>
+<%
+  const mod = isMac ? '⌘' : 'Ctrl ';
+  const due = ui.addDays(today, 7);
+  const ok = '<svg class="guide-status-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+  const todo = '<svg class="guide-status-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/></svg>';
+  const needsTerminal = !git.isRepository || !git.hasIdentity;
+  const gitRows = [
+    { done: git.installed, label: git.installed ? '已安装 Git' : '没有检测到 Git' },
+    { done: git.isRepository, label: git.isRepository ? '资料库已是 Git 仓库' : '资料库还不是 Git 仓库' },
+    { done: git.hasIdentity, label: git.hasIdentity ? '已配置提交身份（user.name / user.email）' : '还没有配置提交身份' },
+    { done: git.syncEnabled && !git.readOnly, label: git.readOnly ? '只读模式下不会自动提交笔记' : git.syncEnabled ? '已开启自动同步' : '自动同步未开启' },
+    { done: git.hasRemote, optional: true, label: git.hasRemote ? '已配置远端，同步时会推送' : '没有远端，只在本机提交（可选）' }
+  ];
+%>
+<div class="guide-page">
+
+<header class="page-head">
+  <div>
+    <h1>上手指南</h1>
+    <p class="page-meta">清单会根据资料库里的实际内容自动打勾；下面的速查随时回来翻。</p>
+  </div>
+  <button type="button" class="button" data-guide-start>
+    <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5Z"/></svg>
+    重新看界面导览
+  </button>
+</header>
+
+<% if (checklistHidden && !readOnly) { %>
+  <div class="notice guide-restore" data-onboarding-restore>
+    <p>今日页的上手清单已隐藏。</p>
+    <button type="button" class="button small" data-onboarding-show>在今日页重新显示</button>
+  </div>
+<% } %>
+
+<%- include('partials/onboarding', { progress, variant: 'guide' }) %>
+
+<nav class="guide-toc" aria-label="速查目录">
+  <a href="#notes">笔记与公式</a>
+  <a href="#keys">搜索与快捷键</a>
+  <a href="#plan">待办与计划</a>
+  <a href="#cards">卡片与复习</a>
+  <a href="#git">Git 版本记录</a>
+  <a href="#recover">出错与恢复</a>
+</nav>
+
+<section class="guide-topic" id="notes" aria-labelledby="notes-title">
+  <h2 id="notes-title">笔记与公式</h2>
+  <p>每篇笔记都是资料库 <code>notes/</code> 目录里的一个 Markdown 文件，离开应用也能用任何编辑器打开。</p>
+  <pre><code># 注意力机制
+和 [[Transformer]] 一起读。
+
+行内公式：$\mathrm{softmax}(QK^\top / \sqrt{d})V$
+
+$$
+\frac{\partial L}{\partial w} = x^\top (\hat y - y)
+$$</code></pre>
+  <ul>
+    <li>新建笔记先写标题：默认存进 <code>inbox/</code>，文件名跟着标题走，例如 <code>inbox/注意力机制.md</code>；重名时自动变成「注意力机制 2」。想放到别处，直接改「保存到」那一栏。</li>
+    <li>编辑页显示源码，按 <kbd><%= mod %>S</kbd> 保存后在阅读页排版。</li>
+    <li><code>[[笔记名]]</code> 指向的笔记还不存在时，点击它就能创建。阅读页侧栏会列出引用当前笔记的其他笔记。</li>
+    <li>行内公式写在同一行，<code>$</code> 内侧不留空格；块公式用独占一行的 <code>$$</code> 包住。普通文字里的美元符号写成 <code>\$</code>。</li>
+  </ul>
+</section>
+
+<section class="guide-topic" id="keys" aria-labelledby="keys-title">
+  <h2 id="keys-title">搜索与快捷键</h2>
+  <table class="guide-keys">
+    <tbody>
+      <tr><th scope="row"><kbd><%= mod %>K</kbd></th><td>打开搜索与命令面板：搜笔记标题和正文，或执行「新建笔记」「计划」「重新扫描索引」等命令</td></tr>
+      <tr><th scope="row"><kbd>/</kbd></th><td>在笔记列表页聚焦搜索框，其他页面打开命令面板</td></tr>
+      <tr><th scope="row"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd></th><td>在命令面板里选择并打开</td></tr>
+      <tr><th scope="row"><kbd><%= mod %>S</kbd></th><td>编辑页保存</td></tr>
+      <tr><th scope="row"><kbd>空格</kbd></th><td>复习时显示答案</td></tr>
+      <tr><th scope="row"><kbd>1</kbd> – <kbd>4</kbd></th><td>复习评分：忘了 · 勉强 · 记得 · 太简单</td></tr>
+      <tr><th scope="row"><kbd>Esc</kbd></th><td>关闭面板、对话框或菜单</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="guide-topic" id="plan" aria-labelledby="plan-title">
+  <h2 id="plan-title">待办与计划</h2>
+  <pre><code>- [ ] 读完论文 @<%= due %>
+- [ ] 跑消融实验
+- [x] 整理实验结果</code></pre>
+  <ul>
+    <li><code>- [ ]</code> 是待办，<code>- [x]</code> 是已完成；<code>@YYYY-MM-DD</code> 是截止日，可以不写。代码块里的示例不会变成待办。</li>
+    <li>笔记阅读页里的待办可以直接勾选；今日页只列出今天到期和已经逾期的，没写日期的在「计划 → 未安排」里。</li>
+    <li>「计划」可以在列表和月历之间切换：勾选完成、修改截止日都会写回原来那一行 Markdown；月历里还能给某一天写备注。</li>
+    <li>研究项目也是普通笔记，frontmatter 里记录状态、截止日、数据集、参数、seed、commit 和下一步。从「研究项目」新建会预填这些字段。</li>
+  </ul>
+</section>
+
+<section class="guide-topic" id="cards" aria-labelledby="cards-title">
+  <h2 id="cards-title">卡片与复习</h2>
+  <ul>
+    <li><strong>建卡</strong>：在笔记阅读页选中文字，点「建卡片」，确认正面、背面和卡组。选中的公式会保留 TeX 源码，多行选区会放进背面。</li>
+    <li><strong>挖空</strong>：背面写 <code>梯度下降沿 {{负梯度}} 方向更新</code>；挖空整个公式写 <code>{{ $\frac{a}{b}$ }}</code>。</li>
+    <li><strong>卡组文件</strong>：<code>cards/</code> 下的 Markdown，<code>##</code> 标题是正面，下面的正文是背面。</li>
+    <li><strong>评分</strong>：按真实的回忆情况选，而不是看完答案觉得眼熟就选「记得」。下次复习时间由 FSRS 根据评分安排。选「忘了」的卡会在这一轮末尾再出现一次。</li>
+    <li><strong>改卡与暂停</strong>：「复习」页里点卡组名或「全部卡片」能看到每一张卡，可以改正面背面、挪到别的卡组、删除，或者暂停复习；复习中也能直接「编辑」或「暂停」当前这张。改正面或挪卡组不会丢复习记录。</li>
+  </ul>
+</section>
+
+<section class="guide-topic" id="git" aria-labelledby="git-title">
+  <h2 id="git-title">Git 版本记录 <span class="guide-optional">可选</span></h2>
+  <p>开启后，应用会定时把资料库提交到 Git；配置了远端还会推送，换一台设备也能拉到同样的笔记。不开也能用本机的版本历史与草稿，两者互相独立。</p>
+
+  <ul class="guide-status" aria-label="当前状态">
+    <% gitRows.forEach(row => { %>
+      <li class="<%= row.done ? 'is-done' : row.optional ? 'is-optional' : '' %>"><%- row.done ? ok : todo %><span><%= row.label %></span></li>
+    <% }) %>
+  </ul>
+
+  <ol class="guide-steps">
+    <li class="<%= needsTerminal ? '' : 'is-done' %>">
+      <h3>在终端里准备仓库<% if (!needsTerminal) { %><span class="guide-check-state">已完成</span><% } %></h3>
+      <% if (needsTerminal) { %>
+        <% if (!git.installed) { %>
+          <p>先安装 Git：macOS 在终端运行 <code>xcode-select --install</code>，Windows 安装 Git for Windows。</p>
+        <% } %>
+        <p>在 macOS 终端或 Windows Git Bash 里运行下面的命令，把名字和邮箱换成你自己的。应用不会替你执行它们。</p>
+        <div class="guide-command">
+          <pre><code id="git-commands" data-guide-git-commands><%= gitCommands %></code></pre>
+          <button type="button" class="button small" data-copy="git-commands">复制</button>
+        </div>
+        <p class="guide-muted">资料库位置：<code><%= vaultDir %></code>。也可以在「设置 → 系统 → 打开资料库」核对。</p>
+      <% } else { %>
+        <p>资料库已经是 Git 仓库，也配置了提交身份。</p>
+      <% } %>
+    </li>
+    <li class="<%= git.syncEnabled && !git.readOnly ? 'is-done' : '' %>">
+      <h3>在设置里开启自动同步<% if (git.syncEnabled && !git.readOnly) { %><span class="guide-check-state">已开启</span><% } %></h3>
+      <p>「设置 → 同步」勾选「启用自动同步」，选好间隔，点「保存设置」并确认提示。<% if (git.readOnly) { %>只读模式下不会自动提交笔记，需要先关闭只读模式。<% } %></p>
+      <button type="button" class="button small" data-guide-settings>打开设置</button>
+    </li>
+    <li>
+      <h3>确认有了提交</h3>
+      <p>在设置里点「立即同步」，然后在资料库目录运行 <code>git log --oneline -5</code>，能看到应用生成的提交就说明一切就绪。</p>
+    </li>
+  </ol>
+
+  <p class="notice is-warn guide-warn">同步会提交资料库里所有没被 <code>.gitignore</code> 排除的文件。开启前先检查一遍，尤其是私密文件和大附件。</p>
+
+  <details class="guide-more">
+    <summary>还要在多台设备间同步？</summary>
+    <p>准备一个空的远端仓库，在本机配好 SSH 或 HTTPS 凭据，然后在资料库目录运行 <code>git remote add origin 你的仓库地址</code>，再点「立即同步」。已有远端时先用 <code>git remote -v</code> 核对，不要重复添加。</p>
+    <p>有远端时，每轮同步先提交本机修改，再拉取并 rebase、推送；没有远端时只保留本机记录。</p>
+    <p>两台设备修改同一篇笔记并产生冲突时，同步会停下，保留 Git 冲突现场，等待你处理。在设置页查看冲突文件，也可以中止当前 Git 操作、回到变基前的本机提交。手动处理时，在资料库目录运行 git status，合并后执行 git add 和 git rebase --continue；完成后重启应用再同步。</p>
+    <p>开启同步后，应用会在资料库里维护一份 <code>.gitattributes</code>，让 Markdown 和复习日志在 Mac 与 Windows 之间统一用 LF 换行。</p>
+    <p>远端已经有资料、想在新设备上用它时，走「设置 → 工作区 → 开始恢复…」里的 Git 恢复流程。</p>
+  </details>
+</section>
+
+<section class="guide-topic" id="recover" aria-labelledby="recover-title">
+  <h2 id="recover-title">出错与恢复</h2>
+  <ul>
+    <li><strong>改坏或误删了笔记</strong>：侧栏的时钟图标打开「历史与草稿」，修改或删除前的本机版本和未保存的草稿都能预览后恢复。每篇笔记保留最近 20 个版本，更早的在 60 天内每天留一份。</li>
+    <li><strong>改坏或误删了卡片</strong>：卡组文件的旧版本也在「历史与草稿」里，标着「卡组」，可以整份恢复到原来的位置。</li>
+    <li><strong>没保存就离开</strong>：编辑页、卡片编辑页和设置有未保存的修改时，离开或关闭窗口会先问你「离开」还是「留下」。选离开会丢掉这些修改，编辑页的草稿仍留在「历史与草稿」里。</li>
+    <li><strong>搜不到内容</strong>：在命令面板执行「重新扫描索引」。索引只是从 Markdown 生成的副本，放在本机应用数据目录里，不进资料库，重建不会丢内容。</li>
+    <li><strong>同步或索引报错</strong>：侧栏的脉冲图标打开「资料库健康」，查看索引、复习日志和 Git 状态。</li>
+    <li><strong>从备份恢复</strong>：「设置 → 工作区 → 开始恢复…」，支持 Git 克隆和本地备份，验证通过后才切换资料库。</li>
+  </ul>
+</section>
+
+</div>
+<%- include('partials/foot') %>

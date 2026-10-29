@@ -55,7 +55,12 @@ function createItems({ db, notesDir }) {
       throw error;
     }
     return enqueueNote(notesDir, notePath, async () => {
-      const note = await readNote(notesDir, notePath);
+      let note;
+      try { note = await readNote(notesDir, notePath); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        throw Object.assign(new Error('条目已被删除或移动，请刷新后重试。'), { status: 409 });
+      }
       if (note.hash !== expectedHash) {
         const error = new Error('条目已被其它编辑修改，请刷新后重试。');
         error.status = 409;

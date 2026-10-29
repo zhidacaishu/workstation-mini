@@ -31,7 +31,8 @@
 
 * { box-sizing: border-box; }
 body {
-  min-width: 900px;
+  /* 窗口最小 900px，留出 Windows 滚动条的宽度，免得出现横向滚动条。 */
+  min-width: 860px;
   font-feature-settings: "tnum" 1;
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;

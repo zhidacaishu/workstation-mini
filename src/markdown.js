@@ -5,7 +5,8 @@ const { installMathSyntax, maskMath } = require('./mathSyntax');
 
 const { maskCode, headingFragment, wikilinkFragment } = require('./vault/wikilink');
 const { toPosix, stripExtension, encodePath } = require('./vault/paths');
-const { stripMachineDirectives } = require('./annotations');
+const { stripMachineDirectives } = require('./machineDirectives');
+const { toLocalDate } = require('./templates');
 
 const WIKILINK_PATTERN = /\[\[([^\]\n|#]+)(?:#([^\]\n|]+))?(?:\|([^\]\n]+))?\]\]/g;
 
@@ -14,14 +15,17 @@ const WIKILINK_PATTERN = /\[\[([^\]\n|#]+)(?:#([^\]\n|]+))?(?:\|([^\]\n]+))?\]\]
 const NOTES_PREFIX = 'notes';
 const ATTACHMENTS_PREFIX = 'attachments/';
 const AUDIO_PREFIX = 'audio/';
-const MEDIA_EXTENSION = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|pdf|mp3|m4a|wav|ogg|opus|flac|webm|mp4|mov)$/i;
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i;
+// 音视频不能放进 <img>：嵌入时渲染成链接，点开由内置播放器播放。
+const AV_EXTENSION = /\.(mp3|m4a|wav|ogg|opus|flac|webm|mp4|mov)$/i;
+const MEDIA_EXTENSION = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|mp3|m4a|wav|ogg|opus|flac|webm|mp4|mov)$/i;
 
 /**
  * 把笔记里写的资源路径解析成应用内的 URL。
  *
- * 只接管落在 `attachments/` 和 `audio/` 里的东西 —— 这两个目录不进 Git、
- * 由存储服务托管，也只有它们有对应的路由。其它路径原样放过：与其猜一个
- * 可能是错的地址，不如让它保持原样，至少作者一眼能看出是自己写错了。
+ * 只接管落在 `attachments/` 和 `audio/` 里的东西 —— 只有这两个目录有对应的只读路由。
+ * 其它路径原样放过：与其猜一个可能是错的地址，不如让它保持原样，至少作者一眼能看出
+ * 是自己写错了。
  */
 function resolveResourceHref(src, notePath) {
   const raw = String(src || '').trim();
@@ -60,8 +64,8 @@ function resolveResourceHref(src, notePath) {
   return raw;
 }
 
-// html: false —— 笔记正文里的原始 HTML 不渲染。
-// 现在看是保守，等 P6 把网页剪藏接进来之后，正文里就会有来路不明的内容了。
+// html: false —— 笔记正文里的原始 HTML 不渲染：资料库会经 Git 从别的设备同步过来，
+// 正文不该有机会在应用里执行脚本。
 const md = new MarkdownIt({
   html: false,
   linkify: true,
@@ -103,6 +107,12 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   } else if (/^https?:\/\//i.test(href)) {
     tokens[idx].attrSet('target', '_blank');
     tokens[idx].attrSet('rel', 'noopener noreferrer');
+  } else if (href && !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith('/') && !href.startsWith('#')) {
+    // `[原图](attachments/fig.png)` 这类普通链接也指到附件路由，和图片同一套解析。
+    const resolved = resolveResourceHref(href, env?.notePath);
+    if ((resolved.startsWith('/attachments/') || resolved.startsWith('/media/')) && MEDIA_EXTENSION.test(href.split(/[?#]/)[0])) {
+      tokens[idx].attrSet('href', resolved);
+    }
   }
   return defaultLinkOpen(tokens, idx, options, env, self);
 };
@@ -116,19 +126,68 @@ const defaultImage = md.renderer.rules.image
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   if (env?.images === false) return md.utils.escapeHtml(tokens[idx].content || '');
   const src = tokens[idx].attrGet('src');
-  tokens[idx].attrSet('src', resolveResourceHref(src, env?.notePath));
+  const resolved = resolveResourceHref(src, env?.notePath);
+  if (AV_EXTENSION.test(String(src || '').split(/[?#]/)[0])) {
+    const label = md.utils.escapeHtml(tokens[idx].content || String(src).split('/').pop());
+    return `<a class="media-link" href="${md.utils.escapeHtml(resolved)}">${label}</a>`;
+  }
+  tokens[idx].attrSet('src', resolved);
   // 懒加载：一篇长笔记里插十几张图时，不该在打开的瞬间全部拉下来。
   tokens[idx].attrSet('loading', 'lazy');
   return defaultImage(tokens, idx, options, env, self);
 };
 
 // 待办行 `- [ ] 写引言 @2026-10-26` 在阅读页显示成勾选框和日期标签，而不是原始语法。
-// 只改显示：Markdown 原文不变，勾选仍在计划页或今日页完成。
+//
+// 「哪几行是待办」只在这里判断一次：索引抽取（tasks.js 的 extractTasks）也是调用
+// listTaskItems 跑同一遍解析。以前抽取用另一套正则，缩进代码块、$$ 公式块里的
+// `- [ ]` 被收成待办，一个落单的反引号又会把几段之后的待办整片藏掉，两边对不上。
+// 列表项第一行本身必须是 `- [ ] 文本` 的写法（TASK_LINE），写回时才找得到那一行。
 const TASK_PREFIX = /^\[( |x|X)\]\s+/;
+const TASK_LINE = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/;
 const TASK_DUE = /@(\d{4})-(\d{2})-(\d{2})\b/g;
+
+function plainInlineText(children) {
+  return children.filter(child => child.type === 'text' || child.type === 'code_inline')
+    .map(child => child.content).join('').replace(TASK_DUE, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 待办第一行里、行内代码之外的第一个 @日期。行内代码可以跨行，所以按 token 走，
+ * 不能按原文逐行找：`- [ ] 示例 \`@2026-10-05` 换行再闭合时，那个日期在代码里。
+ */
+function firstLineDue(children) {
+  for (const child of children) {
+    if (child.type === 'softbreak' || child.type === 'hardbreak') return null;
+    if (child.type === 'text') {
+      TASK_DUE.lastIndex = 0;
+      const due = TASK_DUE.exec(child.content);
+      TASK_DUE.lastIndex = 0;
+      if (due) return `${due[1]}-${due[2]}-${due[3]}`;
+    }
+    if (child.type === 'code_inline' && child.content.includes('\n')) return null;
+  }
+  return null;
+}
+
+/** 截止日标签：今年只写月/日，跨年带上年份；没完成且已过期的写明「逾期」。 */
+function dueLabel(date, today, done) {
+  const [year, month, day] = date.split('-');
+  const short = `${Number(month)}/${Number(day)}`;
+  const label = year === today.slice(0, 4) ? short : `${year}/${short}`;
+  if (done) return { label, tone: '' };
+  if (date < today) return { label: `逾期 ${label}`, tone: ' is-overdue' };
+  if (date === today) return { label: '今天', tone: ' is-today' };
+  return { label, tone: '' };
+}
 
 md.core.ruler.push('task_items', state => {
   const tokens = state.tokens;
+  const today = state.env.today || toLocalDate(new Date());
+  // markdown-it 已把 \r\n 和单独的 \r 都归一成 \n：行号按这个算，抽取和写回也按
+  // /\r\n|\r|\n/ 切行，三处才对得上（以前写回只认 \n，点 A 改到 B）。
+  let sourceLines = null;
+  const lineOf = number => (sourceLines ||= state.src.split('\n'))[number - 1] ?? '';
   for (let index = 2; index < tokens.length; index += 1) {
     const inline = tokens[index];
     if (inline.type !== 'inline' || tokens[index - 1].type !== 'paragraph_open' || tokens[index - 2].type !== 'list_item_open') continue;
@@ -140,8 +199,16 @@ md.core.ruler.push('task_items', state => {
     first.content = first.content.slice(match[0].length);
     tokens[index - 2].attrJoin('class', done ? 'task-item is-done' : 'task-item');
 
+    const line = tokens[index - 2].map ? tokens[index - 2].map[0] + 1 : 0;
+    const writable = line > 0 && TASK_LINE.test(lineOf(line));
+    if (writable && state.env.collectTasks) state.env.collectTasks.push({ line, done, due: firstLineDue(children) });
     const box = new state.Token('html_inline', '', 0);
-    box.content = `<span class="task-box${done ? ' is-done' : ''}" role="img" aria-label="${done ? '已完成' : '待办'}"></span>`;
+    if (writable && state.env.taskToggle) {
+      const label = md.utils.escapeHtml((done ? '标记为未完成：' : '标记为完成：') + plainInlineText(children));
+      box.content = `<input type="checkbox" class="task-box task-toggle${done ? ' is-done' : ''}" data-task-line="${line}"${done ? ' checked' : ''} aria-label="${label}">`;
+    } else {
+      box.content = `<span class="task-box${done ? ' is-done' : ''}" role="img" aria-label="${done ? '已完成' : '待办'}"></span>`;
+    }
     const rebuilt = [box];
     for (const child of children) {
       if (child.type !== 'text' || !TASK_DUE.test(child.content)) {
@@ -157,7 +224,9 @@ md.core.ruler.push('task_items', state => {
           rebuilt.push(text);
         }
         const time = new state.Token('html_inline', '', 0);
-        time.content = `<time class="task-due" datetime="${due[1]}-${due[2]}-${due[3]}">${Number(due[2])}/${Number(due[3])}</time>`;
+        const date = `${due[1]}-${due[2]}-${due[3]}`;
+        const { label, tone } = dueLabel(date, today, done);
+        time.content = `<time class="task-due${tone}" datetime="${date}">${label}</time>`;
         rebuilt.push(time);
         cursor = due.index + due[0].length;
       }
@@ -247,7 +316,7 @@ function escapeMarkdownText(value) {
  *
  * 用 maskCode 定位、在原文上按偏移量替换，这样代码块里的 [[ ]] 不会被动到。
  */
-function replaceWikilinks(markdown, resolve, notePath = '') {
+function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true } = {}) {
   const source = String(markdown ?? '');
   const masked = maskMath(maskCode(source));
   const replacements = [];
@@ -260,13 +329,20 @@ function replaceWikilinks(markdown, resolve, notePath = '') {
     // 扩展名吃掉、resolver 又只认 .md，最后渲染成一个「新建 图片 这篇笔记」的
     // 死链 —— 对 Obsidian 用户来说这是最常见的写法，不能这么对待。
     const isEmbed = source[match.index - 1] === '!';
-    if (isEmbed && MEDIA_EXTENSION.test(literal)) {
-      replacements.push({
-        // 连同前面那个 `!` 一起换掉，否则会剩下一个 `!![...]()`。
-        start: match.index - 1,
-        end: match.index + match[0].length,
-        text: `![${display}](${resolveResourceHref(literal, notePath)})`
-      });
+    // 嵌入的替换范围连同前面那个 `!` 一起，否则会剩下一个 `!![...]()`，
+    // 或者把指向笔记的链接变成一张坏图。
+    const start = isEmbed ? match.index - 1 : match.index;
+    if (isEmbed && IMAGE_EXTENSION.test(literal)) {
+      replacements.push({ start, end: match.index + match[0].length, text: `![${display}](${resolveResourceHref(literal, notePath)})` });
+      continue;
+    }
+    if (isEmbed && AV_EXTENSION.test(literal)) {
+      replacements.push({ start, end: match.index + match[0].length, text: `[${display}](${resolveResourceHref(literal, notePath)})` });
+      continue;
+    }
+    if (isEmbed && /\.[a-z0-9]{2,5}$/i.test(literal) && !/\.md$/i.test(literal)) {
+      // PDF、压缩包等应用不提供的附件：只显示文件名，不生成坏图或死链。
+      replacements.push({ start, end: match.index + match[0].length, text: display });
       continue;
     }
 
@@ -284,9 +360,14 @@ function replaceWikilinks(markdown, resolve, notePath = '') {
     const href = resolved
       ? `/note/${encodePath(resolved)}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`
       : `/new?path=${encodeURIComponent(target)}`;
+    if (!resolved && !linkMissing) {
+      // 只读模式不能新建笔记：待建的双链只显示文字，不给一个点了就 403 的链接。
+      replacements.push({ start, end: match.index + match[0].length, text: label });
+      continue;
+    }
 
     replacements.push({
-      start: match.index,
+      start,
       end: match.index + match[0].length,
       text: `[${label}](${href})`
     });
@@ -307,12 +388,37 @@ function replaceWikilinks(markdown, resolve, notePath = '') {
  * notePath 是笔记相对 notes/ 的路径。给了它才能把 `![](../attachments/x.png)`
  * 这类相对写法解析对；不给也能用，只是相对路径没有基准可算。
  */
-function renderMarkdown(body, resolve = () => '', { notePath = '', anchors = true, images = true } = {}) {
-  const source = replaceWikilinks(stripMachineDirectives(body), resolve, notePath);
-  const env = { notePath, images };
+/**
+ * 阅读页的页头已经显示了标题；正文开头那个一模一样的 `# 标题` 再排一遍就重复了。
+ * 只去掉「正文第一个块就是 H1、文字与标题完全相同」的情况，带链接或格式的标题照常显示。
+ */
+function dropLeadingTitle(tokens, title) {
+  const wanted = String(title || '').trim();
+  const [open, inline, close] = tokens;
+  if (!wanted || open?.type !== 'heading_open' || open.tag !== 'h1' || close?.type !== 'heading_close') return;
+  if (inline?.children?.some(child => child.type !== 'text') || inline.content.trim() !== wanted) return;
+  tokens.splice(0, 3);
+}
+
+function renderMarkdown(body, resolve = () => '', { notePath = '', anchors = true, images = true, today = '', taskToggle = false, title = '', readOnly = false } = {}) {
+  const visible = stripMachineDirectives(body);
+  const source = replaceWikilinks(visible, resolve, notePath, { linkMissing: !readOnly });
+  // 替换双链和去掉机器指令都不增删行，所以这里的行号与索引里的待办行号一致。
+  const env = { notePath, images, today, taskToggle };
   const tokens = md.parse(source, env);
+  if (title) dropLeadingTitle(tokens, title);
   if (anchors) assignAnchors(tokens);
   return md.renderer.render(tokens, md.options, env);
 }
 
-module.exports = { renderMarkdown, replaceWikilinks, escapeMarkdownText, resolveResourceHref };
+/**
+ * 正文里哪几行是待办：和阅读页渲染同一遍解析。返回 [{ line, done }]，line 从 1 开始、
+ * 相对正文（不含 frontmatter）。调用方传入的应是去掉机器指令行之后的正文。
+ */
+function listTaskItems(body) {
+  const env = { collectTasks: [], today: '0000-00-00' };
+  md.parse(String(body ?? ''), env);
+  return env.collectTasks;
+}
+
+module.exports = { renderMarkdown, replaceWikilinks, escapeMarkdownText, resolveResourceHref, listTaskItems };

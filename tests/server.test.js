@@ -345,14 +345,24 @@ test('拒绝目录穿越路径', async () => {
   }
 });
 
-test('拒绝非 .md 的文件名', async () => {
+test('只写 .md 文件：没写扩展名或写了别的扩展名都补成 .md', async () => {
   const ctx = await setup();
   try {
-    await request(ctx.app)
+    const saved = await request(ctx.app)
       .post('/save')
+      .set('Accept', 'application/json')
       .type('form')
-      .send({ path: 'notes/evil.js', body: 'console.log(1)' })
-      .expect(400);
+      .send({ path: 'notes/evil.js', body: 'console.log(1)', isNew: '1' })
+      .expect(200);
+    assert.equal(saved.body.path, 'notes/evil.js.md');
+    await assert.rejects(fs.access(path.join(ctx.notesDir, 'notes', 'evil.js')), { code: 'ENOENT' });
+    const plain = await request(ctx.app)
+      .post('/save')
+      .set('Accept', 'application/json')
+      .type('form')
+      .send({ path: 'research/没有扩展名/', body: '# 正文', isNew: '1' })
+      .expect(200);
+    assert.equal(plain.body.path, 'research/没有扩展名.md');
   } finally {
     await ctx.cleanup();
   }
@@ -389,7 +399,7 @@ test('索引状态、非破坏性重扫与内部失败重试形成稳定 HTTP �
       'notes', 'phase', 'scanKind', 'total', 'updatedAt'
     ]);
     assert.deepEqual(status.body.failures, [{
-      path: 'a.md', code: 'invalid-frontmatter', reason: 'frontmatter 格式无法解析', retryable: true
+      path: 'a.md', code: 'invalid-frontmatter', reason: '属性区（frontmatter）格式有误，点路径打开后修复', retryable: true
     }]);
 
     await writeNote(ctx.notesDir, 'a.md', { body: '修好了' });
@@ -490,4 +500,14 @@ test('笔记正文里的原始 HTML 不被渲染', async () => {
   } finally {
     await ctx.cleanup();
   }
+});
+
+test('退出同步到期取消实际操作，不再无限等待同一队列', async () => {
+  const { finishSync } = require('../src/runtime');
+  let cancel;
+  const running = new Promise((_, reject) => { cancel = () => reject(new Error('aborted')); });
+  let cancelled = false;
+  const sync = { cancel() { cancelled = true; cancel(); } };
+  await finishSync(sync, () => running, 20, { warn() {} });
+  assert.equal(cancelled, true);
 });

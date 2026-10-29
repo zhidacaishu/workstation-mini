@@ -1,6 +1,6 @@
 {
   "name": "workstation-mini",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "精简版本地知识复习与研究练习工作台",
   "main": "electron/main.js",
@@ -14,7 +14,7 @@
     "desktop:dir:mac": "node scripts/build-native-helper.js --arch arm64 && electron-builder --dir --mac --arm64 --publish never",
     "desktop:build:mac": "node scripts/build-native-helper.js --arch arm64 && electron-builder --mac dmg --arm64 --publish never",
     "verify-mac-package": "node scripts/verify-mac-package.js",
-    "postinstall": "electron-builder install-app-deps && node scripts/build-native-helper.js --optional"
+    "postinstall": "node scripts/build-native-helper.js --optional"
   },
   "engines": {
     "node": ">=22.12.0"
@@ -30,8 +30,7 @@
     "gray-matter": "^4.0.3",
     "katex": "0.19.1",
     "markdown-it": "15.0.3",
-    "ts-fsrs": "^5.4.1",
-    "yauzl": "^3.4.0"
+    "ts-fsrs": "^5.4.1"
   },
   "devDependencies": {
     "electron": "43.8.3",
@@ -46,7 +45,7 @@
     "asarUnpack": [
       "node_modules/**/*.node"
     ],
-    "npmRebuild": true,
+    "npmRebuild": false,
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -54,7 +53,10 @@
     "files": [
       "electron/**/*",
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/better-sqlite3/deps/**",
+      "!node_modules/better-sqlite3/src/**",
+      "!node_modules/better-sqlite3/binding.gyp"
     ],
     "extraResources": [
       {
@@ -96,7 +98,10 @@
           "to": "rename-exclusive"
         }
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "files": [
+        "!node_modules/better-sqlite3/prebuilds/!(darwin-arm64).node"
+      ]
     },
     "dmg": {
       "title": "科研工作台 ${version}",
@@ -123,7 +128,10 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "workstation-mini-${version}-setup.${ext}"
+      "artifactName": "workstation-mini-${version}-setup.${ext}",
+      "files": [
+        "!node_modules/better-sqlite3/prebuilds/!(win32-x64).node"
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -133,7 +141,14 @@
       "createStartMenuShortcut": true,
       "shortcutName": "科研工作台"
     },
-    "artifactName": "workstation-mini-${version}-setup.${ext}"
+    "artifactName": "workstation-mini-${version}-setup.${ext}",
+    "publish": null,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": true,
+      "onlyLoadAppFromAsar": true
+    }
   },
   "productName": "Workstation Mini"
 }

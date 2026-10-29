@@ -16,5 +16,8 @@ function validateSettingsUpdate(update) {
   if (Object.hasOwn(update.settings, 'syncIntervalMinutes') && (!Number.isInteger(update.settings.syncIntervalMinutes) || update.settings.syncIntervalMinutes < 1 || update.settings.syncIntervalMinutes > 1440)) throw new Error('同步间隔必须是 1 到 1440 之间的整数。');
   if (Object.hasOwn(update.settings, 'theme') && !THEMES.has(update.settings.theme)) throw new Error('外观只能是跟随系统、浅色或深色。');
   const vaultDir = update.settings.vaultDir?.trim(); if (!vaultDir || !path.isAbsolute(vaultDir)) throw new Error('资料库必须是绝对路径。');
+  // 设备名决定复习日志写进哪个文件。清空的话，这次运行退回主机名、下次启动又换一个新名字，
+  // 复习记录被拆进好几个文件。
+  if (Object.hasOwn(update.settings, 'device') && !update.settings.device.trim()) throw new Error('设备名不能为空。');
 }
 module.exports = { validateSettingsUpdate };

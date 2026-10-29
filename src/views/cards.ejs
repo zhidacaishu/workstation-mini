@@ -1,0 +1,59 @@
+<%- include('partials/head') %>
+<%
+  const plain = value => ui.plainSnippet(String(value || '').replace(/\$\$?([^$]+)\$\$?/g, '$1'));
+%>
+<div class="narrow">
+
+<header class="page-head">
+  <div>
+    <h1><%= deck || '全部卡片' %></h1>
+    <p class="page-meta"><%= cards.length %> 张<% const paused = cards.filter(card => card.suspended).length; if (paused) { %> · 已暂停 <%= paused %> 张<% } %></p>
+  </div>
+  <div class="actions">
+    <a class="button quiet" href="/decks">返回卡组</a>
+    <% if (deck && cards.some(card => !card.suspended)) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习这个卡组</a><% } %>
+  </div>
+</header>
+
+<% if (decks.length > 1) { %>
+  <nav class="chiplist card-deck-filter" aria-label="按卡组筛选">
+    <a class="chip<%= deck ? ' is-quiet' : '' %>" href="/cards"<% if (!deck) { %> aria-current="page"<% } %>>全部</a>
+    <% decks.forEach(name => { %>
+      <a class="chip<%= name === deck ? '' : ' is-quiet' %>" href="/cards?deck=<%= encodeURIComponent(name) %>"<% if (name === deck) { %> aria-current="page"<% } %>><%= name %></a>
+    <% }) %>
+  </nav>
+<% } %>
+
+<% if (!cards.length) { %>
+  <section class="panel empty-state">
+    <p>这个卡组里还没有卡片。在笔记阅读页选中一段文字，点「建卡片」。</p>
+  </section>
+<% } else { %>
+  <ul class="panel card-list">
+    <% cards.forEach(card => { %>
+      <li class="card-row<%= card.suspended ? ' is-suspended' : '' %>">
+        <div class="card-row-main">
+          <% if (readOnly) { %>
+            <span class="card-row-front"><%- ui.cardPreview(card.front) %></span>
+          <% } else { %>
+            <a class="card-row-front" href="/cards/edit?id=<%= encodeURIComponent(card.id) %>&returnTo=<%= encodeURIComponent(returnTo) %>"><%- ui.cardPreview(card.front) %></a>
+          <% } %>
+          <span class="card-row-back"><%- ui.cardPreview(card.type === 'cloze' ? card.question : card.back) || '（背面为空）' %></span>
+        </div>
+        <span class="card-state <%= card.status.tone %>"><%= card.status.label %></span>
+        <% if (!deck) { %><span class="card-row-deck"><%= card.deck %></span><% } %>
+        <% if (!readOnly) { %>
+          <form class="card-row-action" action="/cards/suspend" method="post">
+            <input type="hidden" name="id" value="<%= card.id %>">
+            <input type="hidden" name="suspended" value="<%= card.suspended ? '0' : '1' %>">
+            <input type="hidden" name="returnTo" value="<%= returnTo %>">
+            <button class="button small quiet" type="submit" aria-label="<%= card.suspended ? '恢复复习' : '暂停复习' %>：<%= plain(card.front) %>"><%= card.suspended ? '恢复' : '暂停' %></button>
+          </form>
+        <% } %>
+      </li>
+    <% }) %>
+  </ul>
+<% } %>
+
+</div>
+<%- include('partials/foot') %>

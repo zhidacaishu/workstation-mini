@@ -40,7 +40,7 @@
           <div class="path-control"><input name="vaultDir" type="text" autocomplete="off" required><button type="button" data-choose-dir="vaultDir">选择</button></div>
         </label>
         <div class="field-grid">
-          <label class="field"><span>设备名</span><input name="device" type="text" autocomplete="off"><small>用于区分不同设备的复习记录。</small></label>
+          <label class="field"><span>设备名</span><input name="device" type="text" autocomplete="off"><small>用于区分不同设备的复习记录，首次启动时自动生成，不能留空。多台设备不要用同一个名字。</small></label>
           <label class="toggle"><input name="readOnly" type="checkbox"><span><strong>只读模式</strong><small>允许浏览、搜索和复习，阻止修改 Markdown。</small></span></label>
         </div>
         <div class="recovery-entry"><div><strong>从备份恢复到新资料库</strong><p>当前资料库和备份均不会修改。</p></div><button type="button" id="open-recovery">开始恢复…</button></div>
@@ -59,7 +59,7 @@
       <section id="sync" class="settings-section">
         <div class="section-heading"><div><h2>Git 同步</h2><p>资料库不是 Git 仓库时会自动跳过，不影响本地使用。</p></div></div>
         <div class="field-grid">
-          <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先拉取，再提交和推送。</small></span></label>
+          <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先提交本机修改，再拉取、推送。两台设备改了同一篇笔记时，本机版本另存为「冲突副本」笔记，不会把冲突标记写进正文。</small></span></label>
           <label class="field"><span>同步间隔（分钟）</span><input name="syncIntervalMinutes" type="number" min="1" max="1440" step="1" required></label>
         </div>
         <div class="sync-status" id="sync-status" data-phase="disabled">

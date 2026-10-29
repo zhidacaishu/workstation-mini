@@ -1,17 +1,8 @@
 (() => {
   const workspace = document.querySelector('[data-plan-view]');
   if (!workspace) return;
-  const url = new URL(window.location.href);
-  const key = 'workstation-plan-view';
-  try {
-    const preferred = localStorage.getItem(key);
-    if (url.pathname === '/plan' && !url.search && preferred === 'calendar') {
-      url.searchParams.set('view', preferred);
-      window.location.replace(url.href);
-      return;
-    }
-    localStorage.setItem(key, workspace.dataset.planView);
-  } catch {}
+  // 上次用的是列表还是月历由服务端用 cookie 记住（见 calendarRoutes）：
+  // 内部服务每次启动换端口，localStorage 按端口隔离，重启后就读不到了。
 
   const tasks = [...document.querySelectorAll('[data-plan-task]')];
   const dates = new Map();

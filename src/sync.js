@@ -14,7 +14,7 @@ const BASE_IGNORE_RULES = [
   { probe: '.workstation-local/', text: '# 本机笔记版本和草稿，不参与同步\n.workstation-local/\n' },
   {
     probe: 'workstation.db',
-    text: '# 派生索引：删掉能从 Markdown 和 MinerU 持久产物全量重建，绝不提交。\n# .workstation/mineru/ 本身必须保留并纳入 Git。\nworkstation.db\n'
+    text: '# 派生索引：删掉后能从 Markdown 全量重建，绝不提交。\n# 新版本把索引放在应用数据目录；这几条挡住旧版本留在资料库里的文件。\nworkstation.db\n'
   },
   { probe: 'workstation.db-shm', text: 'workstation.db-shm\n' },
   { probe: 'workstation.db-wal', text: 'workstation.db-wal\n' },
@@ -24,36 +24,16 @@ const BASE_IGNORE_RULES = [
   { probe: 'Thumbs.db', text: 'Thumbs.db\n' }
 ];
 
-// 二进制资源的规则：只在配了大文件存储服务时才加。
-//
-// 没配服务器就把 audio/ 排除掉，等于让这些素材在任何地方都没有备份 ——
-// 那是拿丢数据换仓库体积，不能默认替用户做这个决定。
-const MEDIA_IGNORE_RULES = [
-  {
-    probe: 'attachments/',
-    text: '# 二进制资源由大文件存储服务托管，不进 Git（Git 存不动，也合并不了）。\nattachments/\n'
-  },
-  { probe: 'audio/', text: 'audio/\n' }
-];
+// 旧版本在配了大文件存储服务时，会把 attachments/ 和 audio/ 写进 .gitignore（带标记的
+// 一段，或者更早的不带标记的三行）。Mini 没有那项服务，这些素材必须由 Git 同步，
+// 否则笔记里引用的图片在另一台设备上就丢了。所以只保留「摘掉」这一半：
+// 认出应用自己写的那段就删掉，用户自己写的同名规则不动。
 const MEDIA_BLOCK_BEGIN = '# >>> workstation managed media ignores >>>';
 const MEDIA_BLOCK_END = '# <<< workstation managed media ignores <<<';
-
-function ignoreRulesFor({ ignoreMedia = false } = {}) {
-  return ignoreMedia ? [...BASE_IGNORE_RULES, ...MEDIA_IGNORE_RULES] : BASE_IGNORE_RULES;
-}
+const LEGACY_MEDIA_RULES = ['attachments/', 'audio/'];
 
 function renderGitignore(rules) {
   return `${rules.map(rule => rule.text).join('\n')}`;
-}
-
-function mediaBlockLines() {
-  return [
-    MEDIA_BLOCK_BEGIN,
-    '# 二进制资源由大文件存储服务托管，不进 Git（Git 存不动，也合并不了）。',
-    'attachments/',
-    'audio/',
-    MEDIA_BLOCK_END
-  ];
 }
 
 function legacyMediaLines() {
@@ -73,7 +53,8 @@ function findSequence(lines, sequence) {
   return matches;
 }
 
-function updateMediaBlock(content, enabled) {
+/** 返回去掉旧媒体规则后的内容；没有可去掉的返回 null。标记残缺时拒绝修改。 */
+function removeLegacyMediaIgnores(content) {
   const newline = content.includes('\r\n') ? '\r\n' : '\n';
   const lines = content.replaceAll('\r\n', '\n').split('\n');
   const starts = lines.flatMap((line, index) => line === MEDIA_BLOCK_BEGIN ? [index] : []);
@@ -81,33 +62,33 @@ function updateMediaBlock(content, enabled) {
   if (starts.length !== ends.length || starts.length > 1 || (starts.length === 1 && starts[0] >= ends[0])) {
     throw new Error('应用管理的媒体忽略规则标记不完整，未修改 .gitignore。');
   }
-
-  const replacement = enabled ? mediaBlockLines() : [];
   if (starts.length === 1) {
-    const current = lines.slice(starts[0], ends[0] + 1);
-    if (enabled && current.join('\n') === replacement.join('\n')) return null;
-    lines.splice(starts[0], ends[0] - starts[0] + 1, ...replacement);
+    lines.splice(starts[0], ends[0] - starts[0] + 1);
     return lines.join(newline);
   }
-
   const legacyMatches = findSequence(lines, legacyMediaLines());
   if (legacyMatches.length > 1) {
     throw new Error('检测到多份旧版媒体忽略规则，未修改 .gitignore。');
   }
   if (legacyMatches.length === 1) {
-    lines.splice(legacyMatches[0], legacyMediaLines().length, ...replacement);
+    lines.splice(legacyMatches[0], legacyMediaLines().length);
     return lines.join(newline);
   }
-  if (!enabled) return null;
-
-  if (lines.length === 1 && lines[0] === '') return `${replacement.join(newline)}${newline}`;
-  const trailingEmpty = lines[lines.length - 1] === '';
-  if (trailingEmpty) lines.pop();
-  lines.push(...replacement, '');
-  return lines.join(newline);
+  return null;
 }
 
 const VAULT_GITIGNORE = renderGitignore(BASE_IGNORE_RULES);
+
+// 换行统一用 LF。Git for Windows 默认 core.autocrlf=true，检出时把文本转成 CRLF：
+// 卡组、待办、复习日志在两台设备上会是两种换行，diff 满屏 ^M，旧版本的解析器
+// 还会一张卡都认不出来。写进 .gitattributes 以后，不管各台机器怎么配，检出的都是 LF。
+const ATTRIBUTE_RULES = [
+  '*.md text eol=lf',
+  '*.jsonl text eol=lf',
+  '.gitignore text eol=lf',
+  '.gitattributes text eol=lf'
+];
+const VAULT_GITATTRIBUTES = `# 应用管理：文本统一用 LF 换行，Windows 和 macOS 检出的内容一致。\n${ATTRIBUTE_RULES.join('\n')}\n`;
 
 function createSync({
   vaultDir,
@@ -115,12 +96,11 @@ function createSync({
   timeoutMs = 60_000,
   enabled = true,
   reviewSyncEnabled = false,
-  ignoreMedia = false,
   beforeReviewPush = async () => {},
-  // 拉取删掉了哪些托管的大文件路径。在 git 命令返回之后立即同步回调，
-  // 而不是等整轮同步结束，调用方好在对账开始前就知道。
-  onMediaRemoved = () => {}
+  // 会改工作区文件的本地 Git 操作（变基、冲突处理）在这里面跑，期间暂停笔记写入。
+  pauseWrites = operation => operation()
 }) {
+  const cancellation = new AbortController();
   let queue = Promise.resolve();
   let currentStatus = Object.freeze({
     phase: (enabled || reviewSyncEnabled) ? 'idle' : 'disabled',
@@ -152,11 +132,20 @@ function createSync({
   }
 
   async function git(args, options = {}) {
-    return run('git', ['-C', vaultDir, ...args], {
+    // 后台同步没有终端可以回答提示：账号密码提示会一直挂到超时。HTTP 连接卡住
+    // （代理坏了、网络时断时续）时用低速限制尽早放弃，而不是每条命令都等满 60 秒。
+    return run('git', [
+      '-C', vaultDir,
+      '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=20',
+      ...args
+    ], {
       encoding: 'utf8',
       timeout: timeoutMs,
       windowsHide: true,
-      ...options
+      maxBuffer: 64 * 1024 * 1024,
+      ...options,
+      signal: cancellation.signal,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(options.env || {}) }
     });
   }
 
@@ -286,14 +275,12 @@ function createSync({
         existing = await fs.readFile(gitignorePath, 'utf8');
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
-        const base = renderGitignore(BASE_IGNORE_RULES);
-        const media = ignoreMedia ? `${mediaBlockLines().join('\n')}\n` : '';
-        await fs.writeFile(gitignorePath, `${base}${media ? `\n${media}` : ''}`, 'utf8');
+        await fs.writeFile(gitignorePath, renderGitignore(BASE_IGNORE_RULES), 'utf8');
         return finish({ ok: true, created: true });
       }
       const rules = new Set(existing.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')));
       const missing = BASE_IGNORE_RULES.filter(patch => !rules.has(patch.probe));
-      const mediaUpdated = updateMediaBlock(existing, ignoreMedia);
+      const mediaUpdated = removeLegacyMediaIgnores(existing);
 
       if (missing.length === 0 && mediaUpdated === null) return finish({ ok: true, unchanged: true });
 
@@ -307,11 +294,11 @@ function createSync({
       }
       await fs.writeFile(gitignorePath, next, 'utf8');
 
-      if (mediaUpdated !== null && !ignoreMedia) {
+      if (mediaUpdated !== null) {
         return finish({
           ok: true,
           ...(missing.length > 0 ? { appended: true } : {}),
-          removed: MEDIA_IGNORE_RULES.map(rule => rule.probe)
+          removed: LEGACY_MEDIA_RULES
         });
       }
       return finish({ ok: true, appended: true });
@@ -326,6 +313,37 @@ function createSync({
     return enqueue(() => ensureGitignoreOnce(options));
   }
 
+  /** 和 .gitignore 一样：不存在就建，缺哪条补哪条，用户自己写的规则不动。 */
+  async function ensureGitattributesOnce(options) {
+    const denied = await beginMutation('gitattributes', options);
+    if (denied) return denied;
+    const attributesPath = path.join(vaultDir, '.gitattributes');
+    try {
+      let existing;
+      try {
+        existing = await fs.readFile(attributesPath, 'utf8');
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        await fs.writeFile(attributesPath, VAULT_GITATTRIBUTES, 'utf8');
+        return finish({ ok: true, created: true });
+      }
+      const present = new Set(existing.split(/\r?\n/).map(line => line.trim().replace(/\s+/g, ' ')));
+      const missing = ATTRIBUTE_RULES.filter(rule => !present.has(rule));
+      if (missing.length === 0) return finish({ ok: true, unchanged: true });
+      const newline = existing.includes('\r\n') ? '\r\n' : '\n';
+      const lead = existing && !existing.endsWith('\n') ? newline : '';
+      await fs.writeFile(attributesPath, `${existing}${lead}${missing.join(newline)}${newline}`, 'utf8');
+      return finish({ ok: true, appended: true });
+    } catch (error) {
+      logger.warn(`[sync] 更新 .gitattributes 失败：${error.message}`);
+      return finish({ ok: false, error: error.message });
+    }
+  }
+
+  function ensureGitattributes(options) {
+    return enqueue(() => ensureGitattributesOnce(options));
+  }
+
   async function status() {
     const repo = await isRepo();
     if (!repo) return { isRepo: false, hasRemote: false, branch: '', recovery: null };
@@ -336,7 +354,8 @@ function createSync({
     return { isRepo: true, hasRemote: await hasRemote(), branch, recovery: await detectRecovery() };
   }
 
-  async function pullOnce(options) {
+  // 先提交本机修改再变基；发生冲突时保留 Git 状态，由用户解决或中止。
+  async function pullOnce(options, message = '') {
     if (!enabled) return finish({ ok: true, skipped: '同步已关闭' });
     if (!(await isRepo(options))) return finish({ ok: true, skipped: 'vault 不是 git 仓库' });
     const denied = await beginMutation('pull', options);
@@ -344,12 +363,19 @@ function createSync({
     if (!(await hasRemote(options))) return finish({ ok: true, skipped: '没有配置远端' });
     if (!(await hasUpstream(options))) return finish({ ok: true, skipped: '尚未建立上游分支' });
 
-    const before = await headSha(options);
     try {
-      await git(['pull', '--rebase', '--autostash'], options);
-      const removedMedia = await mediaRemovedBetween(before, await headSha(options), options);
-      if (removedMedia.length) onMediaRemoved(removedMedia);
-      return finish({ ok: true, ...(removedMedia.length ? { removedMedia } : {}) });
+      if (await hasChanges(options)) {
+        // 单独的拉取（启动时那一次）不替用户提交：跳过，下一轮完整同步时一起处理。
+        if (!message) return finish({ ok: true, skipped: '本机有未提交的修改，下一轮同步时先提交再拉取' });
+        await git(['add', '-A'], options);
+        const recovery = await detectRecovery(options);
+        if (recovery) return blocked(recovery);
+        await git(['commit', '-m', message], options);
+      }
+      // 拉取拆成两步：联网的 fetch 不挡笔记保存；改工作区的变基期间暂停写入。
+      await git(['fetch', '--quiet'], options);
+      await pauseWrites(() => git(['rebase', '--no-autostash', '@{u}'], options));
+      return finish({ ok: true });
     } catch (error) {
       const message = String(error.stderr || error.message).trim();
       const recovery = await detectRecovery(options);
@@ -364,25 +390,6 @@ function createSync({
       return true;
     } catch {
       return false;
-    }
-  }
-
-  /**
-   * 两次提交之间被删除的 audio/、attachments/ 路径。
-   *
-   * 别的设备执行 detach-blobs（`git rm --cached`）后，本机拉取会把这些文件从
-   * 工作区真的删掉。大文件对账要知道这不是用户删的，否则会把服务器上唯一的
-   * 副本也跟着删掉。查不出来就返回空：宁可少保护一次，也不让同步本身失败。
-   */
-  async function mediaRemovedBetween(before, after, options) {
-    if (!before || !after || before === after) return [];
-    try {
-      const { stdout } = await git([
-        'diff', '--name-only', '--no-renames', '--diff-filter=D', '-z', before, after, '--', 'audio', 'attachments'
-      ], options);
-      return splitNul(stdout);
-    } catch {
-      return [];
     }
   }
 
@@ -569,11 +576,9 @@ function createSync({
       }
 
       const before = await headSha(options);
-      if (target?.pullArgs) await git(target.pullArgs, options);
+      if (target?.pullArgs) await pauseWrites(() => git(target.pullArgs, options));
       const after = await headSha(options);
       const changed = before !== after;
-      const removedMedia = await mediaRemovedBetween(before, after, options);
-      if (removedMedia.length) onMediaRemoved(removedMedia);
       const recovery = await detectRecovery(options);
       if (recovery) return finish(reviewResult({ ok: false, changed, blocked: 'recovery-required', recovery }));
 
@@ -707,7 +712,7 @@ function createSync({
   async function cycleOnce(message, options) {
     if (!enabled) return finish({ ok: true, skipped: '同步已关闭' });
     const before = await headSha(options);
-    const pulled = await pullOnce(options);
+    const pulled = await pullOnce(options, message);
     const after = await headSha(options);
     if (pulled.ok === false) {
       return finish({
@@ -746,7 +751,7 @@ function createSync({
       revert: ['revert', '--abort']
     };
     try {
-      await git(commands[recovery.kind], options);
+      await pauseWrites(() => git(commands[recovery.kind], options));
       const remaining = await detectRecovery(options);
       if (remaining) return blocked(remaining);
       return finish({ ok: true, aborted: recovery.kind });
@@ -777,7 +782,9 @@ function createSync({
     syncReviewLogs,
     abortOperation,
     ensureGitignore,
+    ensureGitattributes,
     idle,
+    cancel: () => cancellation.abort(),
     isRepo,
     hasRemote,
     hasChanges,
@@ -786,4 +793,4 @@ function createSync({
   };
 }
 
-module.exports = { createSync, VAULT_GITIGNORE, ignoreRulesFor, renderGitignore, MEDIA_IGNORE_RULES };
+module.exports = { createSync, VAULT_GITIGNORE, VAULT_GITATTRIBUTES, renderGitignore, removeLegacyMediaIgnores };

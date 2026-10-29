@@ -6,8 +6,8 @@
   const counts = typeof navCounts === 'object' && navCounts ? navCounts : { overdue: 0, review: 0 };
   const navItems = [
     { key: 'today', label: '今日', href: '/', active: matches('/') },
-    { key: 'notes', label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new', '/section') },
-    { key: 'projects', label: '研究项目', href: '/board/experiment', active: matches('/board', '/item') },
+    { key: 'notes', label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new') },
+    { key: 'projects', label: '研究项目', href: '/board/experiment', active: matches('/board') },
     { key: 'plan', label: '计划', href: '/plan', active: matches('/plan', '/tasks', '/calendar', '/deadlines'), badge: counts.overdue, badgeTone: 'warn', badgeLabel: '项逾期' },
     { key: 'review', label: '复习', href: '/decks', active: matches('/decks', '/review'), badge: counts.review, badgeLabel: '张到期' }
   ];
@@ -37,6 +37,8 @@
   <link rel="stylesheet" href="/static/fonts/noto-sans-sc/wght.css">
   <link rel="stylesheet" href="/static/katex/katex.min.css">
   <link rel="stylesheet" href="/static/styles.css">
+  <%# 新建笔记的标题与路径要在草稿和编辑器记下初始状态之前就位，所以排在最前面。 %>
+  <% if (typeof isNew !== 'undefined' && isNew) { %><script src="/static/new-note.js" defer></script><% } %>
   <script src="/static/drafts.js" defer></script>
   <script src="/static/task-actions.js" defer></script>
   <script src="/static/app.js" defer></script>
@@ -65,9 +67,9 @@
       <%- include('navigation', { navItems, toolItems }) %>
 
       <div class="workspace-sidebar-footer">
-        <button type="button" class="workspace-tool-link guide-entry" data-guide-open title="新手指引" aria-label="新手指引">
+        <a data-nav="guide" class="workspace-tool-link guide-entry<%= matches('/guide') ? ' is-active' : '' %>" href="/guide" title="上手指南" aria-label="上手指南"<% if (matches('/guide')) { %> aria-current="page"<% } %>>
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 1.5-2.5 2-2.5 3.5M12 16v1"/></svg>
-        </button>
+        </a>
         <button type="button" class="workspace-tool-link guide-entry" data-desktop-settings title="设置" aria-label="设置" hidden>
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></svg>
         </button>
@@ -85,10 +87,11 @@
     </aside>
 
     <div class="workspace-main">
-      <section class="index-banner" id="index-banner" role="status" aria-live="polite" aria-atomic="false" hidden>
+      <%# 建索引的进度每秒都在变，读屏软件不必逐条播报；失败项和结论才需要读出来。 %>
+      <section class="index-banner" id="index-banner" hidden>
         <p class="index-banner-message" id="index-banner-message"></p>
         <ul class="index-banner-failures" id="index-banner-failures" hidden></ul>
-        <p class="index-banner-summary" id="index-banner-summary" hidden></p>
+        <p class="index-banner-summary" id="index-banner-summary" role="status" hidden></p>
         <button class="button small" id="index-banner-retry" type="button" hidden>重试失败项</button>
       </section>
       <main class="page <%= pageMode %>" id="main-content" tabindex="-1">

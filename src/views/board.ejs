@@ -12,7 +12,7 @@
     <h1><%= workflow.label %></h1>
     <p class="page-meta">共 <%= total %> 个<%= workflow.noun %></p>
   </div>
-  <% if (!readOnly) { %><a class="button" href="/new?path=<%= encodeURIComponent(`${workflow.section}/new-project`) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
+  <% if (!readOnly) { %><a class="button" href="/new?folder=<%= encodeURIComponent(workflow.section) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
 </header>
 
 <% if (total === 0) { %>
@@ -63,8 +63,8 @@ status: <%= workflow.initial %>
                 <input type="hidden" name="path" value="<%= item.path %>">
                 <input type="hidden" name="expectedHash" value="<%= item.hash %>">
                 <label class="select-field small">
-                  <span class="visually-hidden">改变状态</span>
-                  <select name="status" data-auto-submit aria-label="改变状态">
+                  <span class="visually-hidden">改变「<%= item.title %>」的状态</span>
+                  <select name="status" data-auto-submit aria-label="改变「<%= item.title %>」的状态">
                     <% workflow.statuses.forEach(status => { %>
                       <option value="<%= status.key %>" <%= status.key === item.status ? 'selected' : '' %>><%= status.label %></option>
                     <% }) %>

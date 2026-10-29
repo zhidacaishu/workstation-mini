@@ -119,3 +119,44 @@ test('renderer 裁决返回时窗口已销毁则忽略 veto', async () => {
   assert.deepEqual(await request, { ok: true });
   assert.deepEqual(window.calls, ['beforeunload']);
 });
+
+test('有未保存更改的窗口：用户选「仍然退出」就继续，选「取消」就停下', async () => {
+  const veto = stubWindow({ veto: true });
+  let accepted = 0;
+  const asked = [];
+  let answer = true;
+  const coordinator = createQuitCoordinator({
+    getWindows: () => [veto],
+    onAccepted: async () => { accepted += 1; return { ok: true }; },
+    confirmDiscard: window => { asked.push(window); return answer; }
+  });
+  assert.deepEqual(await coordinator.request(), { ok: true });
+  assert.equal(accepted, 1);
+  assert.equal(asked.length, 1);
+
+  answer = false;
+  const second = createQuitCoordinator({ getWindows: () => [veto], onAccepted: async () => ({ ok: true }), confirmDiscard: () => answer });
+  assert.deepEqual(await second.request(), { cancelled: true });
+});
+
+test('卡死或崩溃的页面不会让退出永远挂住', async () => {
+  const { windowVetoesUnload } = require('../electron/quit-coordinator');
+  const hung = stubWindow({ decision: { promise: new Promise(() => {}) } });
+  const started = Date.now();
+  assert.equal(await windowVetoesUnload(hung, { timeoutMs: 50 }), false);
+  assert.ok(Date.now() - started < 1000);
+  const crashed = stubWindow({ veto: true });
+  crashed.webContents.isCrashed = () => true;
+  assert.equal(await windowVetoesUnload(crashed), false);
+});
+
+test('离开确认：测试运行时按约定回答，不弹框', () => {
+  const { createLeaveGuard } = require('../electron/leave-guard');
+  const dialog = { showMessageBoxSync: () => { throw new Error('测试里不该弹框'); } };
+  assert.equal(createLeaveGuard({ dialog, isTestRun: true, testAnswer: undefined })(null, 'main'), false);
+  assert.equal(createLeaveGuard({ dialog, isTestRun: true, testAnswer: 'leave' })(null, 'main'), true);
+  const asked = [];
+  const real = createLeaveGuard({ dialog: { showMessageBoxSync: (parent, options) => { asked.push(options.buttons); return 0; } }, isTestRun: false });
+  assert.equal(real({ isDestroyed: () => false }, 'settings'), true);
+  assert.deepEqual(asked[0], ['放弃修改', '继续编辑']);
+});

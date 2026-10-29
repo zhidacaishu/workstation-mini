@@ -1,0 +1,85 @@
+<%
+  // 首次启动的界面导览：一个欢迎页，加上侧栏里六处入口的高亮说明。
+  // 这里只讲「东西在哪、干什么用」；具体写法和 Git 配置放在上手指南页（/guide）。
+  // 步数必须和 electron/guide-store.js 的 GUIDE_STEPS 一致。
+  const tourIcons = (typeof ui !== 'undefined' && ui.NAV_ICONS) || {};
+  const tourIcon = key => `<svg class="tour-icon" viewBox="0 0 24 24" aria-hidden="true">${tourIcons[key] || ''}</svg>`;
+  const tourMac = typeof isMac !== 'undefined' && isMac;
+  const tourToday = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : '';
+  // 示例里的截止日用「一周后」，不会是一个已经过去的日子。
+  const tourDue = tourToday && typeof ui !== 'undefined' ? ui.addDays(tourToday, 7) : '2026-11-04';
+%>
+<dialog id="onboarding" class="tour" aria-labelledby="guide-title" aria-describedby="guide-body">
+  <div class="tour-spot" data-guide-spot aria-hidden="true"></div>
+  <section class="tour-card" data-guide-card>
+    <header class="tour-card-head">
+      <p class="tour-progress" data-guide-progress aria-live="polite"></p>
+      <button type="button" class="icon-button tour-close" data-guide-skip aria-label="退出导览" title="退出导览（Esc）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <h2 id="guide-title" tabindex="-1" aria-live="polite"></h2>
+    <div id="guide-body" class="tour-body" data-guide-body></div>
+    <p class="tour-keys" aria-hidden="true">← → 翻页 · Esc 退出</p>
+    <p data-guide-error class="tour-error" role="alert" hidden></p>
+    <footer class="tour-card-foot">
+      <button type="button" class="button quiet small" data-guide-skip data-guide-later>以后再说</button>
+      <ol class="tour-dots" data-guide-dots aria-hidden="true"></ol>
+      <div class="tour-nav">
+        <button type="button" class="button quiet small" data-guide-prev>上一步</button>
+        <button type="button" class="button primary small" data-guide-next>下一步</button>
+      </div>
+    </footer>
+  </section>
+</dialog>
+
+<template data-guide-step data-title="欢迎使用科研工作台" data-next="开始导览">
+  <p>这里只做四件事，侧栏里各有一个入口：</p>
+  <ol class="tour-loop">
+    <li><%- tourIcon('notes') %><strong>记录</strong><span>Markdown 笔记</span></li>
+    <li><%- tourIcon('search') %><strong>找回</strong><span>搜索与命令</span></li>
+    <li><%- tourIcon('plan') %><strong>计划</strong><span>待办与截止日</span></li>
+    <li><%- tourIcon('review') %><strong>复习</strong><span>间隔重复卡片</span></li>
+  </ol>
+  <p class="tour-note">花一分钟认识它们。导览只是看看，不会改动笔记或设置；所有内容都是资料库里的普通 Markdown 文件。</p>
+</template>
+
+<template data-guide-step data-title="搜索与命令" data-target=".workspace-search">
+  <p>按 <kbd><%= tourMac ? '⌘K' : 'Ctrl K' %></kbd> 随时打开：输入关键词搜索笔记标题和正文，也能直接执行「新建笔记」「计划」等命令。</p>
+</template>
+
+<template data-guide-step data-title="笔记" data-target='[data-nav="notes"]'>
+  <p>资料库里的全部 Markdown 笔记，可以按标签和分区筛选。</p>
+  <p>用 <code>[[笔记名]]</code> 连接两篇笔记，<code>$E=mc^2$</code> 会排版成公式。</p>
+</template>
+
+<template data-guide-step data-title="研究项目与计划" data-target='[data-nav="projects"], [data-nav="plan"]'>
+  <p>在任意笔记里写这样一行，它就会进入「计划」，@ 后面是截止日：</p>
+  <pre class="tour-code"><code>- [ ] 读完论文 @<%= tourDue %></code></pre>
+  <p>研究项目记录状态和下一步，正在推进的那个会出现在「今日」。</p>
+</template>
+
+<template data-guide-step data-title="复习" data-target='[data-nav="review"]'>
+  <p>在笔记阅读页选中一段文字，点浮出的「建卡片」。</p>
+  <p>复习时先回忆，按空格看答案，再按 <kbd>1</kbd>–<kbd>4</kbd> 评分。角标是今天到期的卡片数。</p>
+</template>
+
+<template data-guide-step data-title="出错时先看这里" data-target=".workspace-tools">
+  <ul class="tour-legend">
+    <li><%- tourIcon('history') %><span><strong>历史与草稿</strong>：改坏或误删的笔记，可以预览后恢复。</span></li>
+    <li><%- tourIcon('health') %><span><strong>资料库健康</strong>：搜不到内容或同步异常时，先来这里检查。</span></li>
+  </ul>
+</template>
+
+<template data-guide-step data-title="从这里开始" data-target=".workspace-sidebar-footer" data-next="完成">
+  <ul class="tour-legend">
+    <li><%- tourIcon('guide') %><span><strong>上手指南</strong>：上手清单、语法速查和 Git 同步设置，随时回来翻。</span></li>
+    <li><%- tourIcon('settings') %><span><strong>设置</strong>：资料库位置、外观和同步。</span></li>
+    <% if (typeof readOnly !== 'undefined' && readOnly) { %>
+      <li><%- tourIcon('lock') %><span><strong>只读模式</strong>：可以浏览、搜索和复习，不能新建或修改笔记。</span></li>
+    <% } else { %>
+      <li><%- tourIcon('create') %><span><strong>新建笔记</strong>：从写第一篇开始。</span></li>
+    <% } %>
+  </ul>
+  <p><a href="/guide" data-guide-finish>打开上手指南，看看第一步做什么</a></p>
+</template>

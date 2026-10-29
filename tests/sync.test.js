@@ -102,18 +102,11 @@ test('自动为 vault 建 .gitignore 并忽略索引库', async () => {
     fsSync.writeFileSync(path.join(dir, 'workstation.db'), 'fake');
     fsSync.writeFileSync(path.join(dir, 'workstation.db-wal'), 'fake');
     await writeNote(dir, 'notes/a.md', { body: '内容' });
-    const mineruDir = path.join(dir, '.workstation', 'mineru', '1', 'ATTACH1');
-    fsSync.mkdirSync(mineruDir, { recursive: true });
-    fsSync.writeFileSync(path.join(mineruDir, 'manifest.json'), '{}');
 
     // -uall 才会逐个列出未跟踪文件；默认只显示折叠后的目录名。
     const status = git(dir, 'status', '--porcelain', '-uall');
     assert.ok(!status.includes('workstation.db'), `索引库不该出现在 git status 里：\n${status}`);
     assert.ok(status.includes('notes/a.md'), 'Markdown 应正常被跟踪');
-    assert.ok(
-      status.includes('.workstation/mineru/1/ATTACH1/manifest.json'),
-      'MinerU 持久产物应正常被跟踪'
-    );
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -172,72 +165,48 @@ test('已有索引忽略规则时只补原子写临时文件规则', async () =>
   }
 });
 
-// 只追加不撤回是这里最危险的一种半对：配过一次大文件存储服务，audio/ 和
-// attachments/ 就永久留在 .gitignore 里。用户之后清掉服务地址，这些素材
-// 既不进 Git 也没有服务托管 —— 恰好是 MEDIA_IGNORE_RULES 注释里说
-// 「不能替用户做这个决定」的那个结果，而且完全没有征兆。
-test('清掉大文件存储服务后，媒体忽略规则要被摘掉而不是留着', async () => {
+// 旧版本配过大文件存储服务时会把 attachments/ 和 audio/ 写进 .gitignore。Mini 没有那项
+// 服务，留着这些规则就意味着笔记里的图片永远不进 Git、换台设备就丢。
+test('旧版本写进 .gitignore 的媒体规则会被摘掉，基础规则一条不少', async () => {
   const dir = await makeRepo();
   try {
-    const withBlobs = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: true });
-    assert.deepEqual(await withBlobs.ensureGitignore(), { ok: true, created: true });
-    const enabledContent = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
-    assert.match(enabledContent, /^audio\/$/m);
-    assert.match(enabledContent, /^# >>> workstation managed media ignores >>>$/m);
-
-    const withoutBlobs = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: false });
-    assert.deepEqual(
-      await withoutBlobs.ensureGitignore(),
-      { ok: true, removed: ['attachments/', 'audio/'] }
-    );
-
+    const managed = [
+      '# 我的规则', '*.bak', '',
+      '# >>> workstation managed media ignores >>>',
+      '# 二进制资源由大文件存储服务托管，不进 Git（Git 存不动，也合并不了）。',
+      'attachments/', 'audio/',
+      '# <<< workstation managed media ignores <<<', ''
+    ].join('\n');
+    fsSync.writeFileSync(path.join(dir, '.gitignore'), managed);
+    const sync = createSync({ vaultDir: dir, logger: quietLogger });
+    assert.deepEqual(await sync.ensureGitignore(), { ok: true, appended: true, removed: ['attachments/', 'audio/'] });
     const content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
     assert.doesNotMatch(content, /^audio\/$/m, 'audio/ 必须重新纳入 Git');
     assert.doesNotMatch(content, /^attachments\/$/m, 'attachments/ 必须重新纳入 Git');
-    assert.match(content, /^workstation\.db$/m, '基础规则一条都不能被误删');
-    assert.match(content, /^\*\.tmp-\*$/m);
-
-    // 摘干净之后再跑一次不该反复改写文件。
-    assert.deepEqual(await withoutBlobs.ensureGitignore(), { ok: true, unchanged: true });
-
-    // 重新配上服务要能再加回去，这样开关就是可逆的。
-    assert.deepEqual(await withBlobs.ensureGitignore(), { ok: true, appended: true });
-    assert.match(fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8'), /^audio\/$/m);
+    assert.doesNotMatch(content, /workstation managed media ignores/);
+    assert.match(content, /^\*\.bak$/m);
+    assert.match(content, /^workstation\.db$/m);
+    assert.deepEqual(await sync.ensureGitignore(), { ok: true, unchanged: true }, '摘干净之后不再反复改写');
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
 
-test('摘掉媒体规则不碰用户自己写的同名规则', async () => {
+test('用户自己写的同名规则不动', async () => {
   const dir = await makeRepo();
   try {
-    fsSync.writeFileSync(
-      path.join(dir, '.gitignore'),
-      '# 我自己的规则\nscratch/\naudio/\nattachments/\n*.bak\n'
-    );
-    const withoutBlobs = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: false });
-    await withoutBlobs.ensureGitignore();
-
-    let content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+    fsSync.writeFileSync(path.join(dir, '.gitignore'), '# 我自己的规则\nscratch/\naudio/\nattachments/\n*.bak\n');
+    await createSync({ vaultDir: dir, logger: quietLogger }).ensureGitignore();
+    const content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
     assert.match(content, /我自己的规则/);
-    assert.match(content, /^scratch\/$/m);
-    assert.match(content, /^\*\.bak$/m);
-    assert.match(content, /^audio\/$/m);
-    assert.match(content, /^attachments\/$/m);
-
-    const withBlobs = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: true });
-    await withBlobs.ensureGitignore();
-    await withoutBlobs.ensureGitignore();
-    content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
-    assert.equal(content.match(/^audio\/$/gm)?.length, 1, '关闭后只保留用户自己的 audio/');
-    assert.equal(content.match(/^attachments\/$/gm)?.length, 1, '关闭后只保留用户自己的 attachments/');
-    assert.doesNotMatch(content, /workstation managed media ignores/);
+    assert.equal(content.match(/^audio\/$/gm)?.length, 1);
+    assert.equal(content.match(/^attachments\/$/gm)?.length, 1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
 
-test('旧版应用媒体规则只在完整连续时迁移或移除', async () => {
+test('更早版本不带标记的媒体规则只在完整连续时移除', async () => {
   const dir = await makeRepo();
   const legacy = [
     '# 用户规则',
@@ -250,21 +219,11 @@ test('旧版应用媒体规则只在完整连续时迁移或移除', async () =>
   ].join('\n');
   try {
     fsSync.writeFileSync(path.join(dir, '.gitignore'), legacy);
-    const withBlobs = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: true });
-    assert.deepEqual(await withBlobs.ensureGitignore(), { ok: true, appended: true });
-    let content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
-    assert.match(content, /workstation managed media ignores/);
-    assert.equal(content.match(/^audio\/$/gm)?.length, 1);
-
-    const withoutBlobs = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: false });
-    assert.deepEqual(
-      await withoutBlobs.ensureGitignore(),
-      { ok: true, removed: ['attachments/', 'audio/'] }
-    );
-    content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+    const sync = createSync({ vaultDir: dir, logger: quietLogger });
+    assert.deepEqual(await sync.ensureGitignore(), { ok: true, appended: true, removed: ['attachments/', 'audio/'] });
+    const content = fsSync.readFileSync(path.join(dir, '.gitignore'), 'utf8');
     assert.match(content, /^\*\.bak$/m);
     assert.doesNotMatch(content, /^audio\/$/m);
-    assert.doesNotMatch(content, /workstation managed media ignores/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -275,7 +234,7 @@ test('媒体标记不完整时失败关闭并保留 CRLF 原文', async () => {
   const malformed = '# 用户规则\r\n# >>> workstation managed media ignores >>>\r\naudio/\r\n';
   try {
     fsSync.writeFileSync(path.join(dir, '.gitignore'), malformed);
-    const sync = createSync({ vaultDir: dir, logger: quietLogger, ignoreMedia: false });
+    const sync = createSync({ vaultDir: dir, logger: quietLogger });
     const result = await sync.ensureGitignore();
     assert.equal(result.ok, false);
     assert.match(result.error, /标记不完整/);
@@ -404,49 +363,6 @@ test('推送到真实裸仓库并能被另一端拉回来', async () => {
   }
 });
 
-test('拉取从工作区删掉托管的大文件时立即上报路径（别的设备 detach 过）', async () => {
-  const bare = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-bare-'));
-  const deviceA = await makeRepo();
-  const deviceB = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-devb-'));
-  try {
-    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
-    git(deviceA, 'remote', 'add', 'origin', bare);
-    await fs.mkdir(path.join(deviceA, 'audio', 'clip'), { recursive: true });
-    await fs.writeFile(path.join(deviceA, 'audio', 'clip', 'audio.m4a'), 'sound');
-    await writeNote(deviceA, 'notes/a.md', { body: '笔记' });
-    git(deviceA, 'add', '-A');
-    git(deviceA, 'commit', '-q', '-m', 'init');
-    git(deviceA, 'push', '-q', '-u', 'origin', 'main');
-
-    execFileSync('git', ['clone', '-q', bare, deviceB]);
-    git(deviceB, 'config', 'user.email', 'b@example.com');
-    git(deviceB, 'config', 'user.name', 'b');
-
-    // A 按 detach-blobs 的建议摘掉跟踪。
-    git(deviceA, 'rm', '-r', '-q', '--cached', 'audio');
-    git(deviceA, 'commit', '-q', '-m', 'detach');
-    git(deviceA, 'push', '-q');
-
-    const reported = [];
-    const syncB = createSync({
-      vaultDir: deviceB,
-      logger: quietLogger,
-      onMediaRemoved: paths => reported.push(...paths)
-    });
-    const pulled = await syncB.pull();
-    assert.equal(pulled.ok, true);
-    assert.deepEqual(pulled.removedMedia, ['audio/clip/audio.m4a']);
-    assert.deepEqual(reported, ['audio/clip/audio.m4a']);
-    assert.equal(fsSync.existsSync(path.join(deviceB, 'audio', 'clip', 'audio.m4a')), false);
-  } finally {
-    for (const dir of [bare, deviceA, deviceB]) {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  }
-});
-
-// 长期运行的桌面应用必须每轮先拉再推：另一台设备推过之后，
-// 本机如果只 push 不 pull 会一直 non-fast-forward，复习记录也无法同步出去。
 test('一轮同步先拉后推：远端领先时仍能把本地改动推上去', async () => {
   const bare = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-hub-'));
   const laptop = await makeRepo();
@@ -499,60 +415,78 @@ test('一轮同步先拉后推：远端领先时仍能把本地改动推上去',
   }
 });
 
-test('rebase 冲突后立即停止，不会暂存本地未跟踪文件，并可安全中止', async () => {
+async function conflictFixture() {
   const bare = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-conflict-hub-'));
   const local = await makeRepo();
   const other = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-conflict-other-'));
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
+  await fs.writeFile(path.join(local, 'shared.md'), 'base\n', 'utf8');
+  git(local, 'remote', 'add', 'origin', bare);
+  git(local, 'add', 'shared.md');
+  git(local, 'commit', '-qm', 'base');
+  git(local, 'push', '-q', '-u', 'origin', 'main');
+  execFileSync('git', ['clone', '-q', bare, other]);
+  git(other, 'config', 'user.email', 'other@example.com');
+  git(other, 'config', 'user.name', 'other');
+  await fs.writeFile(path.join(other, 'shared.md'), 'remote\n', 'utf8');
+  git(other, 'add', 'shared.md');
+  git(other, 'commit', '-qm', 'remote');
+  git(other, 'push', '-q');
+  return { bare, local, other, cleanup: () => Promise.all([bare, local, other].map(target => fs.rm(target, { recursive: true, force: true }))) };
+}
+
+test('两台设备冲突时停止同步，不选边、不生成副本、不推送；用户可中止', async () => {
+  const fixture = await conflictFixture();
   try {
-    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', bare]);
-    await fs.writeFile(path.join(local, 'shared.md'), 'base\n', 'utf8');
-    git(local, 'remote', 'add', 'origin', bare);
-    git(local, 'add', 'shared.md');
-    git(local, 'commit', '-qm', 'base');
-    git(local, 'push', '-q', '-u', 'origin', 'main');
-
-    execFileSync('git', ['clone', '-q', bare, other]);
-    git(other, 'config', 'user.email', 'other@example.com');
-    git(other, 'config', 'user.name', 'other');
-    await fs.writeFile(path.join(other, 'shared.md'), 'remote\n', 'utf8');
-    git(other, 'add', 'shared.md');
-    git(other, 'commit', '-qm', 'remote');
-    git(other, 'push', '-q');
-
-    await fs.writeFile(path.join(local, 'shared.md'), 'local\n', 'utf8');
-    git(local, 'add', 'shared.md');
-    git(local, 'commit', '-qm', 'local');
-    await fs.writeFile(path.join(local, 'must-remain-untracked.txt'), 'private', 'utf8');
-
-    const sync = createSync({ vaultDir: local, logger: quietLogger });
-    const states = [];
-    sync.onStatus(state => states.push(state.phase));
-    const result = await sync.cycle('绝不能产生的提交');
-
+    await fs.writeFile(path.join(fixture.local, 'shared.md'), 'local\n');
+    git(fixture.local, 'commit', '-qam', 'local');
+    const sync = createSync({ vaultDir: fixture.local, logger: quietLogger });
+    const result = await sync.cycle('自动同步');
     assert.equal(result.ok, false);
     assert.equal(result.pushed, null);
     assert.equal(result.recovery.kind, 'rebase');
-    assert.equal(result.recovery.abortable, true);
-    assert.match(git(local, 'status', '--porcelain'), /^UU shared\.md$|^AA shared\.md$/m);
-    assert.match(git(local, 'status', '--porcelain'), /^\?\? must-remain-untracked\.txt$/m);
-    assert.equal(git(local, 'diff', '--cached', '--name-only').includes('must-remain-untracked.txt'), false);
-    assert.equal(sync.getStatus().phase, 'recovery-required');
-    assert.ok(states.includes('recovery-required'));
+    assert.match(await fs.readFile(path.join(fixture.local, 'shared.md'), 'utf8'), /<<<<<<< /);
+    assert.equal((await fs.readdir(fixture.local)).some(name => name.includes('冲突副本')), false);
+    assert.equal(git(fixture.bare, 'show', 'main:shared.md').trim(), 'remote');
+    assert.equal((await sync.cycle('重试')).ok, false);
+    assert.equal((await sync.abortOperation()).ok, true);
+    assert.equal((await fs.readFile(path.join(fixture.local, 'shared.md'), 'utf8')).trim(), 'local');
+  } finally { await fixture.cleanup(); }
+});
 
-    const ignoredBefore = await fs.readFile(path.join(local, '.gitignore'), 'utf8').catch(() => '');
-    const ignored = await sync.ensureGitignore();
-    assert.equal(ignored.blocked, 'recovery-required');
-    const ignoredAfter = await fs.readFile(path.join(local, '.gitignore'), 'utf8').catch(() => '');
-    assert.equal(ignoredAfter, ignoredBefore);
-
-    const aborted = await sync.abortOperation();
-    assert.equal(aborted.ok, true);
-    assert.equal(aborted.aborted, 'rebase');
-    assert.equal(await sync.detectRecovery(), null);
-    assert.equal(sync.getStatus().phase, 'idle');
-    assert.equal((await fs.readFile(path.join(local, 'shared.md'), 'utf8')).replaceAll('\r\n', '\n'), 'local\n');
+test('未提交的修改和远端改了同一篇：先提交再变基，停止并保留本机提交', async () => {
+  const fixture = await conflictFixture();
+  try {
+    await fs.writeFile(path.join(fixture.local, 'shared.md'), 'local edit\n', 'utf8');
+    const sync = createSync({ vaultDir: fixture.local, logger: quietLogger });
+    const pulledAlone = await sync.pull();
+    assert.match(pulledAlone.skipped, /未提交的修改/, '单独拉取不替用户提交');
+    const result = await sync.cycle('自动同步');
+    assert.equal(result.ok, false);
+    assert.equal(result.recovery.kind, 'rebase');
+    await sync.abortOperation();
+    assert.equal((await fs.readFile(path.join(fixture.local, 'shared.md'), 'utf8')).trim(), 'local edit');
   } finally {
-    for (const target of [bare, local, other]) await fs.rm(target, { recursive: true, force: true });
+    await fixture.cleanup();
+  }
+});
+
+test('删改冲突同样停下，用户中止后本机提交原样保留', async () => {
+  const fixture = await conflictFixture();
+  try {
+    // 删改冲突：本机删掉、远端改了。这种情况不猜，回到拉取前。
+    git(fixture.local, 'rm', '-q', 'shared.md');
+    git(fixture.local, 'commit', '-qm', 'delete');
+    const sync = createSync({ vaultDir: fixture.local, logger: quietLogger });
+    const result = await sync.cycle('自动同步');
+    assert.equal(result.ok, false);
+    assert.equal((await sync.detectRecovery()).kind, 'rebase');
+    await sync.abortOperation();
+    assert.equal(await sync.detectRecovery(), null);
+    assert.equal(git(fixture.local, 'log', '-1', '--format=%s').trim(), 'delete');
+    await assert.rejects(fs.access(path.join(fixture.local, 'shared.md')));
+  } finally {
+    await fixture.cleanup();
   }
 });
 
@@ -969,4 +903,35 @@ test('远端就叫 origin 时行为不变', async () => {
   } finally {
     for (const target of [dir, bare]) await fs.rm(target, { recursive: true, force: true });
   }
+});
+
+test('应用管理 .gitattributes：没有就建，缺规则就补，用户自己的规则不动', async () => {
+  const { VAULT_GITATTRIBUTES } = require('../src/sync');
+  const dir = await makeRepo();
+  try {
+    const sync = createSync({ vaultDir: dir, logger: quietLogger });
+    assert.equal((await sync.ensureGitattributes()).created, true);
+    assert.equal(await fs.readFile(path.join(dir, '.gitattributes'), 'utf8'), VAULT_GITATTRIBUTES);
+    assert.equal((await sync.ensureGitattributes()).unchanged, true);
+    await fs.writeFile(path.join(dir, '.gitattributes'), '*.png binary\n*.md text eol=lf\n', 'utf8');
+    assert.equal((await sync.ensureGitattributes()).appended, true);
+    const content = await fs.readFile(path.join(dir, '.gitattributes'), 'utf8');
+    assert.match(content, /^\*\.png binary\n\*\.md text eol=lf\n\*\.jsonl text eol=lf\n/);
+    assert.equal(content.match(/\*\.md text eol=lf/g).length, 1);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('远端不可访问时保留 fetch 错误，绝不报告冲突已解决', async () => {
+  const fixture = await conflictFixture();
+  try {
+    git(fixture.local, 'remote', 'set-url', 'origin', path.join(fixture.local, 'missing-remote'));
+    const sync = createSync({ vaultDir: fixture.local, logger: quietLogger });
+    const result = await sync.pull();
+    assert.equal(result.ok, false);
+    assert.ok(result.error);
+    assert.equal(result.conflictCopies, undefined);
+    assert.equal(await sync.detectRecovery(), null);
+  } finally { await fixture.cleanup(); }
 });

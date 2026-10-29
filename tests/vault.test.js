@@ -167,7 +167,6 @@ test('笔记读写删除拒绝 vault 内的符号链接祖先', async t => {
     }
 
     await assert.rejects(note.readNote(vault, 'linked/secret.md'), /符号链接|普通文件/);
-    assert.throws(() => note.readNoteSync(vault, 'linked/secret.md'), /符号链接|普通文件/);
     await assert.rejects(note.writeNote(vault, 'linked/secret.md', { body: '覆盖' }), /符号链接/);
     await assert.rejects(note.deleteNote(vault, 'linked/secret.md'), /符号链接|普通文件/);
     assert.equal(await fs.readFile(outsideNote, 'utf8'), '外部内容');
@@ -194,7 +193,6 @@ test('笔记读写删除拒绝最终文件符号链接', async t => {
     }
 
     await assert.rejects(note.readNote(vault, 'linked.md'), /普通文件/);
-    assert.throws(() => note.readNoteSync(vault, 'linked.md'), /普通文件/);
     await assert.rejects(note.writeNote(vault, 'linked.md', { body: '覆盖' }), /普通文件/);
     await assert.rejects(note.deleteNote(vault, 'linked.md'), /普通文件/);
     assert.equal(await fs.readFile(outsideNote, 'utf8'), '外部内容');
@@ -445,4 +443,9 @@ test('解析 frontmatter 不喂 gray-matter 的全局缓存', () => {
   const first = note.parseFrontmatter('---\ntitle: 同一份\n---\n正文');
   first.data.injected = 'oops';
   assert.equal(note.parseFrontmatter('---\ntitle: 同一份\n---\n正文').data.injected, undefined);
+});
+
+test('附件嵌入不算双链，笔记嵌入仍算', () => {
+  const links = parseWikilinks('![[组会录音.mp3]] ![[图 1.png]] ![[论文.pdf]] ![[另一篇]] ![[第三篇.md]] [[第四篇]]');
+  assert.deepEqual(links.map(link => link.target), ['另一篇', '第三篇', '第四篇']);
 });
