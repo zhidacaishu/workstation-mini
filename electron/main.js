@@ -458,6 +458,16 @@ async function createMainWindow({ hidden = false } = {}) {
       if (!hidden && !quitting) window.show();
       return window;
     } catch (error) {
+      // 首页已经可交互时，用户可能在资源加载完前打开另一页。新导航会取消
+      // 原 loadURL（ERR_ABORTED），不能因此销毁正在加载新页面的窗口。
+      let internalNavigation = false;
+      if (!window.isDestroyed() && (error.code === 'ERR_ABORTED' || error.errno === -3)) {
+        try { internalNavigation = new URL(window.webContents.getURL()).origin === runtimeAtCreation.origin; } catch {}
+      }
+      if (internalNavigation && runtime === runtimeAtCreation && !quitting) {
+        if (!hidden) window.show();
+        return window;
+      }
       if (!window.isDestroyed()) window.destroy();
       throw error;
     }

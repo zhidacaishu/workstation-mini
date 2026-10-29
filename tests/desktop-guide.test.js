@@ -150,7 +150,7 @@ test('界面导览、上手清单与上手指南：首次显示、进度、跳�
     assert.match(commands, /git init/);
     await page.locator('[data-copy="git-commands"]').click();
     await page.waitForFunction(() => document.querySelector('[data-copy="git-commands"]').textContent === '已复制');
-    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), commands);
+    assert.equal((await app.evaluate(({ clipboard }) => clipboard.readText())).replace(/\r\n/g, '\n'), commands);
     const newWindow = app.waitForEvent('window');
     await page.locator('[data-guide-settings]').click();
     const settings = await newWindow;
