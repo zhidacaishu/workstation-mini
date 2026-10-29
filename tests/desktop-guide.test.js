@@ -9,12 +9,16 @@ const progressIs = text => document.querySelector('[data-guide-progress]').textC
 
 /** 高亮框要完整罩住目标，卡片要整张落在窗口里、并且不压住目标。 */
 async function spotlightOf(page, selector) {
-  // 等高亮框停稳：窗口缩放后它会重新定位，还可能带着过渡动画。
-  await page.waitForFunction(() => new Promise(resolve => {
-    const spot = document.querySelector('[data-guide-spot]');
-    const before = JSON.stringify(spot.getBoundingClientRect());
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve(JSON.stringify(spot.getBoundingClientRect()) === before)));
-  }), null, { polling: 50 });
+  // 等待目标与高亮框一起完成布局；仅观察高亮框两帧不变可能读到旧位置。
+  await page.waitForFunction(selector => {
+    const spot = document.querySelector('[data-guide-spot]').getBoundingClientRect();
+    const card = document.querySelector('[data-guide-card]').getBoundingClientRect();
+    const targets = [...document.querySelectorAll(selector)].map(element => element.getBoundingClientRect());
+    return targets.length && targets.every(target => spot.left <= target.left && spot.top <= target.top
+      && spot.right >= target.right && spot.bottom >= target.bottom && card.left >= target.right)
+      && card.left >= 0 && card.top >= 0 && card.right <= document.documentElement.clientWidth
+      && card.bottom <= document.documentElement.clientHeight;
+  }, selector, { polling: 'raf' });
   return page.evaluate(selector => {
     const box = element => { const r = element.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; };
     const targets = [...document.querySelectorAll(selector)].map(box);

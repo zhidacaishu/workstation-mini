@@ -243,6 +243,11 @@ test('三个固定 ID 副本及显式后缀全局唯一，按 ID 编辑正确卡
   await updateCard(vaultDir, { id: target.id, back: 'updated', expectedHash: await hash('c.md') });
   assert.match(await read(vaultDir, 'c.md'), /updated/);
   assert.doesNotMatch(await read(vaultDir, 'b.md'), /updated/);
+  const moved = await updateCard(vaultDir, { id: target.id, deckFile: 'z', expectedHash: await hash('c.md') });
+  assert.equal(moved.id, target.id);
+  const after = await loadAllCards(vaultDir);
+  assert.equal(after.find(card => card.path === 'cards/z.md').id, target.id);
+  assert.deepEqual(Object.values(await counts()).sort(), [1, 2, 3, 4]);
 });
 
 test('大量同名卡删除和移动后剩余身份保持不变', async t => {

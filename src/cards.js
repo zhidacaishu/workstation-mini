@@ -537,7 +537,7 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
     const nextFront = front === undefined ? card.front : normalizeFront(front);
     const nextBack = back === undefined ? card.back : trimBack(back);
     const meta = { ...block.meta };
-    if ((nextFront !== card.front || target !== source) && !meta.id) {
+    if (nextFront !== card.front || target !== source) {
       meta.id = card.id;
       meta.legacy = card.legacyId;
     }
