@@ -253,6 +253,8 @@ test('首次启动提供三个语义操作，恢复入口调用 beginRestore', a
   });
   assert.equal(ui.elements.get('first-run').hidden, false);
   assert.equal(ui.form.hidden, true);
+  // 首次启动是欢迎页，不是恢复界面：样式据此藏起恢复阶段栏。
+  assert.equal(ui.body.dataset.view, 'welcome');
 
   await ui.elements.get('create-vault').dispatch('click');
   await ui.elements.get('open-existing-vault').dispatch('click');
@@ -264,6 +266,7 @@ test('首次启动提供三个语义操作，恢复入口调用 beginRestore', a
   assert.equal(ui.elements.get('first-run').hidden, true);
   assert.equal(ui.form.hidden, false);
   assert.equal(ui.body.dataset.phase, 'idle');
+  assert.equal(ui.body.dataset.view, 'recovery');
 });
 
 test('恢复完成后重新进入设置会清除仅存在 renderer 的目录选择状态', async () => {
@@ -435,6 +438,11 @@ test('runtime 替换被未保存编辑阻止时显示原因并保留操作界面
   assert.equal(ui.form.hidden, false);
   assert.equal(ui.elements.get('status-panel').hidden, false);
   assert.match(ui.elements.get('status-message').textContent, /未保存/);
+  // 仍在欢迎页：三个起点保留，恢复来源、目标目录和「开始复制」与这里无关。
+  assert.equal(ui.elements.get('first-run').hidden, false);
+  assert.equal(ui.elements.get('source-panel').hidden, true);
+  assert.equal(ui.elements.get('destination-panel').hidden, true);
+  assert.equal(ui.elements.get('start').hidden, true);
 });
 
 test('fatal 文案取自主进程权威错误并按 retryability 显示操作', async () => {

@@ -1,6 +1,8 @@
 <%- include('partials/head') %>
 <%
   const count = value => value == null ? '未知' : value;
+  // 数字用大字号；「状态未知」「干净」这类文字值换小一档（见 styles.css 的 .is-text）。
+  const valueClass = value => typeof value === 'number' ? 'health-value' : 'health-value is-text';
   const needsGitRecovery = report.git.recoveryRequired || report.recovery.syncRecovery;
   const gitLabel = needsGitRecovery ? '需要恢复' : report.git.error ? '状态未知' : report.git.isRepository ? (report.git.dirty ? '有未提交改动' : '干净') : '不是仓库';
   const gitWarn = Boolean(needsGitRecovery || report.git.error);
@@ -28,26 +30,26 @@
 <div class="health-grid">
   <section class="health-tile<%= vaultWarn ? ' is-warn' : '' %>">
     <h2>资料源</h2>
-    <p class="health-value"><strong><%= report.vault.noteFiles %></strong> 篇 Markdown</p>
+    <p class="<%= valueClass(report.vault.noteFiles) %>"><strong><%= report.vault.noteFiles %></strong> 篇 Markdown</p>
     <p class="health-detail">vault <strong><%= report.vault.exists ? '可用' : '不存在' %></strong> · notes/ <strong><%= report.vault.notesDirExists ? '可用' : '不存在' %></strong></p>
   </section>
   <section class="health-tile<%= indexWarn ? ' is-warn' : '' %>">
     <h2>索引</h2>
-    <p class="health-value"><strong><%= count(report.vault.indexedNotes) %></strong> 篇已索引</p>
+    <p class="<%= valueClass(report.vault.indexedNotes) %>"><strong><%= count(report.vault.indexedNotes) %></strong> 篇已索引</p>
     <p class="health-detail">状态 <strong><%= report.index.phase %></strong> · 差异 <strong><%= count(report.vault.indexLag) %></strong> · 失败 <strong><%= report.index.failureTotal %></strong> 项</p>
   </section>
   <section class="health-tile<%= gitWarn ? ' is-warn' : '' %>">
     <h2>版本控制</h2>
-    <p class="health-value">Git <strong><%= gitLabel %></strong></p>
+    <p class="health-value is-text">Git <strong><%= gitLabel %></strong></p>
     <p class="health-detail">本地历史与草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条</p>
   </section>
   <section class="health-tile<%= linkWarn ? ' is-warn' : '' %>">
     <h2>双链</h2>
-    <p class="health-value"><strong><%= count(report.links.brokenCount) %></strong> 个断链</p>
+    <p class="<%= valueClass(report.links.brokenCount) %>"><strong><%= count(report.links.brokenCount) %></strong> 个断链</p>
   </section>
   <section class="health-tile<%= reviewWarn ? ' is-warn' : '' %>">
     <h2>复习日志</h2>
-    <p class="health-value"><strong><%= report.reviews.malformedLines %></strong> 行损坏</p>
+    <p class="<%= valueClass(report.reviews.malformedLines) %>"><strong><%= report.reviews.malformedLines %></strong> 行损坏</p>
     <p class="health-detail">重复事件 <strong><%= report.reviews.duplicateEventIds %></strong></p>
   </section>
 </div>

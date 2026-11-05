@@ -42,7 +42,9 @@ test('看板保留项目状态和下一步，不显示旧习题进度或审稿�
   });
   await ctx.indexer.scan();
   const page = await request(ctx.app).get('/board/experiment').expect(200);
-  assert.match(page.text, /共 1 个项目/);
+  // 页头不再写「共 N 个项目」，数目在各栏标题旁。
+  assert.doesNotMatch(page.text, /共 1 个项目/);
+  assert.match(page.text, /data-status="running"[^]*?data-column-count>1</);
   assert.match(page.text, /基线模型/);
   assert.match(page.text, /补齐对照实验/);
   assert.match(page.text, /data-board-column data-status="running"/);

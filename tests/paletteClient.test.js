@@ -243,6 +243,12 @@ test('匹配命令排在最多六篇笔记之前，fallback 命令排在之后',
   assert.equal(ui.list.children[0].className, 'palette-item active');
   assert.equal(ui.list.children[0].attributes.role, 'option');
   assert.equal(ui.list.children[0].attributes['aria-selected'], 'true');
+  // 笔记行只放文档图标，不再写「笔记」两个字；命令行照旧是文字标签。
+  const iconOf = option => option.children.find(child => String(child.className).startsWith('palette-icon'));
+  assert.equal(iconOf(ui.list.children[0]).className, 'palette-icon is-note');
+  assert.equal(iconOf(ui.list.children[0]).textContent, '');
+  assert.equal(iconOf(ui.list.children.at(-1)).className, 'palette-icon');
+  assert.equal(iconOf(ui.list.children.at(-1)).textContent, '搜索');
 });
 
 test('较早的搜索响应不会覆盖较新的结果', async () => {

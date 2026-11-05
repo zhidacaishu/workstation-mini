@@ -14,8 +14,15 @@ function escapeLike(value) {
  * 不用 FTS5 的 snippet()：FTS 表里存的是分词后的 token 串，snippet 出来是
  * 「计量 经济 学的 工具」这样带空格的形式，读起来不像原文。
  */
-function buildSnippet(bodyRaw, query) {
-  const body = String(bodyRaw || '').replace(/\s+/g, ' ').trim();
+function buildSnippet(bodyRaw, query, title = '') {
+  // 只移除与标题完全相同的首行一级标题；合并空白后就无法区分标题和正文前缀。
+  let source = String(bodyRaw || '');
+  const heading = source.match(/^\s*# [^\r\n]*(?:\r?\n|$)/);
+  if (title && heading) {
+    const headingTitle = heading[0].trim().replace(/^#\s+/, '').replace(/\s+#+\s*$/, '').trim();
+    if (headingTitle === String(title).trim()) source = source.slice(heading[0].length);
+  }
+  const body = source.replace(/\s+/g, ' ').trim();
   if (!body) return '';
 
   const needles = [query, ...tokenize(query)].filter(Boolean);
@@ -90,7 +97,7 @@ function createSearch(db) {
           path: row.path,
           title: row.title,
           section: row.section,
-          snippet: buildSnippet(row.body, text),
+          snippet: buildSnippet(row.body, text, row.title),
           via: 'fts'
         });
       }
@@ -117,7 +124,7 @@ function createSearch(db) {
           path: row.path,
           title: row.title,
           section: row.section,
-          snippet: buildSnippet(row.body, text),
+          snippet: buildSnippet(row.body, text, row.title),
           via: 'like'
         });
       }

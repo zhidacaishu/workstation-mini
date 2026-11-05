@@ -104,4 +104,4 @@ jobs:
         run: |
           cd release-assets
           sha256sum *.exe *.dmg > SHA256SUMS.txt
-          gh release create "$RELEASE_TAG" ./*.exe ./*.dmg SHA256SUMS.txt --verify-tag --title "Workstation Mini $RELEASE_TAG" --notes-file ../docs/RELEASE-0.2.0.md
+          gh release create "$RELEASE_TAG" ./*.exe ./*.dmg SHA256SUMS.txt --verify-tag --title "Workstation Mini $RELEASE_TAG" --notes-file "../docs/RELEASE-${RELEASE_TAG#v}.md"

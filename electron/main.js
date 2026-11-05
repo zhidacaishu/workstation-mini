@@ -56,8 +56,8 @@ const { capabilities } = platformPolicy;
 
 // 窗口底色是渲染进程画出第一帧之前、以及缩放窗口时新暴露区域露出的颜色。
 // 界面本身支持 prefers-color-scheme，写死浅色的话深色模式下拖拽缩放会闪白边。
-// 取值和 styles.css / settings.css 里的 --canvas 保持一致。
-const WINDOW_BACKGROUND = { light: '#f4f5f7', dark: '#0c0e11' };
+// 取值和 src/public/tokens.css 里的 --bg 保持一致。
+const WINDOW_BACKGROUND = { light: '#f8f9fa', dark: '#0c0e11' };
 
 function windowBackgroundColor() {
   return nativeTheme.shouldUseDarkColors ? WINDOW_BACKGROUND.dark : WINDOW_BACKGROUND.light;

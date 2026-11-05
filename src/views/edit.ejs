@@ -3,6 +3,8 @@
   // 新建笔记：标题写在最上面，路径按标题自动生成；用户改过路径之后就不再跟着标题变。
   const autoPathMode = isNew && !recovered && typeof autoPath !== 'undefined' && autoPath;
   const targetFolder = typeof folder === 'string' && folder ? folder : 'inbox';
+  // 编辑已有笔记时标题写笔记名（太长时截断，悬停看全名）；保存状态在右侧。
+  const heading = recovered ? '恢复笔记' : isNew ? (title || '新建笔记') : (typeof noteTitle === 'string' && noteTitle) || '编辑';
 %>
 
 <form data-draft-id="<%= draftId %>" data-recovered="<%= recovered ? '1' : '0' %>" class="editform" action="/save" method="post" data-editor-form data-new-note="<%= isNew ? '1' : '0' %>">
@@ -13,7 +15,7 @@
 
   <header class="editor-head">
     <div class="editor-title">
-      <h1><%= recovered ? '恢复笔记' : isNew ? (title || '新建笔记') : '编辑' %></h1>
+      <h1 title="<%= heading %>"><%= heading %></h1>
       <label class="editor-path" title="相对资料库 notes/ 目录的路径，可以不写 .md">
         <span class="<%= autoPathMode ? 'editor-path-label' : 'visually-hidden' %>"><%= autoPathMode ? '保存到' : '路径' %></span>
         <input type="text" name="path" value="<%= notePath %>" required
@@ -43,13 +45,14 @@
 
   <label class="editor-body">
     <span class="visually-hidden">正文</span>
-    <textarea name="body" rows="12" spellcheck="false" placeholder="---&#10;title: 标题&#10;tags: [概念]&#10;---&#10;&#10;正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
+    <textarea name="body" rows="12" spellcheck="false" placeholder="正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
   </label>
 
   <footer class="editor-footer">
     <%# 草稿每次自动保存都会改这行字；不让读屏软件在每次打字停顿时都念一遍。出错时另有提示。 %>
     <p data-draft-status aria-live="off"></p>
-    <a class="editor-history-link" href="/history?path=<%= encodeURIComponent(notePath) %>">版本与草稿</a>
+    <%# 还没有路径的新笔记（从侧栏「+」进来）没有任何版本和草稿，不放这个入口。 %>
+    <% if (notePath) { %><a class="editor-history-link" href="/history?path=<%= encodeURIComponent(notePath) %>">版本与草稿</a><% } %>
   </footer>
 </form>
 

@@ -63,12 +63,14 @@ test('侧栏角标显示逾期待办数；写操作之后立即刷新', async t 
   assert.match(refreshed.text, /class="nav-badge is-warn" title="2 项逾期"/);
 });
 
-test('今日页给出概览指标，待办勾选即可完成且保留原截止日', async t => {
+test('今日页只列今天要处理的事，待办勾选即可完成且保留原截止日', async t => {
   const { app, indexer, notesDir } = await setup(t);
   await writeNote(notesDir, 'tasks.md', { body: '- [ ] 整理表格 @2026-10-25' });
   await indexer.scan();
   const page = await request(app).get('/').expect(200);
-  assert.match(page.text, /<nav class="desk-metrics" aria-label="今日概览">/);
+  // 不再有「待办 / 逾期 / 今日复习」三格概览：逾期数在侧栏角标和待办列表里，复习在待办上面一行。
+  assert.doesNotMatch(page.text, /desk-metrics/);
+  assert.match(page.text, /<h2 id="task-title">今天需要处理<\/h2>/);
   assert.match(page.text, /data-task-form data-task-quick>/);
   assert.match(page.text, /<input type="hidden" name="due" value="2026-10-25">/);
   assert.match(page.text, /<time class="due-tag is-today" datetime="2026-10-25">今天<\/time>/);
@@ -155,4 +157,39 @@ test('macOS 隐藏标题栏时页面给红绿灯让位，其他情况保持原�
 
   // 不认识的取值一律按系统标题栏处理。
   assert.equal(loadConfig({ windowChrome: 'frameless' }).windowChrome, 'native');
+});
+
+
+test('搜索数字时保留摘要公式，且只高亮正文数字', () => {
+  const html = viewHelpers.excerptHtml('公式 $x^2$ 与 $y$，结果为 0 和 1', '0');
+  assert.equal((html.match(/class="katex"/g) || []).length, 2);
+  assert.match(html, /结果为 <mark>0<\/mark> 和 1/);
+  assert.doesNotMatch(html, /\u0000/);
+});
+
+test('摘要高亮不会匹配 HTML 实体内部，并安全转义匹配文本', () => {
+  assert.equal(viewHelpers.excerptHtml('A < B & C lt', 'lt'), 'A &lt; B &amp; C <mark>lt</mark>');
+  assert.equal(viewHelpers.excerptHtml('A < B', '<'), 'A <mark>&lt;</mark> B');
+  assert.equal(viewHelpers.excerptHtml('<img src=x onerror=alert(1)>', '<img'), '<mark>&lt;img</mark> src=x onerror=alert(1)&gt;');
+  assert.equal(viewHelpers.excerptHtml('A.b a.b', 'a.b'), '<mark>A.b</mark> <mark>a.b</mark>');
+});
+
+test('摘要只去掉完整重复标题，保留正文及较长标题的相同前缀', () => {
+  const { buildSnippet } = require('../src/search');
+  assert.equal(buildSnippet('研究方法很多', '研究', '研究'), '研究方法很多');
+  assert.equal(buildSnippet('# 研究\n\n研究方法很多', '研究', '研究'), '研究方法很多');
+  assert.equal(buildSnippet('# 研究方法\n\n正文', '研究', '研究'), '# 研究方法 正文');
+  assert.equal(buildSnippet('# 研究 ###\r\n正文', '正文', '研究'), '正文');
+});
+
+test('搜索页去重真实标题，但保留以笔记名开头的正文', async t => {
+  const { app, indexer, notesDir } = await setup(t);
+  await writeNote(notesDir, 'research/prefix.md', { body: '---\ntitle: 研究\n---\n\n# 研究\n\n研究方法很多，公式 $x^2$ 的结果为 0。' });
+  await indexer.scan();
+  const result = await request(app).get('/search?q=' + encodeURIComponent('研究')).expect(200);
+  assert.match(result.text, /class="library-excerpt"><mark>研究<\/mark>方法很多/);
+  const numeric = await request(app).get('/search?q=0').expect(200);
+  assert.match(numeric.text, /class="katex"/);
+  assert.match(numeric.text, /<mark>0<\/mark>/);
+  assert.doesNotMatch(numeric.text, /\u0000/);
 });

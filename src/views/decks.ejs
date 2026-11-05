@@ -4,7 +4,8 @@
 <header class="page-head">
   <div>
     <h1>复习</h1>
-    <p class="page-meta">共 <%= total %> 张 · 到期 <%= due %> 张 · 新卡 <%= fresh %> 张</p>
+    <%# 还没有卡片时不写一排「0 张」，下面的空状态已经说了。 %>
+    <% if (total > 0) { %><p class="page-meta">共 <%= total %> 张 · 到期 <%= due %> 张 · 新卡 <%= fresh %> 张</p><% } %>
   </div>
   <div class="actions">
     <% if (total > 0) { %><a class="button quiet" href="/cards">全部卡片</a><% } %>
@@ -45,12 +46,12 @@ type: en-word
         <tr><th scope="col">卡组</th><th scope="col" class="num">到期</th><th scope="col" class="num">新卡</th><th scope="col">已学</th><th scope="col"><span class="visually-hidden">操作</span></th></tr>
       </thead>
       <tbody>
-        <% decks.forEach(row => { const ratio = row.total ? Math.round((row.learned / row.total) * 100) : 0; %>
+        <% decks.forEach(row => { %>
           <tr>
             <th scope="row"><a class="deck-name" href="/cards?deck=<%= encodeURIComponent(row.deck) %>" title="查看和编辑这个卡组的卡片"><%= row.deck %></a><% if (row.suspended) { %><span class="deck-suspended">已暂停 <%= row.suspended %></span><% } %></th>
             <td class="num<%= row.due > 0 ? ' due-count' : ' is-zero' %>"><%= row.due %></td>
             <td class="num<%= row.fresh > 0 ? '' : ' is-zero' %>"><%= row.fresh %></td>
-            <td><span class="deck-progress"><span class="deck-progress-bar"><span style="width: <%= ratio %>%"></span></span><span class="deck-progress-label"><%= row.learned %> / <%= row.total %></span></span></td>
+            <td class="deck-learned"><span class="deck-progress-label"><%= row.learned %> / <%= row.total %></span></td>
             <td class="deck-action">
               <% if (row.due + row.fresh > 0) { %>
                 <a class="button small" href="/review?deck=<%= encodeURIComponent(row.deck) %>">复习</a>

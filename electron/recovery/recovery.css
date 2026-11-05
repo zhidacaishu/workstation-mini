@@ -1,33 +1,12 @@
-/* 与主窗口共用打包字体（Geist / Geist Mono / 思源黑体）。 */
+/* 与主窗口共用打包字体（Geist / Geist Mono / 思源黑体）和设计变量（tokens.css）。
+   这里不定义颜色和尺寸，只引用变量；深浅主题由 tokens.css 跟随系统切换。 */
 @import url("../../node_modules/@fontsource-variable/geist/wght.css");
 @import url("../../node_modules/@fontsource-variable/geist-mono/wght.css");
 @import url("../../node_modules/@fontsource-variable/noto-sans-sc/wght.css");
+@import url("../../src/public/tokens.css");
 
-:root {
-  color-scheme: light dark;
-  --canvas: #F4F5F7;
-  --surface: #FFFFFF;
-  --surface-raised: #FFFFFF;
-  --surface-muted: #F6F7F9;
-  --accent: #2F62D6;
-  --accent-strong: #2553BF;
-  --text: #14171C;
-  --secondary: #4F5661;
-  --tertiary: #636A75;
-  --border: #E2E5EA;
-  --border-strong: #D2D7DE;
-  --rail: #EBEDF0;
-  --rail-text: #14171C;
-  --rail-muted: #4F5661;
-  --rail-active: #DCE0E6;
-  --accent-contrast: #FFFFFF;
-  --warning: #9A5700;
-  --danger: #B42318;
-  --focus: #2F62D6;
-  --ui: "Geist Variable", "Noto Sans SC Variable", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
-  --rail-width: 208px;
-  --motion: 150ms ease;
-}
+/* 恢复窗口的阶段栏比主窗口的图标侧栏宽，这个变量只在本窗口里用。 */
+:root { --rail-width: 208px; }
 
 * { box-sizing: border-box; }
 body {
@@ -39,27 +18,31 @@ body {
   margin: 0;
   display: grid;
   grid-template-columns: var(--rail-width) minmax(0, 1fr);
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 var(--ui);
+  font: var(--fs-md)/1.5 var(--font-sans);
 }
 button, input { font: inherit; }
+/* 按钮与主窗口的 .button 同一套：浅灰底、正文色，悬停只加深底色。 */
 button {
-  min-height: 38px;
-  padding: 8px 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  color: var(--secondary);
+  min-height: var(--control);
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--button);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
   cursor: pointer;
   transition: border-color var(--motion), background var(--motion), color var(--motion), transform var(--motion);
 }
-button:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-muted); color: var(--text); }
-button:active:not(:disabled) { transform: translateY(1px); }
+button:hover:not(:disabled) { background: var(--button-hover); }
+button:active:not(:disabled) { transform: translateY(.5px); }
 button:disabled, input:disabled { cursor: not-allowed; opacity: .56; }
-button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast); font-weight: 600; }
-.primary:hover:not(:disabled) { border-color: var(--accent-strong); background: var(--accent-strong); color: var(--accent-contrast); }
+/* 焦点：按钮和单选框用 outline；文本框只画一圈（见下面的 input:focus），不叠双线。 */
+button:focus-visible, input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.primary { border-color: var(--primary); background: var(--primary); color: var(--on-primary); font-weight: 600; }
+.primary:hover:not(:disabled) { border-color: var(--primary-hover); background: var(--primary-hover); color: var(--on-primary); }
 
 .stage-rail {
   position: fixed;
@@ -68,83 +51,132 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
   padding: 22px 14px 18px;
   overflow-y: auto;
   background: var(--rail);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--rail-line);
 }
 .identity { display: flex; align-items: center; gap: 10px; margin: 0 6px 30px; }
 .identity strong, .identity small { display: block; }
-.identity strong { color: var(--rail-text); font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
-.identity small { margin-top: 2px; color: var(--rail-muted); font-size: 11px; }
+.identity strong { color: var(--text); font-size: var(--fs-md); font-weight: 600; letter-spacing: -.01em; }
+.identity small { margin-top: 2px; color: var(--faint); font-size: var(--fs-2xs); }
 .mark {
   width: 32px;
   height: 32px;
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--surface-raised);
-  color: var(--rail-text);
-  font-size: 14px;
-  font-weight: 650;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--raised);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
 }
 .mark svg { width: 18px; height: 18px; }
 .mark-back { fill: var(--accent); }
 .mark-front { fill: var(--text); }
-.mark-tick { fill: none; stroke: var(--surface-raised); stroke-width: 66; stroke-linecap: round; stroke-linejoin: round; }
+.mark-tick { fill: none; stroke: var(--raised); stroke-width: 66; stroke-linecap: round; stroke-linejoin: round; }
 .stage-rail ol { position: relative; margin: 0; padding: 0; list-style: none; }
-.stage-rail ol::before { content: ""; position: absolute; top: 15px; bottom: 15px; left: 13px; width: 1px; background: color-mix(in srgb, var(--rail-muted) 42%, transparent); }
-.stage-rail li { position: relative; display: grid; grid-template-columns: 27px minmax(0, 1fr); gap: 10px; min-height: 67px; color: var(--rail-muted); }
-.stage-rail li > span { z-index: 1; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--rail-muted) 52%, transparent); border-radius: 50%; background: var(--rail); font-size: 10px; font-weight: 600; }
+.stage-rail ol::before { content: ""; position: absolute; top: 15px; bottom: 15px; left: 13px; width: 1px; background: color-mix(in srgb, var(--faint) 42%, transparent); }
+.stage-rail li { position: relative; display: grid; grid-template-columns: 27px minmax(0, 1fr); gap: 10px; min-height: 67px; color: var(--faint); }
+.stage-rail li > span { z-index: 1; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--faint) 52%, transparent); border-radius: 50%; background: var(--rail); font-size: var(--fs-2xs); font-weight: 600; }
 .stage-rail li strong, .stage-rail li small { display: block; }
-.stage-rail li strong { padding-top: 1px; color: inherit; font-size: 12px; font-weight: 600; }
-.stage-rail li small { margin-top: 2px; font-size: 10px; line-height: 1.4; }
-.stage-rail li.is-active { color: var(--rail-text); }
-.stage-rail li.is-active > span { border-color: var(--accent); background: var(--accent); color: var(--accent-contrast); }
-.stage-rail li.is-complete > span { border-color: var(--accent); background: var(--rail-active); color: var(--accent); }
-.rail-note { margin: 20px 6px 0; color: var(--rail-muted); font-size: 11px; line-height: 1.5; }
+.stage-rail li strong { padding-top: 1px; color: inherit; font-size: var(--fs-xs); font-weight: 600; }
+.stage-rail li small { margin-top: 2px; font-size: var(--fs-2xs); line-height: 1.4; }
+.stage-rail li.is-active { color: var(--text); }
+.stage-rail li.is-active > span { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.stage-rail li.is-complete > span { border-color: var(--accent); background: var(--nav-active); color: var(--accent); }
 
 main { grid-column: 2; width: min(850px, 100%); padding: 34px 44px 100px; }
-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 22px; margin-bottom: 26px; }
-.eyebrow, .folio { color: var(--tertiary); font-size: 12px; font-weight: 600; }
-h1, h2, h3 { font-family: var(--ui); }
-h1 { margin: 3px 0 0; font-size: 29px; font-weight: 650; letter-spacing: -.025em; line-height: 1.25; }
-h2 { margin: 2px 0 0; font-size: 18px; font-weight: 650; letter-spacing: -.012em; line-height: 1.35; }
-h3 { margin: 0 0 6px; font-size: 13px; font-weight: 650; }
-.state-stamp { padding: 4px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--secondary); font-size: 11px; white-space: nowrap; }
-.sheet, .first-run { padding: 23px 0 25px; border-top: 1px solid var(--border); }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.eyebrow, .folio { color: var(--subtle); font-size: var(--fs-xs); font-weight: 600; }
+h1, h2, h3 { font-family: var(--font-sans); }
+/* 标题与主窗口的页面标题同一档。 */
+h1 { margin: 3px 0 0; font-size: var(--fs-3xl); font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+h2 { margin: 2px 0 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.01em; line-height: 1.35; }
+h3 { margin: 0 0 6px; font-size: var(--fs-sm); font-weight: 600; }
+.state-stamp { padding: 2px 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.sheet { padding: 24px 0; border-top: 1px solid var(--line); }
 .sheet:first-of-type { border-top: 0; }
 .folio { margin: 0 0 4px; }
-.lede, .first-run > p:not(.folio) { max-width: 66ch; margin: 7px 0 18px; color: var(--secondary); }
-.first-run-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin-top: 19px; }
-.choice { min-height: 106px; padding: 14px; text-align: left; background: var(--surface); }
+.lede { max-width: 66ch; margin: 6px 0 16px; color: var(--muted); }
+.lede:empty { display: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* 首次启动的欢迎页（recovery.js 在 body 上标 data-view="welcome"）。
+   这时还没有资料库，谈不上「恢复」：不显示阶段栏，只留品牌标记、一句说明和
+   三个起点，居中成一栏。选了「从备份恢复」之后才换成带阶段栏的恢复界面。 */
+.welcome-mark { display: none; }
+body[data-view="welcome"] { grid-template-columns: minmax(0, 1fr); }
+body[data-view="welcome"] .stage-rail,
+body[data-view="welcome"] .eyebrow { display: none; }
+/* 顶端对齐而不是垂直居中：出错提示出现在三个起点下面时，上面的内容不跟着跳。 */
+body[data-view="welcome"] main { grid-column: 1; align-self: start; width: min(640px, 100%); margin: 0 auto; padding: clamp(48px, 14vh, 140px) 32px 56px; }
+body[data-view="welcome"] header { margin-bottom: 8px; }
+body[data-view="welcome"] h1 { margin: 0; font-size: var(--fs-4xl); }
+body[data-view="welcome"] .welcome-mark { display: grid; width: 44px; height: 44px; margin-bottom: 20px; border-radius: var(--radius-lg); }
+body[data-view="welcome"] .welcome-mark svg { width: 24px; height: 24px; }
+.welcome-lede { max-width: 36em; margin: 0 0 28px; color: var(--muted); line-height: 1.65; }
+.first-run-actions { display: grid; gap: 8px; }
+/* 三个起点是整行可点的按钮：左边一个线条图标，右边标题和一句说明。
+   整行本身就是按钮，不再加右侧箭头和图标底块；只有「创建」带淡强调色。 */
+.choice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 68px;
+  padding: 14px 16px;
+  border-color: var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  text-align: left;
+}
+.choice:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong)); background: var(--surface); }
+.choice svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.choice-icon { display: grid; color: var(--muted); }
+.choice-icon svg { width: 20px; height: 20px; }
 .choice strong, .choice small { display: block; }
-.choice strong { color: var(--text); font-size: 13px; font-weight: 600; }
-.choice small { margin-top: 6px; color: var(--tertiary); font-size: 12px; line-height: 1.4; }
-.primary-choice { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
-.source-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 17px; padding: 0; border: 0; }
+.choice strong { color: var(--text); font-size: var(--fs-md); font-weight: 600; }
+.choice small { margin-top: 2px; color: var(--subtle); font-size: var(--fs-xs); font-weight: 400; line-height: 1.45; }
+.primary-choice, .primary-choice:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.primary-choice .choice-icon { color: var(--accent); }
+/* 欢迎页上「创建」「打开」失败时，表单只露出说明原因的那一块：
+   恢复进度条、当前路径和底部操作栏都与这里无关。 */
+body[data-view="welcome"] #status-panel > .folio,
+body[data-view="welcome"] .progress,
+body[data-view="welcome"] .current-path,
+body[data-view="welcome"] .actions:not(:has(button:not([hidden]))) { display: none; }
+/* 被拦下（比如主窗口还有没保存的编辑）时是一块中性提示；出错时只留红框，标题不再重复。 */
+body[data-view="welcome"] #status-panel { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+body[data-view="welcome"] #status-title { margin: 0; font-size: var(--fs-md); }
+body[data-view="welcome"] #status-message { margin: 2px 0 0; }
+body[data-view="welcome"] #status-panel:has(> #fatal-error:not([hidden])) { padding: 0; border: 0; background: none; }
+body[data-view="welcome"] #status-panel:has(> #fatal-error:not([hidden])) > #status-title { display: none; }
+body[data-view="welcome"] .fatal { margin-top: 0; }
+.source-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 16px; padding: 0; border: 0; }
 .source-switch legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.source-switch label { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.source-switch label { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
 .source-switch input { margin: 3px 0 0; accent-color: var(--accent); }
 .source-switch strong, .source-switch small { display: block; }
-.source-switch strong { color: var(--text); font-size: 13px; font-weight: 600; }
-.source-switch small { margin-top: 2px; color: var(--tertiary); font-size: 12px; }
+.source-switch strong { color: var(--text); font-size: var(--fs-sm); font-weight: 600; }
+.source-switch small { margin-top: 2px; color: var(--subtle); font-size: var(--fs-xs); }
 .source-detail { min-width: 0; }
-.field { display: grid; gap: 6px; margin-bottom: 11px; }
-.field > span { color: var(--secondary); font-size: 13px; font-weight: 600; }
-.field small { color: var(--tertiary); font-size: 12px; }
-input[type="text"] { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; outline: 0; background: var(--surface-raised); color: var(--text); }
-input[type="text"]:hover { border-color: var(--accent); }
-input[type="text"]:focus { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 16%, transparent); }
-.selected-path, .current-path { overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-muted); color: var(--secondary); font-size: 12px; }
-.directory-name { max-width: 420px; margin-top: 14px; }
+.field { display: grid; gap: 6px; margin-bottom: 12px; }
+.field > span { color: var(--muted); font-size: var(--fs-sm); font-weight: 600; }
+.field small { color: var(--subtle); font-size: var(--fs-xs); }
+input[type="text"] { width: 100%; min-height: var(--control); padding: 5px 10px; border: 1px solid var(--field-line); border-radius: var(--radius); outline: 0; background: var(--field); color: var(--text); transition: border-color var(--motion), box-shadow var(--motion); }
+/* 与主窗口相同：描边变强调色，再贴一圈 1px 实色和淡光晕。 */
+input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--ring); }
+.selected-path, .current-path { overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); color: var(--muted); font-size: var(--fs-xs); }
+.directory-name { max-width: 420px; margin-top: 16px; }
 .status-sheet { min-width: 0; }
-.progress { height: 6px; overflow: hidden; border-radius: 999px; background: var(--surface-muted); }
+.progress { height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--inset); }
 .progress span { display: block; width: 0; height: 100%; background: var(--accent); transition: width var(--motion); }
-.report-block { margin-top: 16px; padding: 13px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-muted); }
-.report-block ul { margin: 0; padding-left: 19px; }
+.report-block { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--inset); }
+.report-block ul { margin: 0; padding-left: 20px; }
 .report-block li { margin: 4px 0; overflow-wrap: anywhere; }
-.report-total { margin: 7px 0 0; color: var(--tertiary); font-size: 12px; }
-.fatal { margin-top: 16px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.report-total { margin: 8px 0 0; color: var(--subtle); font-size: var(--fs-xs); }
+.fatal { margin-top: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
 .fatal strong { color: var(--danger); }
 .fatal p { margin: 3px 0 0; }
 .actions {
@@ -156,38 +188,14 @@ input[type="text"]:focus { border-color: var(--focus); box-shadow: 0 0 0 3px col
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 66px;
-  padding: 11px max(28px, calc((100vw - var(--rail-width) - 850px) / 2 + 44px));
-  border-top: 1px solid var(--border);
+  min-height: 64px;
+  padding: 12px max(28px, calc((100vw - var(--rail-width) - 850px) / 2 + 44px));
+  border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(10px);
 }
-.actions p { min-width: 0; margin: 0 auto 0 0; color: var(--tertiary); font-size: 12px; }
+.actions p { min-width: 0; margin: 0 auto 0 0; color: var(--subtle); font-size: var(--fs-xs); }
 body[data-phase="activating"] .actions { border-top-color: var(--accent); }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --canvas: #0C0E11;
-    --surface: #13161A;
-    --surface-raised: #191D22;
-    --surface-muted: #101317;
-    --accent: #8DB4FF;
-    --accent-strong: #A5C3FF;
-    --text: #E8EAED;
-    --secondary: #A7ADB5;
-    --tertiary: #7D848E;
-    --border: #23272D;
-    --border-strong: #2D3239;
-    --rail: #08090B;
-    --rail-text: #E8EAED;
-    --rail-muted: #9AA1AB;
-    --rail-active: #1B2027;
-    --accent-contrast: #0B1426;
-    --warning: #F2B75E;
-    --danger: #FF8A80;
-    --focus: #8DB4FF;
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; }
@@ -207,4 +215,5 @@ body[data-phase="activating"] .actions { border-top-color: var(--accent); }
   z-index: -1;
   -webkit-app-region: drag;
 }
+.chrome-inset body[data-view="welcome"]::before { left: 0; }
 .chrome-inset :is(a, button, input, select, textarea, label, summary) { -webkit-app-region: no-drag; }

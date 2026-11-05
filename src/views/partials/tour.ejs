@@ -20,11 +20,11 @@
     </header>
     <h2 id="guide-title" tabindex="-1" aria-live="polite"></h2>
     <div id="guide-body" class="tour-body" data-guide-body></div>
-    <p class="tour-keys" aria-hidden="true">← → 翻页 · Esc 退出</p>
+    <%# 键盘提示只在第一站出现一次，后面几站不再重复。 %>
+    <p class="tour-keys" data-guide-keys aria-hidden="true" hidden>← → 翻页 · Esc 退出</p>
     <p data-guide-error class="tour-error" role="alert" hidden></p>
     <footer class="tour-card-foot">
       <button type="button" class="button quiet small" data-guide-skip data-guide-later>以后再说</button>
-      <ol class="tour-dots" data-guide-dots aria-hidden="true"></ol>
       <div class="tour-nav">
         <button type="button" class="button quiet small" data-guide-prev>上一步</button>
         <button type="button" class="button primary small" data-guide-next>下一步</button>

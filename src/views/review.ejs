@@ -3,7 +3,6 @@
 <% if (queue.length === 0) { %>
   <section class="panel empty-state review-empty">
     <h1>今天没有要复习的卡片</h1>
-    <p>到期 <%= dueCount %> 张 · 新卡 <%= freshCount %> 张</p>
     <a class="button" href="/decks">查看卡组</a>
   </section>
 <% } else { %>
@@ -12,7 +11,8 @@
     <div class="review-progress">
       <div class="review-progress-row">
         <span>剩余 <strong id="review-remaining"><%= queue.length %></strong> 张</span>
-        <span class="review-totals">到期 <%= dueCount %> 张 · 新卡 <%= freshCount %> 张<% if (deck) { %> · <a href="/review">全部卡组</a><% } %></span>
+        <%# 不再写「到期 N 张 · 新卡 N 张」：那是开场时的数，答几张就过时了；左边的「剩余」和下面的进度条会跟着变。 %>
+        <% if (deck) { %><span class="review-totals"><a href="/review">全部卡组</a></span><% } %>
       </div>
       <div class="review-meter" aria-hidden="true"><span id="review-meter-fill"></span></div>
     </div>

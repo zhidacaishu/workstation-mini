@@ -26,7 +26,8 @@
   </button>
 </header>
 
-<% if (checklistHidden && !readOnly) { %>
+<%# 清单全部做完时今日页本来就不显示它，这条「重新显示」的提示也就没有意义。 %>
+<% if (checklistHidden && !readOnly && !progress.complete) { %>
   <div class="notice guide-restore" data-onboarding-restore>
     <p>今日页的上手清单已隐藏。</p>
     <button type="button" class="button small" data-onboarding-show>在今日页重新显示</button>

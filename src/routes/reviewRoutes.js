@@ -33,7 +33,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
   router.get('/review', async (req, res, next) => {
     try {
       const deck = String(req.query.deck || '');
-      const { due, fresh, cards } = await service.queue({ deck });
+      const { cards } = await service.queue({ deck });
 
       // 队列直接嵌进页面，评分过程在窗口内完成，每答一张异步提交。
       // 每个请求只建一次双链解析器：它要把整张笔记表读一遍，按卡建的话
@@ -56,8 +56,6 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         title: deck ? `复习 · ${deck}` : '复习',
         deck,
         returnTo: deck ? `/review?deck=${encodeURIComponent(deck)}` : '/review',
-        dueCount: due.length,
-        freshCount: fresh.length,
         queue: payload,
         ratings: RATING_LABELS
       });

@@ -51,7 +51,10 @@ test('首页在 vault 为空时给出引导', async () => {
   try {
     const response = await request(ctx.app).get('/').expect(200);
     assert.match(response.text, /还没有笔记/);
-    assert.match(response.text, /href="\/new">写第一篇笔记<\/a>/);
+    // 新建笔记的入口只给一个：上手清单的「下一步」已经有「新建笔记」，空列表里不再重复放一个。
+    assert.match(response.text, /data-onboarding-card/);
+    assert.match(response.text, /<a class="button small primary" href="\/new">新建笔记<\/a>/);
+    assert.doesNotMatch(response.text, /写第一篇笔记/);
   } finally {
     await ctx.cleanup();
   }
@@ -217,6 +220,8 @@ test('编辑器保存与删除使用 hash，冲突时不覆盖磁盘内容', asy
     const edit = await request(ctx.app).get('/edit/research/conflict.md').expect(200);
     assert.match(edit.text, new RegExp(`name="expectedHash" value="${initial.hash}"`));
     assert.match(edit.text, /name="isNew" value="0"/);
+    // 编辑页标题仍是笔记名（这篇没有 title 和 H1，退回文件名），不是「编辑」两个字。
+    assert.match(edit.text, /<h1 title="conflict">conflict<\/h1>/);
 
     const external = await writeNote(ctx.notesDir, 'research/conflict.md', { body: '外部编辑' });
     await request(ctx.app).post('/save').set('Accept', 'application/json').type('form').send({

@@ -100,7 +100,7 @@
     const title = dialog.querySelector('#guide-title');
     const body = dialog.querySelector('[data-guide-body]');
     const progress = dialog.querySelector('[data-guide-progress]');
-    const dots = dialog.querySelector('[data-guide-dots]');
+    const keys = dialog.querySelector('[data-guide-keys]');
     const error = dialog.querySelector('[data-guide-error]');
     const next = dialog.querySelector('[data-guide-next]');
     const prev = dialog.querySelector('[data-guide-prev]');
@@ -189,13 +189,8 @@
       title.textContent = template.dataset.title;
       body.replaceChildren(template.content.cloneNode(true));
       progress.textContent = isWelcome ? '一分钟导览' : index + ' / ' + stops;
-      dots.replaceChildren(...steps.slice(1).map((_, dot) => {
-        const item = document.createElement('li');
-        if (dot + 1 < index) item.className = 'is-done';
-        if (dot + 1 === index) item.className = 'is-current';
-        return item;
-      }));
-      dots.hidden = isWelcome;
+      // 进度只写「2 / 6」一处，不再另画一排圆点；翻页的键盘提示只在第一站出现。
+      if (keys) keys.hidden = index !== 1;
       later.hidden = !isWelcome;
       prev.hidden = isWelcome;
       next.textContent = template.dataset.next || '下一步';

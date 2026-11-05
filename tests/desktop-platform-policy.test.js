@@ -131,7 +131,7 @@ test('macOS 菜单使用标准角色，并让 Settings 与 Quit 委托共享回�
   assert.equal(quitCalls, 1);
 });
 
-test('只有 macOS 隐藏系统标题栏，红绿灯按各窗口侧栏定位', () => {
+test('只有 macOS 隐藏系统标题栏，红绿灯按各窗口侧栏定位；Windows 和 Linux 只收起菜单栏', () => {
   const mac = createPlatformPolicy({ platform: 'darwin' });
   assert.equal(mac.insetTitleBar, true);
   assert.deepEqual(mac.windowChrome('main'), { titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 18 } });
@@ -142,7 +142,10 @@ test('只有 macOS 隐藏系统标题栏，红绿灯按各窗口侧栏定位', (
   for (const platform of ['win32', 'linux']) {
     const policy = createPlatformPolicy({ platform });
     assert.equal(policy.insetTitleBar, false);
-    assert.deepEqual(policy.windowChrome('main'), {});
+    // 系统标题栏保留；菜单栏收起，按 Alt 出现。不用 removeMenu()：那样窗口里就打不开菜单了。
+    for (const kind of ['main', 'panel']) {
+      assert.deepEqual(policy.windowChrome(kind), { autoHideMenuBar: true });
+    }
   }
 });
 

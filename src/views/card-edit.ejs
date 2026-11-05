@@ -2,10 +2,8 @@
 <div class="narrow card-edit">
 
 <header class="page-head">
-  <div>
-    <h1>编辑卡片</h1>
-    <p class="page-meta"><code><%= card.path %></code></p>
-  </div>
+  <%# 卡组文件就在下面的「卡组文件」里，标题下不再重复一遍路径。 %>
+  <h1>编辑卡片</h1>
 </header>
 
 <form class="panel card-edit-form" action="/cards/update" method="post" data-guard-unsaved>
@@ -28,14 +26,12 @@
     <datalist id="deck-files">
       <% deckFiles.forEach(item => { %><option value="<%= item.file %>"><%= item.deck %></option><% }) %>
     </datalist>
-    <small>改成别的卡组文件会把这张卡挪过去；文件不存在时会新建。</small>
+    <small>改成别的卡组文件会把这张卡挪过去，文件不存在时会新建。改正面或挪卡组，复习记录都会保留。</small>
   </label>
   <label class="card-check">
     <input type="checkbox" name="suspended"<% if (card.suspended) { %> checked<% } %>>
-    <span>暂停复习<small>暂停后不再出现在复习队列里，复习记录保留，随时可以恢复。</small></span>
+    <span>暂停复习<small>暂停后不再出现在复习队列里，随时可以恢复。</small></span>
   </label>
-
-  <p class="card-edit-note">改正面或挪卡组后，这张卡的复习记录会继续保留。</p>
 
   <div class="card-edit-actions">
     <button class="button primary" type="submit">保存</button>

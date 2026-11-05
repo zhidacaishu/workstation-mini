@@ -132,11 +132,16 @@ function createPlatformPolicy({
   // INSET_CHROME_ARGUMENT 加上。
   // 横坐标按各自侧栏算：主窗口侧栏 76px，三颗按钮占 52px，x=12 正好居中；
   // 设置和恢复窗口与侧栏里标记的左边缘对齐。
+  //
+  // Windows 和 Linux 保留系统标题栏，只把菜单栏默认收起来：菜单里只有
+  // 「科研工作台」「编辑」两项，常驻在标题栏下面是一条和界面无关的灰带，
+  // 前一项的动作托盘菜单里也都有。菜单仍然挂在窗口上，按一下 Alt 就会出现；
+  // 不用 removeMenu()：那样窗口里就再也打不开这两个菜单了。
   const insetTitleBar = isMac;
   const TRAFFIC_LIGHTS = { main: { x: 12, y: 18 }, panel: { x: 18, y: 18 } };
 
   function windowChrome(kind = 'panel') {
-    if (!insetTitleBar) return {};
+    if (!insetTitleBar) return { autoHideMenuBar: true };
     return {
       titleBarStyle: 'hidden',
       trafficLightPosition: { ...(TRAFFIC_LIGHTS[kind] || TRAFFIC_LIGHTS.panel) }

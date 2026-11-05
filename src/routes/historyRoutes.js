@@ -1,15 +1,15 @@
 const express = require('express');
 const crypto = require('node:crypto');
 const { listRecords, getRecord, saveDraft, removeDraft } = require('../vault/history');
-const { readNote, writeNote } = require('../vault/note');
+const { readNote, writeNote, parseFrontmatter, resolveTitle } = require('../vault/note');
 const { enqueueFile } = require('../vault/note-queue');
-const { isSafeRelativePath, isNotePath } = require('../vault/paths');
+const { isSafeRelativePath, isNotePath, basename } = require('../vault/paths');
 const { blockWhenReadOnly, httpError } = require('./http');
 
 const DECK_PREFIX = 'deck:';
 const HISTORY_PAGE = 100;
 
-function createHistoryRoutes({ config }) {
+function createHistoryRoutes({ config, db }) {
   const router = express.Router();
   const guard = blockWhenReadOnly(config, '不能恢复笔记或保存草稿。');
   router.get('/api/drafts', async (req, res, next) => {
@@ -30,6 +30,37 @@ function createHistoryRoutes({ config }) {
       .filter(record => record.path.startsWith('cards/'))
       .map(record => ({ ...record, id: DECK_PREFIX + record.id, source: 'deck' }));
   }
+  // 列表和预览的主文字用标题，路径退到次要位置。
+  // 笔记的标题规则和别处一样（frontmatter 的 title、第一个 H1、文件名）；卡组取 frontmatter 的 deck。
+  // 写坏的 frontmatter 解析不了，就退回文件名。
+  function titleFromRaw(record) {
+    try {
+      const parsed = parseFrontmatter(record.raw);
+      return record.source === 'deck'
+        ? String(parsed.data?.deck || '').trim()
+        : resolveTitle(parsed.data, parsed.content, record.path);
+    } catch {
+      return '';
+    }
+  }
+  // 列表里的记录不带正文。现存笔记直接用索引里的标题；索引里没有的（已删除的笔记、
+  // 卡组文件）读这条路径最新的一条记录来取，同一路径只读一次，一页最多读 TITLE_READS 次。
+  const TITLE_READS = 30;
+  async function withTitles(records) {
+    const titles = new Map();
+    let reads = 0;
+    for (const record of records) {
+      const key = `${record.source || 'note'}:${record.path}`;
+      if (titles.has(key)) continue;
+      let title = record.source === 'deck' ? '' : db?.getNote?.(record.path)?.title || '';
+      if (!title && reads < TITLE_READS) {
+        reads += 1;
+        try { title = titleFromRaw(await findRecord(record.id)); } catch {}
+      }
+      titles.set(key, title || basename(record.path));
+    }
+    return records.map(record => ({ ...record, title: titles.get(`${record.source || 'note'}:${record.path}`) }));
+  }
   async function findRecord(id) {
     if (!id.startsWith(DECK_PREFIX)) return getRecord(config.notesDir, id);
     const record = await getRecord(config.vaultDir, id.slice(DECK_PREFIX.length));
@@ -49,8 +80,10 @@ function createHistoryRoutes({ config }) {
           .sort((left, right) => String(right.at).localeCompare(String(left.at)));
       // 一页最多列 HISTORY_PAGE 条：记录多了以后整页几 MB，打开都慢。
       const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
-      const records = all.slice((page - 1) * HISTORY_PAGE, page * HISTORY_PAGE);
-      const selected = req.query.id ? await findRecord(String(req.query.id)) : null;
+      const records = await withTitles(all.slice((page - 1) * HISTORY_PAGE, page * HISTORY_PAGE));
+      const found = req.query.id ? await findRecord(String(req.query.id)) : null;
+      // 预览的是这一条记录本身，标题也取它自己的内容：旧版本可能还是改名前的标题。
+      const selected = found ? { ...found, title: titleFromRaw(found) || basename(found.path) } : null;
       res.render('history', {
         title: '版本历史与草稿', records, selected, notePath, deckPath,
         page, hasMore: all.length > page * HISTORY_PAGE, total: all.length

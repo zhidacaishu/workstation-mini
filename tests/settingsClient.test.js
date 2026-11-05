@@ -93,7 +93,6 @@ async function loadSettings(initial = makeData()) {
   const reload = createElement({ id: 'reload-settings' });
   reload.hidden = true;
   const runtime = createElement({ id: 'runtime-status' });
-  const state = createElement({ id: 'settings-state' });
   const sync = createElement({ id: 'sync-now' });
   const syncStatus = createElement({ id: 'sync-status' });
   const syncStatusTitle = createElement({ id: 'sync-status-title' });
@@ -112,7 +111,7 @@ async function loadSettings(initial = makeData()) {
 
   const byId = new Map([
     ['settings-form', form], ['message', message], ['save', save],
-    ['reload-settings', reload], ['runtime-status', runtime], ['settings-state', state],
+    ['reload-settings', reload], ['runtime-status', runtime],
     ['sync-now', sync], ['sync-status', syncStatus], ['sync-status-title', syncStatusTitle],
     ['sync-status-detail', syncStatusDetail], ['abort-git-operation', abortGit],
     ['open-vault', openVault], ['open-config', openConfig],
@@ -174,7 +173,7 @@ async function loadSettings(initial = makeData()) {
   await flush();
 
   return {
-    fields, form, message, save, reload, runtime, state, sync, syncStatus,
+    fields, form, message, save, reload, runtime, sync, syncStatus,
     syncStatusTitle, syncStatusDetail, abortGit, openVault, openConfig, openRecovery,
     launchCapability, body, savedUpdates, recoveryModes,
     setSave(implementation) { saveImpl = implementation; },
@@ -295,8 +294,9 @@ test('恢复入口只打开独立窗口，不改变未保存设置状态', async
 test('设置页从 clean 进入 dirty，保存失败保留普通字段', async () => {
   const ui = await loadSettings();
   assert.equal(ui.body.dataset.settingsState, 'clean');
-  assert.equal(ui.state.textContent, '已同步');
+  // 工作台正常运行时不挂状态；编辑状态只写在底部的提示里。
   assert.equal(ui.runtime.textContent, '工作台运行中');
+  assert.equal(ui.runtime.hidden, true);
   assert.equal(ui.save.disabled, true);
 
   ui.fields.get('device').value = 'desk';
@@ -330,7 +330,7 @@ test('保存期间锁定竞争操作并吸收自身变更通知', async () => {
   await flush();
 
   assert.equal(ui.body.dataset.settingsState, 'busy');
-  assert.equal(ui.state.textContent, '保存中');
+  assert.equal(ui.message.textContent, '正在保存设置…');
   assert.equal(ui.fields.get('device').disabled, true);
   assert.equal(ui.sync.disabled, true);
   assert.equal(ui.beforeUnload().prevented, true);

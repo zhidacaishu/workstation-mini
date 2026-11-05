@@ -8,12 +8,3 @@
     </a>
   <% }) %>
 </nav>
-
-<nav class="workspace-tools" aria-label="资料库工具">
-  <% toolItems.forEach(item => { %>
-    <a data-nav="<%= item.key %>" class="workspace-tool-link<%= item.active ? ' is-active' : '' %>" href="<%= item.href %>" title="<%= item.label %>"<% if (item.active) { %> aria-current="page"<% } %>>
-      <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><%- icons[item.key] %></svg>
-      <span class="visually-hidden"><%= item.label %></span>
-    </a>
-  <% }) %>
-</nav>

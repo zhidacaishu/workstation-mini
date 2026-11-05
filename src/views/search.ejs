@@ -7,7 +7,8 @@
 <div class="library">
 <header class="page-head">
   <h1>笔记</h1>
-  <% if (!readOnly) { %><a class="button primary" href="/new"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建笔记</a><% } %>
+  <%# 普通按钮，不用实心蓝：这一页主要是找笔记，新建在侧栏的「+」里随时都有。 %>
+  <% if (!readOnly) { %><a class="button" href="/new"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建笔记</a><% } %>
 </header>
 
 <form class="library-filters" action="/search" method="get" role="search" aria-label="搜索与筛选笔记">
@@ -26,11 +27,11 @@
   <div class="library-list-heading"><h2 id="library-results-title"><%= browsing ? (section ? sectionName(section) : '最近修改') : '匹配的笔记' %></h2><span><% if (browsing) { %>共 <%= total %> 篇<% if (pages > 1) { %> · 第 <%= page %> / <%= pages %> 页<% } %><% } else { %><%= results.length %> 篇<% } %></span></div>
   <% if (results.length) { %>
     <ul class="library-list">
-      <% results.forEach(row => { const modified = row.mtime_ms || row.mtimeMs; const excerpt = browsing ? '' : ui.plainSnippet(row.snippet); %>
+      <% results.forEach(row => { const modified = row.mtime_ms || row.mtimeMs; const excerpt = browsing ? '' : ui.excerptHtml(row.snippet, query); %>
         <li><a class="library-document" href="/note/<%= encodePath(row.path) %>">
           <span class="library-document-content">
             <strong><%= row.title %></strong>
-            <% if (excerpt) { %><span class="library-excerpt"><%= excerpt %></span><% } %>
+            <% if (excerpt) { %><span class="library-excerpt"><%- excerpt %></span><% } %>
           </span>
           <span class="library-document-meta"><% if (!section) { %><span><%= sectionName(row.section) %></span><% } %><% if (modified) { %><time datetime="<%= new Date(modified).toISOString() %>"><%= ui.modifiedLabel(modified, today) %></time><% } %></span>
         </a></li>

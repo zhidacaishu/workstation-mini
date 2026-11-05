@@ -120,6 +120,7 @@ function plainSnippet(value) {
     .replace(/(^|\s)(?:[-*+]\s+)?\[(?: |x|X)\]\s+/g, '$1')
     .replace(/(^|\s)(?:#{1,6}|>|[-*+])\s+/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, '$1$2')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -128,6 +129,43 @@ function plainSnippet(value) {
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = value => String(value).replace(/[&<>"']/g, char => HTML_ESCAPES[char]);
 const PREVIEW_MATH = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g;
+
+/**
+ * 搜索结果摘要：去掉 Markdown 记号、行内公式排成 KaTeX、块公式省略，并把查询词标出来。
+ * 重复的一级标题由 buildSnippet 在原文还保留行边界时移除。
+ */
+function excerptHtml(value, query = '') {
+  const formulas = [];
+  let raw = String(value || '').replace(/\u0000/g, '').replace(/\s+/g, ' ').trim();
+  // 摘要窗口可能从公式中间截断：开头多出来的半个公式（落单的 $ 或 $$）连同它前面的 TeX 一起去掉，
+  // 结尾同理，否则后面的 $ 会全部错位配对。
+  const unpaired = text => ((text.match(/\$\$/g) || []).length % 2) + ((text.replace(/\$\$/g, '').match(/\$/g) || []).length % 2);
+  if (raw.startsWith('…') && unpaired(raw)) raw = '…' + raw.slice(raw.search(/\$(?!\$)|\$\$/) + (raw.includes('$$') && raw.indexOf('$$') === raw.indexOf('$') ? 2 : 1));
+  if (raw.endsWith('…') && unpaired(raw)) raw = raw.slice(0, raw.lastIndexOf('$')).replace(/\$$/, '') + '…';
+  let text = raw
+    .replace(/\$\$[^$]*\$\$/g, ' … ')
+    .replace(PREVIEW_MATH, (match, block, inline) => `\u0000${formulas.push(block ?? inline) - 1}\u0000`)
+    .replace(/\$/g, '');
+  text = plainSnippet(text);
+  const needle = String(query || '').trim();
+  const pattern = needle ? new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi') : null;
+  function highlightText(value) {
+    if (!pattern) return escapeHtml(value);
+    let html = '';
+    let offset = 0;
+    for (const match of value.matchAll(pattern)) {
+      html += escapeHtml(value.slice(offset, match.index)) + `<mark>${escapeHtml(match[0])}</mark>`;
+      offset = match.index + match[0].length;
+    }
+    return html + escapeHtml(value.slice(offset));
+  }
+  // 先按公式占位符分段，再只对普通文本高亮；避免数字查询改坏占位符或 HTML 实体。
+  return text.split(/\u0000(\d+)\u0000/g).map((part, index) => index % 2 === 0
+    ? highlightText(part)
+    : formulas[part] === undefined ? '' : katex.renderToString(formulas[part], {
+      output: 'html', throwOnError: false, strict: 'ignore', trust: false, maxExpand: 1000, maxSize: 20
+    })).join('');
+}
 
 /**
  * 卡片列表里的一行预览：文字去掉 Markdown 记号，公式用 KaTeX 排出来，
@@ -230,6 +268,7 @@ module.exports = {
   modifiedLabel,
   dateTimeLabel,
   plainSnippet,
+  excerptHtml,
   cardPreview,
   dayDiff,
   addDays,

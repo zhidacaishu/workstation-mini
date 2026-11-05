@@ -70,7 +70,27 @@ test('local history survives deletion and database rebuild, is Git ignored, rest
   const restored = await request(c.app).post('/save').send({ path: 'a.md', body: removed.raw, isNew: '1' });
   assert.equal(restored.status, 302);
   assert.equal((await readNote(c.notes, 'a.md')).raw, '# second');
-  assert.equal((await request(c.app).get('/history')).status, 200);
+  const history = await request(c.app).get('/history');
+  assert.equal(history.status, 200);
+  // 列表主文字是标题，路径退到次要信息里。
+  assert.match(history.text, /class="history-title">second</);
+  assert.match(history.text, /class="history-path"[^>]*>a\.md</);
+});
+
+test('history list titles deleted notes from their own last record', async t => {
+  const c = await setup(t);
+  await writeNote(c.notes, 'gone.md', { raw: '---\ntitle: 删掉的笔记\n---\n\n正文' });
+  await deleteNote(c.notes, 'gone.md');
+  await c.indexer.scan({ force: true });
+  const page = (await request(c.app).get('/history')).text;
+  // 索引里已经没有这篇，标题从删除前那条记录的 frontmatter 里取，而不是退回文件名。
+  assert.match(page, /class="history-title">删掉的笔记</);
+  // 只有草稿、已删除、卡组挂标签；普通版本不写「版本」，没选中记录时也不放空的预览框。
+  assert.match(page, /class="history-kind is-deleted">已删除</);
+  assert.doesNotMatch(page, /is-version|选择一条记录预览/);
+  const id = page.match(/href="\/history\?id=([^"&]+)/)[1];
+  const preview = (await request(c.app).get('/history?id=' + id)).text;
+  assert.match(preview, /<h2 id="history-preview-title">删掉的笔记<\/h2>/);
 });
 
 test('draft sequence rejects stale writes and deletes; recovery never overwrites changed disk file', async t => {

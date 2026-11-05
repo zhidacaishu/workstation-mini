@@ -8,22 +8,16 @@
   };
 %>
 <header class="page-head">
-  <div>
-    <h1><%= workflow.label %></h1>
-    <p class="page-meta">共 <%= total %> 个<%= workflow.noun %></p>
-  </div>
+  <%# 每一栏标题旁都有数目，页头不再写「共 N 个项目」。 %>
+  <h1><%= workflow.label %></h1>
   <% if (!readOnly) { %><a class="button" href="/new?folder=<%= encodeURIComponent(workflow.section) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
 </header>
 
 <% if (total === 0) { %>
   <section class="panel empty-state board-onboarding">
     <h2>还没有<%= workflow.noun %></h2>
-    <p>研究项目就是 <code>notes/<%= workflow.section %>/</code> 下带 <code>status</code> 字段的普通笔记。</p>
-    <pre><code>---
-title: 基线模型
-status: <%= workflow.initial %>
-<% workflow.fields.forEach(field => { %><%= field %>:
-<% }) %>---</code></pre>
+    <%# 不再贴一整段 frontmatter 模板：「新建项目」会把这些字段预先填好，上手指南里也有说明。 %>
+    <p>研究项目就是 <code>notes/<%= workflow.section %>/</code> 下带 <code>status</code> 字段的普通笔记。<% if (!readOnly) { %>点右上角「新建项目」，状态、截止日、数据集、参数、seed、commit 和下一步这些字段会预先填好。<% } %></p>
   </section>
 <% } else { %>
   <div class="board" data-board data-workflow="<%= workflow.key %>">
@@ -64,7 +58,7 @@ status: <%= workflow.initial %>
                 <input type="hidden" name="expectedHash" value="<%= item.hash %>">
                 <label class="select-field small">
                   <span class="visually-hidden">改变「<%= item.title %>」的状态</span>
-                  <select name="status" data-auto-submit aria-label="改变「<%= item.title %>」的状态">
+                  <select name="status" data-auto-submit aria-label="改变「<%= item.title %>」的状态" title="改变状态">
                     <% workflow.statuses.forEach(status => { %>
                       <option value="<%= status.key %>" <%= status.key === item.status ? 'selected' : '' %>><%= status.label %></option>
                     <% }) %>

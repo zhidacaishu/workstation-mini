@@ -4,7 +4,6 @@ const message = document.getElementById('message');
 const saveButton = document.getElementById('save');
 const reloadButton = document.getElementById('reload-settings');
 const runtimeStatus = document.getElementById('runtime-status');
-const editStatus = document.getElementById('settings-state');
 const syncButton = document.getElementById('sync-now');
 const syncStatusPanel = document.getElementById('sync-status');
 const syncStatusTitle = document.getElementById('sync-status-title');
@@ -130,15 +129,7 @@ function setPhase(next) {
   phase = next;
   document.body.dataset.settingsState = next;
   form.dataset.settingsState = next;
-  const labels = {
-    loading: '读取中',
-    clean: '已同步',
-    dirty: '待保存',
-    busy: activeOperation === 'save' ? '保存中' : '处理中',
-    conflict: '外部有变化',
-    error: '需要处理'
-  };
-  editStatus.textContent = labels[next] || '';
+  // 编辑状态（待保存、保存中、外部有变化、出错）都写在底部操作栏的提示里，标题旁不再另挂一个状态胶囊。
   updateActions();
 }
 
@@ -207,6 +198,8 @@ function fill(data) {
   renderSyncStatus(data.syncStatus);
   savedVaultDir = String(data.settings.vaultDir || '');
   runtimeStatus.textContent = runtimeRunning ? '工作台运行中' : '等待选择资料库';
+  // 正常运行时不必说；只有还没选资料库、工作台没跑起来时才挂出来。
+  runtimeStatus.hidden = runtimeRunning;
   loaded = true;
   baselineSettings = readPlainSettings();
   baseline = snapshot();

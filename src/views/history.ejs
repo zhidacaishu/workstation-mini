@@ -2,6 +2,8 @@
 <%
   const kindLabel = record => record.kind === 'draft' ? '草稿' : record.reason === 'delete' ? '已删除' : '版本';
   const kindClass = record => record.kind === 'draft' ? 'is-draft' : record.reason === 'delete' ? 'is-deleted' : 'is-version';
+  // 列表里绝大多数是普通的保存前版本：只给草稿、已删除、卡组挂标签，普通版本不再每行写一遍「版本」。
+  // 没选中记录时右边留白，不再放一个写着「选择一条记录预览」的空框。
 %>
 <header class="page-head">
   <div>
@@ -20,8 +22,8 @@
         <% records.forEach(record => { const active = selected && selected.id === record.id; %>
           <li>
             <a href="/history?id=<%= encodeURIComponent(record.id) %><%= notePath ? '&path=' + encodeURIComponent(notePath) : '' %><%= deckPath ? '&deck=' + encodeURIComponent(deckPath) : '' %><%= page > 1 ? '&page=' + page : '' %>"<% if (active) { %> aria-current="true" class="is-active"<% } %>>
-              <span class="history-path"><%= record.path %></span>
-              <span class="history-meta"><% if (record.source === 'deck') { %><span class="history-kind is-deck">卡组</span><% } %><span class="history-kind <%= kindClass(record) %>"><%= kindLabel(record) %></span><time datetime="<%= record.at %>"><%= ui.dateTimeLabel(record.at) %></time></span>
+              <span class="history-title"><%= record.title %></span>
+              <span class="history-meta"><% if (record.source === 'deck') { %><span class="history-kind is-deck">卡组</span><% } %><% if (kindClass(record) !== 'is-version') { %><span class="history-kind <%= kindClass(record) %>"><%= kindLabel(record) %></span><% } %><time datetime="<%= record.at %>"><%= ui.dateTimeLabel(record.at) %></time><span class="history-path" title="<%= record.path %>"><%= record.path %></span></span>
             </a>
           </li>
         <% }) %>
@@ -41,8 +43,8 @@
     <section class="panel history-preview-panel" aria-labelledby="history-preview-title">
       <header class="history-preview-head">
         <div>
-          <h2 id="history-preview-title"><%= selected.path %></h2>
-          <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %></p>
+          <h2 id="history-preview-title"><%= selected.title %></h2>
+          <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %> · <span class="history-path"><%= selected.path %></span></p>
         </div>
         <% if (!readOnly && selected.source === 'deck') { %>
           <form action="/history/restore-deck" method="post" data-confirm="用这个版本覆盖当前的卡组文件？覆盖前的内容会先存进历史。">
@@ -53,8 +55,6 @@
       </header>
       <pre class="history-preview"><%= selected.raw %></pre>
     </section>
-  <% } else if (records.length) { %>
-    <section class="panel history-placeholder empty-state"><p>选择一条记录预览</p></section>
   <% } %>
 </div>
 <%- include('partials/foot') %>

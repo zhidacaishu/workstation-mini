@@ -51,6 +51,14 @@ const PHASE_COPY = {
   failed: ['需要处理', '恢复没有完成', '请按下方建议修复后重试。']
 };
 
+// 首次启动还没有资料库，谈不上「恢复」：这时显示欢迎页（body[data-view="welcome"]），
+// 不出现恢复阶段栏；选了「从备份恢复」之后才换成恢复界面。
+const WELCOME_COPY = ['首次启动', '欢迎使用科研工作台', '还没有打开资料库'];
+
+function isWelcome() {
+  return state.mode === 'first-run' && ['idle', 'cancelled', 'failed'].includes(state.phase || 'idle');
+}
+
 const STAGE_PHASES = {
   source: ['idle', 'inspecting-source', 'cloning', 'copying', 'validating-git', 'validating-vault'],
   destination: ['preparing-staging'],
@@ -118,7 +126,7 @@ function renderControls() {
   const sourceReady = sourceKind() === 'git' ? Boolean(remote) && remote === inspectedRemote : localSourceSelected;
   const canStart = sourceReady && destinationSelected && directoryName.value.trim();
 
-  startButton.hidden = !setup;
+  startButton.hidden = !setup || isWelcome();
   startButton.disabled = operationPending || !canStart;
   startButton.textContent = '开始复制与索引验证';
   cancelButton.hidden = !state.canCancel;
@@ -163,19 +171,26 @@ function render(next = {}) {
   state = { mode: 'restore', phase: 'idle', ...next };
   const phase = state.phase;
   const copy = PHASE_COPY[phase] || PHASE_COPY.failed;
+  const welcome = isWelcome();
   body.dataset.phase = phase;
-  phaseLabel.textContent = copy[0];
-  title.textContent = copy[1];
-  statusTitle.textContent = copy[1];
-  statusMessage.textContent = state.error?.message || state.reason || copy[2];
+  body.dataset.view = welcome ? 'welcome' : 'recovery';
+  document.title = state.mode === 'first-run' ? '开始使用科研工作台' : '恢复科研工作台资料库';
+  phaseLabel.textContent = welcome ? WELCOME_COPY[0] : copy[0];
+  title.textContent = welcome ? WELCOME_COPY[1] : copy[1];
+  statusTitle.textContent = welcome ? WELCOME_COPY[2] : copy[1];
+  // 欢迎页上出错时，下面的红框已经写了原因，这里不再重复一遍。
+  statusMessage.textContent = welcome
+    ? (state.error ? '' : state.reason || '')
+    : state.error?.message || state.reason || copy[2];
   renderStages(phase);
 
   const setup = ['idle', 'cancelled', 'failed'].includes(phase) && !state.residue;
-  const firstRunMode = state.mode === 'first-run' && ['idle', 'cancelled', 'failed'].includes(phase);
-  firstRun.hidden = !firstRunMode;
-  form.hidden = firstRunMode && !state.error && !state.reason;
-  sourcePanel.hidden = !setup;
-  destinationPanel.hidden = !setup;
+  firstRun.hidden = !welcome;
+  // 欢迎页只在出错或被拦下时露出表单，而且只露出说明原因的那一块：
+  // 恢复来源和目标目录与「创建」「打开」无关。
+  form.hidden = welcome && !state.error && !state.reason;
+  sourcePanel.hidden = !setup || welcome;
+  destinationPanel.hidden = !setup || welcome;
   statusPanel.hidden = setup && !state.error && !state.reason;
 
   const unit = state.progress?.unit || '';

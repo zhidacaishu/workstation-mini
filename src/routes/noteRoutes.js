@@ -115,8 +115,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
           note: { ...note, section: sectionOf(notePath), tags: [], data: {} },
           html: '',
           parseError: note.parseError,
-          backlinks: db.backlinks(notePath),
-          pending: []
+          backlinks: db.backlinks(notePath)
         });
         return;
       }
@@ -126,8 +125,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
         parseError: '',
         // 非只读时阅读页的待办可以直接勾选，提交到 /tasks/update，和计划页同一条路径。
         html: renderMarkdown(note.body, resolver(), { notePath, today: res.locals.today, taskToggle: !config.readOnly, title: note.title, readOnly: config.readOnly }),
-        backlinks: db.backlinks(notePath),
-        pending: db.outboundLinks(notePath).filter(link => !link.path)
+        backlinks: db.backlinks(notePath)
       });
     } catch (error) {
       next(error);
@@ -144,6 +142,8 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
       const note = await readNote(config.notesDir, notePath, { tolerateInvalid: true });
       res.render('edit', {
         title: `编辑 ${note.title}`,
+        // 页面标题仍写笔记名：从阅读页点「编辑」进来，标题不该变成「编辑」两个字。
+        noteTitle: note.title,
         notePath,
         body: note.raw,
         editorWarning: note.parseError ? '笔记格式有误，请修正后保存：' + note.parseError : '',

@@ -8,7 +8,8 @@
   const deadline = isProject ? ui.toDateString(note.data.deadline) : '';
   const active = isProject && note.data.status !== 'done' && note.data.status !== 'abandoned';
   const next = isProject ? ui.fieldText(note.data.next) : '';
-  const hasLinks = backlinks.length > 0 || pending.length > 0;
+  // 侧栏只放反向链接。还没写的 [[双链]] 在正文里是灰色虚线，点一下就能新建，不再在侧栏另列一遍。
+  const hasLinks = backlinks.length > 0;
 %>
 <div class="note-layout<%= hasLinks ? '' : ' is-single' %>">
   <article class="note">
@@ -75,16 +76,6 @@
           <ul class="notelist">
             <% backlinks.forEach(link => { %>
               <li><a href="/note/<%= encodePath(link.path) %>"><%= link.title %></a></li>
-            <% }) %>
-          </ul>
-        </section>
-      <% } %>
-      <% if (pending.length) { %>
-        <section>
-          <h2>待建 <span class="count"><%= pending.length %></span></h2>
-          <ul class="notelist is-pending">
-            <% pending.forEach(link => { %>
-              <li><% if (readOnly) { %><span class="wikilink-missing" title="只读模式下不能新建笔记"><%= link.target %></span><% } else { %><a class="wikilink-missing" href="/new?path=<%= encodeURIComponent(link.target) %>" title="新建这篇笔记"><%= link.target %></a><% } %></li>
             <% }) %>
           </ul>
         </section>

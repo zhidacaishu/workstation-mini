@@ -12,24 +12,12 @@
   const upcoming = tasks.upcoming || [];
   // 月历备注已经在计划页里，不再挤进「最近的笔记」。
   const recentNotes = (recent || []).filter(item => item.section !== 'calendar' && (!featured || item.path !== featured.path)).slice(0, 4);
-  const traceOf = project => [
-    ui.fieldText(project.data.dataset),
-    ui.fieldText(project.data.params),
-    project.data.seed !== undefined && project.data.seed !== null && project.data.seed !== '' ? `seed ${ui.fieldText(project.data.seed)}` : '',
-    ui.fieldText(project.data.commit)
-  ].filter(Boolean).join(' · ');
 %>
 
 <header class="desk-header">
   <h1><%= Number(date.slice(5, 7)) %> 月 <%= Number(date.slice(8, 10)) %> 日</h1>
   <span class="desk-weekday"><%= snapshot.weekday || '' %></span>
 </header>
-
-<nav class="desk-metrics" aria-label="今日概览">
-  <a class="desk-metric" href="/plan?view=list&filter=all"><span class="desk-metric-label">待办</span><strong><%= tasks.open || 0 %></strong></a>
-  <a class="desk-metric<%= tasks.overdue ? ' is-warn' : '' %>" href="/plan?view=list&filter=overdue"><span class="desk-metric-label">逾期</span><strong><%= tasks.overdue || 0 %></strong></a>
-  <a class="desk-metric is-action" href="<%= reviewCount ? '/review' : '/decks' %>"><span class="desk-metric-label">今日复习</span><strong><%= reviewCount %></strong><% if (reviewCount) { %><span class="desk-metric-go" aria-hidden="true">开始 →</span><% } %></a>
-</nav>
 
 <% if (typeof onboarding !== 'undefined' && onboarding) { %>
   <%- include('partials/onboarding', { progress: onboarding, variant: 'today' }) %>
@@ -39,7 +27,7 @@
   <div class="desk-main">
     <section class="panel desk-research" aria-labelledby="continue-title">
       <div class="section-head"><h2 id="continue-title">继续研究</h2><a href="/board/experiment">全部项目</a></div>
-      <% if (featured) { const deadline = ui.toDateString(featured.data.deadline); const trace = traceOf(featured); %>
+      <% if (featured) { const deadline = ui.toDateString(featured.data.deadline); %>
         <article class="research-entry is-featured">
           <div class="research-context">
             <span class="status-label is-<%= featured.status %>"><span class="status-mark" aria-hidden="true"></span><%= featured.statusLabel %></span>
@@ -49,7 +37,6 @@
           <% if (featured.data.next) { %>
             <p class="research-next"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg><span><%= ui.fieldText(featured.data.next) %></span></p>
           <% } %>
-          <% if (trace) { %><p class="research-trace"><%= trace %></p><% } %>
         </article>
       <% } else { %>
         <div class="empty-state">
@@ -70,7 +57,8 @@
       <% } else { %>
         <div class="empty-state">
           <p>还没有笔记</p>
-          <% if (!readOnly) { %><a class="button" href="/new">写第一篇笔记</a><% } %>
+          <%# 上手清单在的时候，它的「下一步」已经给了「新建笔记」，这里不再放第二个。 %>
+          <% if (!readOnly && !(typeof onboarding !== 'undefined' && onboarding)) { %><a class="button" href="/new">写第一篇笔记</a><% } %>
         </div>
       <% } %>
     </section>
@@ -78,6 +66,15 @@
 
   <section class="panel desk-side" aria-labelledby="task-title">
     <div class="section-head"><h2 id="task-title">今天需要处理</h2><a href="/plan?view=list">全部计划</a></div>
+    <%# 今日复习是今天要做的第一件事，排在待办前面；没有要复习的卡片就不占一行。
+        逾期数侧栏「计划」的角标和下面的待办都写着，这里不再单独列数字。 %>
+    <% if (reviewCount) { %>
+      <a class="desk-review" href="/review">
+        <svg class="desk-review-icon" viewBox="0 0 24 24" aria-hidden="true"><%- ui.NAV_ICONS.review %></svg>
+        <span class="desk-review-text">复习 <strong><%= reviewCount %></strong> 张卡片</span>
+        <span class="desk-review-go" aria-hidden="true">开始 →</span>
+      </a>
+    <% } %>
     <% const taskRow = task => { const overdue = task.due && task.due < date; const dueToday = task.due === date; %>
           <li class="desk-task">
             <% if (!readOnly) { %>

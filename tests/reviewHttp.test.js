@@ -14,6 +14,9 @@ const { createSearch } = require('../src/search');
 const { writeNote } = require('../src/vault/note');
 
 const FIXED_NOW = new Date(2026, 2, 17, 14, 30);
+// 复习页把队列嵌在 data-queue 里；页头不再写「到期 N 张 · 新卡 N 张」，直接数队列。
+const queueIn = html => JSON.parse(decodeURIComponent(html.match(/data-queue="([^"]*)"/)[1]));
+const freshIn = html => queueIn(html).filter(card => card.state === 0).length;
 
 async function setup({ readOnly = false, cards = {} } = {}) {
   const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-rev-http-'));
@@ -86,7 +89,9 @@ test('复习页把队列嵌进页面，正反面都渲染成 HTML', async () => 
     const response = await request(ctx.app).get('/review').expect(200);
     assert.match(response.text, /data-queue=/);
     assert.match(response.text, /heterogeneity/);
-    assert.match(response.text, /新卡 2 张/);
+    assert.equal(freshIn(response.text), 2);
+    // 页头只有会随答题变化的「剩余」，不再放开场时的到期 / 新卡总数。
+    assert.doesNotMatch(response.text, /class="review-totals"/);
   } finally {
     await ctx.cleanup();
   }
@@ -147,13 +152,13 @@ test('答过的卡不再出现在当天队列里', async () => {
   const ctx = await setup({ cards: { 'english.md': ENGLISH_DECK } });
   try {
     const before = await request(ctx.app).get('/review').expect(200);
-    assert.match(before.text, /新卡 2 张/);
+    assert.equal(freshIn(before.text), 2);
 
     await request(ctx.app).post('/review/answer')
       .send({ eventId: 'event-http-basic', cardId: 'english/heterogeneity', rating: 3 }).expect(200);
 
     const after = await request(ctx.app).get('/review').expect(200);
-    assert.match(after.text, /新卡 1 张/, '答过的那张应离开新卡队列');
+    assert.equal(freshIn(after.text), 1, '答过的那张应离开新卡队列');
   } finally {
     await ctx.cleanup();
   }
@@ -341,11 +346,11 @@ test('按卡组筛选复习', async () => {
   });
   try {
     const all = await request(ctx.app).get('/review').expect(200);
-    assert.match(all.text, /新卡 3 张/);
+    assert.equal(freshIn(all.text), 3);
 
     const scoped = await request(ctx.app)
       .get('/review?deck=' + encodeURIComponent('计量')).expect(200);
-    assert.match(scoped.text, /新卡 1 张/);
+    assert.equal(freshIn(scoped.text), 1);
     assert.ok(!scoped.text.includes('heterogeneity'), '别的卡组不该混进来');
   } finally {
     await ctx.cleanup();
@@ -385,7 +390,8 @@ test('开始复习计数应用全局新卡上限，并保留全部到期卡', as
       '评分为“忘了”的卡片只计入已学，不应宣称已掌握');
 
     const home = await request(ctx.app).get('/').expect(200);
-    assert.match(home.text, /今日复习<\/span><strong>21<\/strong>/);
+    // 今日页「今天需要处理」的第一行就是这一轮要复习的张数。
+    assert.match(home.text, /复习 <strong>21<\/strong> 张卡片/);
     const scoped = await request(ctx.app).get('/review?deck=' + encodeURIComponent('第二组')).expect(200);
     assert.equal(queueOf(scoped.text).length, 10, '卡组内不足 20 张时全部载入');
   } finally {

@@ -64,8 +64,13 @@ test('桌面界面不再包含移动导航或手机布局断点', () => {
   assert.doesNotMatch(script, /matchMedia|scrollIntoView/);
   for (const file of ['src/public/styles.css', 'electron/settings/settings.css', 'electron/recovery/recovery.css']) {
     assert.doesNotMatch(read(file), /@media\s*\(max-width:\s*(?:760|560|520)px\)|calendar-mobile-count|compact-nav-trigger/);
-    assert.match(read(file), /prefers-color-scheme/);
     assert.match(read(file), /prefers-reduced-motion/);
+  }
+  // 颜色与深浅主题集中在三个窗口共用的 tokens.css 里：主窗口在模板里引用，设置和恢复窗口在样式表里导入。
+  assert.match(read('src/public/tokens.css'), /prefers-color-scheme:\s*dark/);
+  assert.match(read('src/views/partials/head.ejs'), /href="\/static\/tokens\.css"/);
+  for (const file of ['electron/settings/settings.css', 'electron/recovery/recovery.css']) {
+    assert.match(read(file), /@import url\("\.\.\/\.\.\/src\/public\/tokens\.css"\)/);
   }
 });
 

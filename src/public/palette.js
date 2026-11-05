@@ -183,8 +183,15 @@
       updateItemActiveState(option, index);
 
       const icon = document.createElement('span');
-      icon.className = 'palette-icon';
-      icon.textContent = item.icon || '项目';
+      if (item.icon === '笔记') {
+        // 结果几乎全是笔记，每行都写「笔记」是重复信息：只放一个淡色的文档图标
+        // （样式里画）占住同一列，命令（写入、搜索……）照旧用文字标签。
+        icon.className = 'palette-icon is-note';
+        icon.setAttribute('aria-hidden', 'true');
+      } else {
+        icon.className = 'palette-icon';
+        icon.textContent = item.icon || '项目';
+      }
 
       const label = document.createElement('span');
       label.className = 'palette-label';
@@ -234,7 +241,8 @@
       });
       notes = (payload.results || []).slice(0, 6).map(row => ({
         label: row.title || row.path,
-        hint: row.section || '',
+        // 与笔记列表一致，显示分区的中文名，不露出目录名。
+        hint: ({ experiments: '研究项目', research: '研究笔记', calendar: '月历备注', learning: '学习笔记', reading: '阅读笔记', inbox: '收件箱', cards: '卡片' })[row.section] || row.section || '',
         icon: '笔记',
         run: () => navigate(`/note/${row.path.split('/').map(encodeURIComponent).join('/')}`)
       }));
