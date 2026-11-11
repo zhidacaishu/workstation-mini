@@ -2,7 +2,7 @@
 <%
   const plain = value => ui.plainSnippet(String(value || '').replace(/\$\$?([^$]+)\$\$?/g, '$1'));
 %>
-<div class="narrow">
+<div class="narrow cards-page">
 
 <header class="page-head">
   <div>
@@ -19,7 +19,7 @@
   <nav class="chiplist card-deck-filter" aria-label="按卡组筛选">
     <a class="chip<%= deck ? ' is-quiet' : '' %>" href="/cards"<% if (!deck) { %> aria-current="page"<% } %>>全部</a>
     <% decks.forEach(name => { %>
-      <a class="chip<%= name === deck ? '' : ' is-quiet' %>" href="/cards?deck=<%= encodeURIComponent(name) %>"<% if (name === deck) { %> aria-current="page"<% } %>><%= name %></a>
+      <a class="chip<%= name === deck ? '' : ' is-quiet' %>" title="<%= name %>" href="/cards?deck=<%= encodeURIComponent(name) %>"<% if (name === deck) { %> aria-current="page"<% } %>><%= name %></a>
     <% }) %>
   </nav>
 <% } %>

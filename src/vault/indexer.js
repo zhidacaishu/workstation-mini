@@ -1,4 +1,5 @@
 const fsp = require('node:fs/promises');
+const path = require('node:path');
 
 const { tokenizeToText } = require('../segment');
 const { toAbsolute, isSafeRelativePath, toPosix } = require('./paths');
@@ -351,15 +352,42 @@ function createIndexer({
     )];
   }
 
+  async function needsCaseReconciliation(candidates) {
+    if (process.platform !== 'win32' || candidates.length === 0) return false;
+    const indexed = new Map();
+    for (const row of db.listIndexed()) {
+      const key = row.path.toLowerCase();
+      const aliases = indexed.get(key) || [];
+      aliases.push(row.path);
+      indexed.set(key, aliases);
+    }
+    let root;
+    try { root = await fsOps.realpath(vaultDir); } catch { return false; }
+    for (const candidate of candidates) {
+      try {
+        // 只用实际拼写判断是否需要对账，不把跟随链接的结果直接拿去入库。
+        const actual = toPosix(path.relative(root, await fsOps.realpath(toAbsolute(vaultDir, candidate))));
+        if (actual !== candidate || indexed.get(actual.toLowerCase())?.some(alias => alias !== actual)) {
+          return true;
+        }
+      } catch (error) {
+        if (error.code === 'ENOENT') return true;
+        // 权限等读取错误交给原有逐文件检查，不能把失败误当删除。
+      }
+    }
+    return false;
+  }
+
   async function scanPathsOnce(paths, options = {}) {
     const { kind = 'incremental' } = options;
     const stats = { added: 0, updated: 0, removed: 0, unchanged: 0 };
     const touched = [];
     const candidates = candidatesFrom(paths);
-    beginScan(kind, candidates.length);
     let done = 0;
 
     try {
+      if (await needsCaseReconciliation(candidates)) return await scanOnce({ kind, force: true });
+      beginScan(kind, candidates.length);
       for (const relativePath of candidates) {
         const previous = db.getIndexed(relativePath);
         let link;

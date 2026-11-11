@@ -142,6 +142,21 @@ test('Git 命令只列还缺的步骤，路径用 POSIX 引号并统一为正斜
   assert.equal(gitSetupCommands('/v', { isRepository: false, hasIdentity: true }), "cd -- '/v'\ngit init\ngit status");
 });
 
+test('Git 准备情况不把父仓库的子目录视为资料库仓库', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-guide-root-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const child = path.join(root, 'vault');
+  await fs.mkdir(child);
+  execFileSync('git', ['init', '-q', root]);
+  execFileSync('git', ['-C', root, 'config', 'user.name', 'test']);
+  execFileSync('git', ['-C', root, 'config', 'user.email', 'test@example.invalid']);
+  const status = await gitSetupStatus({ vaultDir: child, syncEnabled: true });
+  assert.equal(status.isRepository, false);
+  assert.equal(status.ready, false);
+  assert.match(gitSetupCommands(child, status), /\ngit init\n/);
+  assert.equal((await gitSetupStatus({ vaultDir: root, syncEnabled: true })).ready, true);
+});
+
 test('Git 准备情况只读探测仓库、提交身份、远端和同步开关', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-onboarding-git-'));
   const globalConfig = path.join(root, 'empty.gitconfig');

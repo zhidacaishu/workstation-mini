@@ -54,11 +54,21 @@
       "electron/**/*",
       "src/**/*",
       "package.json",
+      "!tmp{,/**/*}",
+      "!dist{,/**/*}",
       "!node_modules/better-sqlite3/deps/**",
       "!node_modules/better-sqlite3/src/**",
       "!node_modules/better-sqlite3/binding.gyp"
     ],
     "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
       {
         "from": "build/tray.png",
         "to": "tray.png"
@@ -100,6 +110,9 @@
       ],
       "category": "public.app-category.productivity",
       "files": [
+        "electron/**/*",
+        "src/**/*",
+        "package.json",
         "!node_modules/better-sqlite3/prebuilds/!(darwin-arm64).node"
       ]
     },
@@ -130,6 +143,9 @@
       "icon": "build/icon.ico",
       "artifactName": "workstation-mini-${version}-setup.${ext}",
       "files": [
+        "electron/**/*",
+        "src/**/*",
+        "package.json",
         "!node_modules/better-sqlite3/prebuilds/!(win32-x64).node"
       ]
     },

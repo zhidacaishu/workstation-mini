@@ -5,7 +5,7 @@
 @import url("../../node_modules/@fontsource-variable/noto-sans-sc/wght.css");
 @import url("../../src/public/tokens.css");
 
-:root { --sidebar-width: 202px; }
+:root { --sidebar-width: 202px; --content-width: 860px; --content-gutter: 44px; }
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
@@ -86,8 +86,8 @@ nav a:focus-visible, button:focus-visible, input[type="checkbox"]:focus-visible 
 
 main {
   grid-column: 2;
-  width: min(860px, 100%);
-  padding: 34px 44px 108px;
+  width: min(var(--content-width), 100%);
+  padding: 34px var(--content-gutter) 108px;
 }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .eyebrow { display: none; }
@@ -232,6 +232,8 @@ button:active:not(:disabled) { transform: translateY(.5px); }
   border-radius: var(--radius-md);
   background: var(--inset);
 }
+.sync-status > div { min-width: 0; overflow-wrap: anywhere; }
+.sync-status > button { flex: none; }
 .sync-status strong { display: block; color: var(--text); font-size: var(--fs-sm); font-weight: 600; }
 .sync-status p { margin: 3px 0 0; color: var(--subtle); font-size: var(--fs-xs); }
 .sync-status[data-phase="running"] { border-color: color-mix(in srgb, var(--accent) 58%, var(--line)); }
@@ -250,7 +252,9 @@ button:active:not(:disabled) { transform: translateY(.5px); }
   align-items: center;
   gap: 8px;
   min-height: 64px;
-  padding: 12px max(28px, calc((100vw - var(--sidebar-width) - 860px) / 2 + 44px));
+  padding: 12px var(--content-gutter);
+  /* 与靠左的正文共用宽度和边距；百分比按可用视口算，排除滚动条。 */
+  padding-right: max(var(--content-gutter), calc(100% - var(--sidebar-width) - var(--content-width) + var(--content-gutter)));
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(10px);

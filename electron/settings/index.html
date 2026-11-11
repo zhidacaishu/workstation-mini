@@ -56,9 +56,9 @@
       </section>
 
       <section id="sync" class="settings-section">
-        <div class="section-heading"><div><h2>Git 同步</h2><p>资料库不是 Git 仓库时会自动跳过，不影响本地使用。</p></div></div>
+        <div class="section-heading"><div><h2>Git 同步</h2><p>资料库必须是 Git 工作树的根目录；否则自动跳过，不影响本地使用。</p></div></div>
         <div class="field-grid">
-          <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先提交本机修改，再拉取、推送。两台设备改了同一篇笔记时，本机版本另存为「冲突副本」笔记，不会把冲突标记写进正文。</small></span></label>
+          <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先提交本机修改，再拉取、推送。发生 Git 冲突时会停止同步，保留冲突现场，不自动选边。请手动处理冲突，或中止当前 Git 操作后再同步。</small></span></label>
           <label class="field"><span>同步间隔（分钟）</span><input name="syncIntervalMinutes" type="number" min="1" max="1440" step="1" required></label>
         </div>
         <div class="sync-status" id="sync-status" data-phase="disabled">

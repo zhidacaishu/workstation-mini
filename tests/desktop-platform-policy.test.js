@@ -87,6 +87,19 @@ test('macOS 平台不调用 Windows API，并使用 template status item', () =>
   });
 });
 
+test('所有平台的开发和安装版窗口都使用现有应用图标', () => {
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    const policy = createPlatformPolicy({ platform });
+    const name = platform === 'win32' ? 'icon.ico' : 'icon.png';
+    assert.equal(policy.windowIcon({ isPackaged: false, projectDir: '/repo', resourcesPath: '/resources' }), path.join('/repo', 'build', name));
+    assert.equal(policy.windowIcon({ isPackaged: true, projectDir: '/repo', resourcesPath: '/resources' }), path.join('/resources', name));
+  }
+  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  const windows = main.match(/new BrowserWindow\(\{[\s\S]*?\n\s*\}\);/g) || [];
+  assert.equal(windows.length, 3);
+  assert.ok(windows.every(source => source.includes('icon: WINDOW_ICON')), '主窗口、设置、恢复均指定图标');
+});
+
 test('Windows 菜单保持共享动作', () => {
   const policy = createPlatformPolicy({ platform: 'win32' });
   const actions = [{ id: 'show-settings', label: '设置' }, { id: 'quit-application', label: '退出' }];

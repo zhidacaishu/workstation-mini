@@ -53,6 +53,11 @@ const DIRECTORY_FIELDS = new Set(['vaultDir']);
 const RECOVERY_SWITCHABLE_PHASES = new Set(['idle', 'cancelled', 'completed', 'failed']);
 const platformPolicy = createPlatformPolicy();
 const { capabilities } = platformPolicy;
+const WINDOW_ICON = platformPolicy.windowIcon({
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  projectDir: path.join(__dirname, '..')
+});
 
 // 窗口底色是渲染进程画出第一帧之前、以及缩放窗口时新暴露区域露出的颜色。
 // 界面本身支持 prefers-color-scheme，写死浅色的话深色模式下拖拽缩放会闪白边。
@@ -401,6 +406,7 @@ async function createMainWindow({ hidden = false } = {}) {
       useContentSize: true,
       show: false,
       title: '科研工作台',
+      icon: WINDOW_ICON,
       backgroundColor: windowBackgroundColor(),
       ...platformPolicy.windowChrome('main'),
       webPreferences: {
@@ -712,6 +718,7 @@ async function showRecoveryWindow(mode = 'restore') {
     useContentSize: true,
     show: false,
     title: '恢复科研工作台资料库',
+    icon: WINDOW_ICON,
     backgroundColor: windowBackgroundColor(),
     ...platformPolicy.windowChrome('panel'),
     webPreferences: {
@@ -760,6 +767,7 @@ function showSettingsWindow() {
     useContentSize: true,
     show: false,
     title: '科研工作台设置',
+    icon: WINDOW_ICON,
     backgroundColor: windowBackgroundColor(),
     ...platformPolicy.windowChrome('panel'),
     webPreferences: {

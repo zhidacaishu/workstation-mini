@@ -1,5 +1,7 @@
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 const run = promisify(execFile);
 
@@ -67,14 +69,19 @@ async function gitSetupStatus({ vaultDir, syncEnabled, readOnly, timeoutMs = 150
   } catch {
     return finishGitStatus(status);
   }
-  const [inside, name, email, remotes] = await Promise.all([
-    git(['rev-parse', '--is-inside-work-tree']).catch(() => ''),
+  const [topLevel, name, email, remotes] = await Promise.all([
+    git(['rev-parse', '--show-toplevel']).catch(() => ''),
     // 不加 --local：全局配置里的提交身份同样有效。
     git(['config', 'user.name']).catch(() => ''),
     git(['config', 'user.email']).catch(() => ''),
     git(['remote']).catch(() => '')
   ]);
-  status.isRepository = inside === 'true';
+  if (topLevel) {
+    try {
+      const [root, vault] = await Promise.all([fs.realpath(topLevel), fs.realpath(vaultDir)]);
+      status.isRepository = path.relative(root, vault) === '';
+    } catch { /* 路径不可用时沿用未就绪状态。 */ }
+  }
   status.hasIdentity = Boolean(name && email);
   status.hasRemote = status.isRepository && remotes.length > 0;
   return finishGitStatus(status);

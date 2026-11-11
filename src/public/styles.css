@@ -308,8 +308,8 @@ kbd {
 .index-banner-summary { flex-basis: 100%; color: var(--muted); }
 
 .page {
-  /* 所有页面共用一条左边缘：取标准宽度居中时的位置，宽页面只向右展开、窄页面只在右侧留白，
-     切换页面时标题不再左右跳。 */
+  /* 默认页面共用一条左边缘：取标准宽度居中时的位置，宽页面只向右展开、窄页面只在右侧留白。
+     阅读页单独使用全宽与对称边距。 */
   --page-left: max(0px, calc((100% - 1120px) / 2));
   flex: 1;
   width: calc(100% - var(--page-left));
@@ -317,7 +317,8 @@ kbd {
   margin: 0 0 0 var(--page-left);
   padding: 40px 40px 72px;
 }
-.page.page-reading { max-width: 1120px; }
+/* 阅读页随窗口展开，仅保留页面边距，不限制正文最大行宽。 */
+.page.page-reading { width: 100%; max-width: none; margin-inline: 0; }
 .page.page-canvas { max-width: 1320px; }
 .page.page-focus { max-width: 900px; }
 /* 复习是专注模式，卡片仍居中。 */
@@ -732,8 +733,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 
 /* ---------- 笔记阅读 ---------- */
 
-.note-layout { display: grid; grid-template-columns: minmax(0, 720px) minmax(200px, 240px); justify-content: space-between; gap: 56px; align-items: start; }
-.note-layout.is-single { grid-template-columns: minmax(0, 720px); }
+.note-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 240px); gap: 56px; align-items: start; }
+.note-layout.is-single { grid-template-columns: minmax(0, 1fr); }
 .note { min-width: 0; }
 .note-header { display: flex; flex-direction: column; gap: 12px; padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid var(--line); }
 .note-title-row { display: flex; align-items: flex-start; gap: 16px; }
@@ -1236,10 +1237,13 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 
 /* ---------- 卡片列表与编辑 ---------- */
 
+.cards-page .page-head > div:first-child { min-width: 0; max-width: 100%; }
+.cards-page .page-head h1 { overflow-wrap: anywhere; }
+.cards-page .page-head > .actions { margin-left: auto; }
 .card-deck-filter { margin: -8px 0 16px; }
 .chip.is-quiet { background: var(--chip); color: var(--muted); }
 /* 卡组筛选与计划页筛选是同一种控件，外观一致。 */
-.card-deck-filter .chip { height: var(--control-sm); padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--muted); font-size: var(--fs-sm); }
+.card-deck-filter .chip { display: block; min-width: 0; max-width: 100%; height: var(--control-sm); padding: 0 12px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); color: var(--muted); font-size: var(--fs-sm); line-height: calc(var(--control-sm) - 2px); text-overflow: ellipsis; }
 .card-deck-filter .chip:hover { border-color: var(--line-strong); color: var(--text); filter: none; }
 .card-deck-filter .chip[aria-current="page"] { border-color: transparent; background: var(--nav-active); color: var(--text); font-weight: 600; }
 .card-list { margin: 0; padding: 4px 0; list-style: none; }
@@ -1314,9 +1318,10 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
   background: var(--inset);
   color: var(--faint);
 }
-.review-state { border-color: transparent; background: var(--warn-soft); color: var(--warn-text); font-weight: 600; }
-.review-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.review-state { flex-shrink: 0; white-space: nowrap; border-color: transparent; background: var(--warn-soft); color: var(--warn-text); font-weight: 600; }
+.review-tools { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; margin-left: auto; }
 .review-tool {
+  white-space: nowrap;
   height: 24px;
   padding: 0 8px;
   border: 1px solid var(--line);
@@ -1401,8 +1406,9 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 
 /* ---------- 历史与草稿 ---------- */
 
-.history-filter { display: flex; align-items: center; gap: 10px; font-size: var(--fs-sm); }
-.history-filter .chip { font-family: var(--font-mono); font-size: var(--fs-xs); }
+.history-filter { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; font-size: var(--fs-sm); }
+.history-filter .chip { display: block; min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 24px; text-overflow: ellipsis; }
+.history-filter > a { flex: none; }
 .history-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 20px; align-items: start; }
 .history-records { padding: 6px; }
 .history-records .empty-state { padding: 14px; }
@@ -1432,8 +1438,10 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .history-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--fs-sm); }
 .history-preview-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .history-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.history-preview-head > div { flex: 1; min-width: 0; }
+.history-preview-head > :is(a, form) { flex: none; }
 .history-preview-head h2 { font-size: var(--fs-lg); font-weight: 600; overflow-wrap: anywhere; }
-.history-preview-head .history-path { font-size: var(--fs-xs); }
+.history-preview-head .history-path { display: block; font-size: var(--fs-xs); }
 .history-preview {
   max-height: 64vh;
   margin: 0;

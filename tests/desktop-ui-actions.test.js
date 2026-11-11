@@ -44,6 +44,14 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForSelector('.workspace-sidebar');
     await page.waitForFunction(async () => (await fetch('/api/index-status').then(response => response.json())).phase === 'ready');
+    const icon = await app.evaluate(({ app, nativeImage }) => {
+      const root = app.isPackaged ? process.resourcesPath : app.getAppPath() + '/build';
+      const file = root + '/' + (process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+      const image = nativeImage.createFromPath(file);
+      return { file, empty: image.isEmpty(), size: image.getSize() };
+    });
+    assert.equal(icon.empty, false, '窗口图标可以从实际运行路径加载：' + icon.file);
+    assert.ok(icon.size.width >= 16 && icon.size.height >= 16);
     const origin = new URL(page.url()).origin;
     const visit = route => page.goto(origin + route);
     const visible = selector => page.locator(selector).isVisible();
@@ -308,6 +316,22 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
         await page.waitForURL(url => decodeURIComponent(url.pathname) === '/note/' + expected);
         assert.match(await fs.readFile(path.join(vault, 'notes', ...expected.split('/')), 'utf8'), new RegExp('正文 ' + expected));
       }
+    });
+    await check('保留名称可保存，研究项目中的美元符号原样保存', async () => {
+      await visit('/new');
+      await page.locator('[data-note-title]').fill('CON.txt');
+      assert.equal(await page.locator('[name="path"]').inputValue(), 'inbox/CON_.txt.md');
+      await page.locator('[data-editor-save]').click();
+      await page.waitForURL(url => url.pathname === '/note/inbox/CON_.txt.md');
+      assert.match(await fs.readFile(path.join(vault, 'notes', 'inbox', 'CON_.txt.md'), 'utf8'), /^# CON\.txt/);
+      await visit('/new?folder=experiments');
+      const title = '公式 $$ E=mc^2 $$';
+      await page.locator('[data-note-title]').fill(title);
+      await page.locator('[data-editor-save]').click();
+      await page.waitForURL(url => url.pathname.startsWith('/note/experiments/'));
+      assert.equal(await page.locator('.note-title-row h1').innerText(), title);
+      const savedPath = decodeURIComponent(new URL(page.url()).pathname.slice('/note/'.length));
+      assert.match(await fs.readFile(path.join(vault, 'notes', savedPath), 'utf8'), /title: 公式 \$\$ E=mc\^2 \$\$/);
     });
     await check('卡片列表里改正面、暂停、恢复和删除，复习记录保留', async () => {
       const deckFile = path.join(vault, 'cards', 'sample.md');

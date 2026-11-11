@@ -49,8 +49,10 @@ test('原生模块用 N-API 预编译，不重编；包里不带 SQLite 源码�
   assert.doesNotMatch(require('../package.json').scripts.postinstall, /install-app-deps/);
   assert.ok(build.files.includes('!node_modules/better-sqlite3/deps/**'));
   assert.ok(build.files.includes('!node_modules/better-sqlite3/src/**'));
-  assert.deepEqual(build.mac.files, ['!node_modules/better-sqlite3/prebuilds/!(darwin-arm64).node']);
-  assert.deepEqual(build.win.files, ['!node_modules/better-sqlite3/prebuilds/!(win32-x64).node']);
+  // 平台规则不能只有否定项，否则 builder 会另建一个默认包含 **/* 的匹配器。
+  const applicationFiles = ['electron/**/*', 'src/**/*', 'package.json'];
+  assert.deepEqual(build.mac.files, [...applicationFiles, '!node_modules/better-sqlite3/prebuilds/!(darwin-arm64).node']);
+  assert.deepEqual(build.win.files, [...applicationFiles, '!node_modules/better-sqlite3/prebuilds/!(win32-x64).node']);
   assert.equal(require('../package.json').dependencies.yauzl, undefined);
 });
 
@@ -61,6 +63,20 @@ test('两个平台的托盘资源都随包分发', () => {
   for (const name of ['tray.png', 'trayTemplate.png', 'trayTemplate@2x.png']) {
     assert.equal(shipped.has(name), true, `缺少托盘资源 ${name}`);
   }
+});
+
+test('窗口图标随安装版分发，与开发模式使用同一份资源', () => {
+  for (const name of ['icon.ico', 'icon.png']) {
+    const resource = build.extraResources.find(entry => entry.to === name);
+    assert.ok(resource, `缺少窗口图标 ${name}`);
+    assert.equal(resource.from, 'build/' + name);
+    assert.ok(fs.statSync(path.join(__dirname, '..', resource.from)).size > 0);
+  }
+});
+
+test('构建不携带本地临时目录和旧安装包，避免递归打包', () => {
+  assert.ok(build.files.includes('!tmp{,/**/*}'));
+  assert.ok(build.files.includes('!dist{,/**/*}'));
 });
 
 test('原生模块解包到 ASAR 之外', () => {

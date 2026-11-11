@@ -58,6 +58,12 @@ function createPlatformPolicy({
     return isWindows && argv.includes('--hidden');
   }
 
+  function windowIcon({ isPackaged, resourcesPath, projectDir }) {
+    // Windows 用多尺寸 ICO；开发模式不会从 electron.exe 得到应用自己的图标。
+    const name = isWindows ? 'icon.ico' : 'icon.png';
+    return isPackaged ? path.join(resourcesPath, name) : path.join(projectDir, 'build', name);
+  }
+
   function trayResource({ isPackaged, resourcesPath, projectDir }) {
     const name = isMac ? 'trayTemplate.png' : 'tray.png';
     return Object.freeze({
@@ -157,6 +163,7 @@ function createPlatformPolicy({
     initializeApp,
     applyLoginItem,
     isHiddenStartup,
+    windowIcon,
     trayResource,
     applicationMenuTemplate
   });

@@ -45,7 +45,7 @@
       let block;
       if (TITLE_FIELD.test(frontmatter[1])) {
         block = title
-          ? frontmatter[1].replace(TITLE_FIELD, `title: ${yamlScalar(title)}`)
+          ? frontmatter[1].replace(TITLE_FIELD, () => `title: ${yamlScalar(title)}`)
           : frontmatter[1].replace(/^title:[ \t]*.*(?:\r?\n|$)/m, '');
       } else {
         if (!title) return text;
@@ -72,7 +72,10 @@
       .replace(/^\.+/, '')
       .replace(/[ .]+$/, '');
     name = [...name].slice(0, 60).join('').replace(/[ .]+$/, '');
-    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(name.split('.')[0])) name += '_';
+    const stem = name.split('.')[0].replace(/[ .]+$/, '');
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(stem)) {
+      name = stem + '_' + name.slice(name.indexOf('.') === -1 ? name.length : name.indexOf('.'));
+    }
     return name;
   }
 

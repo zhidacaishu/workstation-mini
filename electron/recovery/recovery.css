@@ -6,7 +6,7 @@
 @import url("../../src/public/tokens.css");
 
 /* 恢复窗口的阶段栏比主窗口的图标侧栏宽，这个变量只在本窗口里用。 */
-:root { --rail-width: 208px; }
+:root { --rail-width: 208px; --content-width: 850px; --content-gutter: 44px; }
 
 * { box-sizing: border-box; }
 body {
@@ -85,7 +85,7 @@ button:focus-visible, input[type="radio"]:focus-visible, input[type="checkbox"]:
 .stage-rail li.is-active > span { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
 .stage-rail li.is-complete > span { border-color: var(--accent); background: var(--nav-active); color: var(--accent); }
 
-main { grid-column: 2; width: min(850px, 100%); padding: 34px 44px 100px; }
+main { grid-column: 2; width: min(var(--content-width), 100%); padding: 34px var(--content-gutter) 100px; }
 header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
 .eyebrow, .folio { color: var(--subtle); font-size: var(--fs-xs); font-weight: 600; }
 h1, h2, h3 { font-family: var(--font-sans); }
@@ -189,12 +189,15 @@ input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 1px va
   align-items: center;
   gap: 8px;
   min-height: 64px;
-  padding: 12px max(28px, calc((100vw - var(--rail-width) - 850px) / 2 + 44px));
+  padding: 12px var(--content-gutter);
+  /* 底栏铺满可用空间，内容则与正文左右缘保持一致。 */
+  padding-right: max(var(--content-gutter), calc(100% - var(--rail-width) - var(--content-width) + var(--content-gutter)));
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(10px);
 }
 .actions p { min-width: 0; margin: 0 auto 0 0; color: var(--subtle); font-size: var(--fs-xs); }
+.actions > button { flex: none; white-space: nowrap; }
 body[data-phase="activating"] .actions { border-top-color: var(--accent); }
 
 @media (prefers-reduced-motion: reduce) {

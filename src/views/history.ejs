@@ -10,7 +10,7 @@
     <h1>历史与草稿</h1>
     <p class="page-meta">只保存在本机，不随 Git 同步。</p>
   </div>
-  <% const filter = notePath || deckPath; if (filter) { %><p class="history-filter"><span class="chip"><%= filter %></span><a href="/history">查看全部</a></p><% } %>
+  <% const filter = notePath || deckPath; if (filter) { %><p class="history-filter"><span class="chip" title="<%= filter %>"><%= filter %></span><a href="/history">查看全部</a></p><% } %>
 </header>
 
 <div class="history-layout<%= selected ? ' has-preview' : '' %>">
@@ -44,7 +44,7 @@
       <header class="history-preview-head">
         <div>
           <h2 id="history-preview-title"><%= selected.title %></h2>
-          <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %> · <span class="history-path"><%= selected.path %></span></p>
+          <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : selected.reason === 'delete' ? '删除前版本' : '保存前版本' %> · <span class="history-path" title="<%= selected.path %>"><%= selected.path %></span></p>
         </div>
         <% if (!readOnly && selected.source === 'deck') { %>
           <form action="/history/restore-deck" method="post" data-confirm="用这个版本覆盖当前的卡组文件？覆盖前的内容会先存进历史。">

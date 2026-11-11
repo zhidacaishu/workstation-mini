@@ -16,14 +16,14 @@ const viewHelpers = require('../src/viewHelpers');
 
 const FIXED_NOW = new Date(2026, 9, 25, 10, 0);
 
-async function setup(t, { readOnly = false, windowChrome } = {}) {
+async function setup(t, { readOnly = false, windowChrome, platform } = {}) {
   const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-ui-'));
   const notesDir = path.join(vaultDir, 'notes');
   await fs.mkdir(notesDir, { recursive: true });
   const config = loadConfig({ vaultDir, dbPath: ':memory:', readOnly, windowChrome });
   const db = openDatabase(':memory:');
   const indexer = createIndexer({ db, vaultDir: notesDir });
-  const app = createApp(config, { db, indexer, search: createSearch(db), now: () => FIXED_NOW });
+  const app = createApp(config, { db, indexer, search: createSearch(db), now: () => FIXED_NOW, platform });
   t.after(async () => {
     db.close();
     await fs.rm(vaultDir, { recursive: true, force: true });
@@ -112,6 +112,20 @@ test('日期辅助函数兼容 YAML 解析出的 Date 与字符串', () => {
     viewHelpers.plainSnippet('主线见 [[research/rag|分块笔记]]。 - [ ] 整理表格 @2026-10-25 ## 设置 **重点** `bge-m3`'),
     '主线见 分块笔记。 整理表格 @2026-10-25 设置 重点 bge-m3'
   );
+});
+
+test('Windows 与 macOS 的笔记分区显示一致，实际路径保留 inbox', async t => {
+  for (const platform of ['win32', 'darwin']) {
+    const { app, indexer, notesDir } = await setup(t, { platform });
+    await writeNote(notesDir, 'inbox/sample.md', { body: '# 分区测试\n\n正文\n' });
+    await indexer.scan();
+    const note = (await request(app).get('/note/inbox/sample.md').expect(200)).text;
+    assert.match(note, /class="note-section" href="\/search\?section=inbox">收件箱<\/a>/);
+    assert.match(note, /href="\/edit\/inbox\/sample\.md"/);
+    const library = (await request(app).get('/search?section=inbox').expect(200)).text;
+    assert.match(library, /value="inbox" selected>收件箱<\/option>/);
+    assert.match(library, /href="\/note\/inbox\/sample\.md"/);
+  }
 });
 
 test('没写别名的双链显示目标笔记标题，别名保持原样，小节链接带上小节名', async t => {

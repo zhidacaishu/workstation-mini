@@ -14,6 +14,7 @@ Thumbs.db
 
 # 本地测试用的 vault；真实资料库位于代码仓库之外
 vault-dev/
+# 一次性验证脚本、截图和测试安装包；打包文件规则也显式排除此目录。
 tmp/
 workstation-ui-review.*/
 

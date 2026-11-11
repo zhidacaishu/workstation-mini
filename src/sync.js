@@ -151,8 +151,11 @@ function createSync({
 
   async function isRepo(options) {
     try {
-      const { stdout } = await git(['rev-parse', '--is-inside-work-tree'], options);
-      return stdout.trim() === 'true';
+      // Git 在普通子目录里也认父仓库；同步只能操作资料库自身的工作树。
+      // 不检查 .git 的类型，linked worktree 的 .git 是文件。
+      const { stdout } = await git(['rev-parse', '--show-toplevel'], options);
+      const [root, vault] = await Promise.all([fs.realpath(stdout.trim()), fs.realpath(vaultDir)]);
+      return path.relative(root, vault) === '';
     } catch {
       return false;
     }

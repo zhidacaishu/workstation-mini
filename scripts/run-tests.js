@@ -75,6 +75,7 @@ const desktopTests = [
   'desktop-config.test.js',
   'desktop-local-history-smoke.test.js',
   'desktop-ui-layout.test.js',
+  'desktop-ui-details.test.js',
   'desktop-ui-actions.test.js',
   'desktop-platform-policy.test.js',
   'desktop-quit-coordinator.test.js',

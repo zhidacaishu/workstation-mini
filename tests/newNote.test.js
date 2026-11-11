@@ -11,6 +11,8 @@ const { loadConfig } = require('../src/config');
 const { openDatabase } = require('../src/db');
 const { createIndexer } = require('../src/vault/indexer');
 const { createSearch } = require('../src/search');
+const { isNotePath } = require('../src/vault/paths');
+const { parseFrontmatter } = require('../src/vault/note');
 
 async function setup(t) {
   const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-new-note-'));
@@ -124,4 +126,31 @@ test('研究项目的标题写进 frontmatter 的 title 字段；文件名去掉
   assert.equal(ui.api.fileNameFrom('a/b\\c?.  '), 'a b c');
   assert.equal(ui.api.fileNameFrom('CON'), 'CON_');
   assert.equal(ui.api.fileNameFrom('[[双链]] | 别名'), '双链 别名');
+});
+
+test('研究项目标题中的替换符按字面写入，其他字段与正文不变', async () => {
+  const initial = '---\ntitle: 旧标题\nstatus: planned\n---\n\n原正文\n';
+  for (const title of ['公式 $$ E=mc^2 $$', '匹配 $& 与 $1', "前缀 $` 后缀 $'", '引用: $$ 与 $&']) {
+    const ui = await loadNewNote(initial, 'experiments');
+    ui.title.value = title;
+    ui.title.fire('input');
+    const parsed = parseFrontmatter(ui.body.value);
+    assert.equal(parsed.data.title, title);
+    assert.equal(parsed.data.status, 'planned');
+    assert.equal(parsed.content, '\n原正文\n');
+    assert.equal(ui.api.readTitle(ui.body.value), title);
+  }
+});
+
+test('带扩展名的 Windows 保留名称也会生成可保存的路径', async () => {
+  const ui = await loadNewNote();
+  for (const [title, expected] of [
+    ['CON', 'CON_'], ['CON.txt', 'CON_.txt'], ['nul.foo.bar', 'nul_.foo.bar'],
+    ['CoM1.log', 'CoM1_.log'], ['LPT9 .txt', 'LPT9_.txt'], ['CONtent.txt', 'CONtent.txt']
+  ]) {
+    ui.title.value = title;
+    ui.title.fire('input');
+    assert.equal(ui.pathInput.value, 'inbox/' + expected + '.md');
+    assert.equal(isNotePath(ui.pathInput.value), true);
+  }
 });

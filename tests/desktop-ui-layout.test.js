@@ -5,6 +5,72 @@ const path = require('node:path');
 const os = require('node:os');
 const { _electron: electron } = require('playwright-core');
 
+test('笔记阅读宽度随窗口增长，保持边距与右侧操作对齐', { timeout: 45000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-fluid-reading-'));
+  const vault = path.join(root, 'vault');
+  const userData = path.join(root, 'user');
+  let app, page;
+  let passed = false;
+  try {
+    await fs.mkdir(path.join(vault, 'notes', 'inbox'), { recursive: true });
+    await fs.mkdir(path.join(userData, 'workstation-data'), { recursive: true });
+    await fs.writeFile(path.join(vault, 'notes', 'inbox', 'plain.md'), '# 流式阅读\n\n正文随窗口展开。\n');
+    await fs.writeFile(path.join(vault, 'notes', 'linked.md'), '# 带反向链接\n\n正文\n');
+    await fs.writeFile(path.join(vault, 'notes', 'source.md'), '# 来源\n\n[[linked]]\n');
+    await fs.writeFile(path.join(userData, 'workstation-data', 'settings.json'), JSON.stringify({ schemaVersion: 1, vaultDir: vault, device: 'fluid-reading', syncEnabled: false }));
+    await fs.writeFile(path.join(userData, 'workstation-data', 'guide.json'), JSON.stringify({ version: 2, status: 'completed', step: 6 }));
+    const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
+    app = await electron.launch(process.env.WORKSTATION_EXECUTABLE
+      ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env }
+      : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
+    page = await app.firstWindow();
+    await page.waitForSelector('.workspace-sidebar');
+    await page.waitForFunction(async () => (await fetch('/api/index-status').then(r => r.json())).phase === 'ready');
+    const origin = new URL(page.url()).origin;
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      for (const route of ['/note/inbox/plain.md', '/note/linked.md']) {
+        let previousWidth = 0;
+        for (const width of [900, 1440, 1920, 2560]) {
+          await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith('http')).setContentSize(width, 800), width);
+          await page.goto(origin + route);
+          await page.evaluate(() => document.fonts.ready);
+          const layout = await page.evaluate(() => {
+            const rect = selector => document.querySelector(selector).getBoundingClientRect();
+            const main = rect('.page'), rail = rect('.workspace-sidebar'), note = rect('.note'), prose = rect('.prose'), actions = rect('.note-actions');
+            const last = document.querySelector('.note-links') || document.querySelector('.note');
+            return {
+              pageLeft: main.left, railRight: rail.right, pageRight: main.right, viewport: document.documentElement.clientWidth,
+              leftGap: note.left - main.left, rightGap: main.right - last.getBoundingClientRect().right,
+              noteWidth: note.width, proseWidth: prose.width, actionsRight: actions.right, noteRight: note.right,
+              scrollWidth: document.documentElement.scrollWidth
+            };
+          });
+          assert.ok(Math.abs(layout.pageLeft - layout.railRight) < 1, '不保留旧版居中栏的左侧空白');
+          assert.ok(Math.abs(layout.pageRight - layout.viewport) < 1, '页面随窗口铺满');
+          assert.ok(layout.leftGap >= 28 && layout.leftGap <= 40 && Math.abs(layout.leftGap - layout.rightGap) < 1, '两侧保留对称边距');
+          assert.ok(Math.abs(layout.actionsRight - layout.noteRight) < 1, '操作区靠笔记栏右侧');
+          assert.ok(Math.abs(layout.proseWidth - layout.noteWidth) < 1, '正文不另设行宽上限');
+          assert.ok(layout.proseWidth > previousWidth + 100, '宽窗口中正文继续增长，不停在固定上限');
+          assert.ok(layout.scrollWidth <= layout.viewport + 1, '不引入横向溢出');
+          previousWidth = layout.proseWidth;
+          if (route.includes('/inbox/') && width === 1440) {
+            await page.screenshot({ path: path.join(os.tmpdir(), 'workstation-fluid-reading-' + colorScheme + '.png') });
+          }
+        }
+      }
+    }
+    passed = true;
+  } finally {
+    if (!passed) {
+      await page?.screenshot({ path: path.join(root, 'failure.png'), fullPage: true, timeout: 5000 }).catch(() => {});
+      console.error('[fluid-reading] artifacts preserved at ' + root);
+    }
+    if (app) { await app.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app.close().catch(() => {}); }
+    if (passed) await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { timeout: 60000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-layout-desktop-'));
   const vault = path.join(root, 'vault');
@@ -62,6 +128,23 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
             assert.equal(await page.locator('[data-editor-status]').textContent(), '新笔记尚未保存');
           }
           if (route === '/review') {
+            for (const showRelearn of [false, true]) {
+              await page.locator('#review-relearn').evaluate((element, show) => { element.hidden = !show; }, showRelearn);
+              const controls = await page.locator('.review-tools .review-tool').evaluateAll(elements => elements.map(element => {
+                const rect = element.getBoundingClientRect();
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                return {
+                  left: rect.left, right: rect.right,
+                  inside: [...range.getClientRects()].every(text => text.top >= rect.top && text.bottom <= rect.bottom && text.left >= rect.left && text.right <= rect.right)
+                };
+              }));
+              assert.ok(controls.every(control => control.inside), '长卡组不能挤压操作文字或让文字溢出按钮');
+              assert.ok(controls[0].right <= controls[1].left, '复习操作互不覆盖');
+              const card = await page.locator('.reviewcard').boundingBox();
+              assert.ok(controls.every(control => control.left >= card.x && control.right <= card.x + card.width), '操作完整落在卡片内');
+            }
+            await page.locator('#review-relearn').evaluate(element => { element.hidden = true; });
             await page.locator('#review-reveal').click();
             const block = await page.locator('.review-back pre').evaluate(element => ({
               overflow: getComputedStyle(element).overflowX, width: element.clientWidth, scrollWidth: element.scrollWidth,

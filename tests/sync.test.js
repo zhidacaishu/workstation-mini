@@ -41,6 +41,51 @@ test('vault 不是 git 仓库时，同步降级为空操作而不是报错', asy
   }
 });
 
+test('资料库必须是工作树根：普通子目录不能同步父仓库', async () => {
+  const root = await makeRepo();
+  try {
+    const vaultDir = path.join(root, 'vault');
+    await fs.mkdir(path.join(vaultDir, 'notes'), { recursive: true });
+    await fs.writeFile(path.join(vaultDir, 'notes', 'a.md'), '# 笔记\n');
+    await fs.writeFile(path.join(root, 'outside.txt'), '资料库之外\n');
+    const before = git(root, 'status', '--porcelain', '-uall');
+    const sync = createSync({ vaultDir, logger: quietLogger });
+    assert.equal(await sync.isRepo(), false);
+    assert.equal((await sync.status()).isRepo, false);
+    assert.ok((await sync.pull()).skipped);
+    assert.ok((await sync.commitAndPush('不能提交父仓库')).skipped);
+    const cycle = await sync.cycle('不能同步父仓库');
+    assert.ok(cycle.pulled.skipped);
+    assert.ok(cycle.pushed.skipped);
+    assert.equal(git(root, 'status', '--porcelain', '-uall'), before);
+    assert.equal(git(root, 'diff', '--cached', '--name-only'), '');
+    assert.throws(() => git(root, 'rev-parse', '--verify', 'HEAD'));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('资料库工作树根检查兼容未提交仓库、linked worktree 和 Windows 路径别名', async () => {
+  const root = await makeRepo();
+  const worktree = root + '-linked';
+  try {
+    assert.equal(await createSync({ vaultDir: root }).isRepo(), true, '不要求已有 HEAD');
+    if (process.platform === 'win32') {
+      assert.equal(await createSync({ vaultDir: root.toUpperCase().replaceAll('\\', '/') }).isRepo(), true);
+    }
+    await fs.writeFile(path.join(root, 'seed.md'), '# seed\n');
+    git(root, 'add', 'seed.md');
+    git(root, 'commit', '-qm', 'seed');
+    git(root, 'worktree', 'add', '-qb', 'linked', worktree);
+    assert.equal(await createSync({ vaultDir: worktree }).isRepo(), true);
+    await fs.mkdir(path.join(worktree, 'subdir'));
+    assert.equal(await createSync({ vaultDir: path.join(worktree, 'subdir') }).isRepo(), false);
+  } finally {
+    await fs.rm(worktree, { recursive: true, force: true });
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 // 退出路径要用比常规同步短得多的 git 期限，这份选项得一路透传到每次调用，
 // 而不是只落在其中一条命令上。
 test('提交推送接受自定义 git 期限', async () => {

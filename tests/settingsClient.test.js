@@ -217,6 +217,9 @@ test('设置测试控件与实际页面保持一致', async () => {
   const names = [...new Set([...html.matchAll(/<input\b[^>]*\bname="([^"]+)"/g)].map(match => match[1]))];
   const ui = await loadSettings();
   assert.deepEqual([...ui.fields.keys()].sort(), names.sort());
+  assert.match(html, /资料库必须是 Git 工作树的根目录/);
+  assert.match(html, /发生 Git 冲突时会停止同步，保留冲突现场/);
+  assert.doesNotMatch(html, /冲突副本|不会把冲突标记写进正文/);
 });
 
 test('同步状态实时更新，不改变未保存设置', async () => {

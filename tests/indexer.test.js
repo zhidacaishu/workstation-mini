@@ -592,6 +592,69 @@ test('增量扫描的结果与全量重建一致：新增、修改、删除', as
   }
 });
 
+test('Windows 增量扫描统一大小写别名，并清除旧版本留下的重复索引', { skip: process.platform !== 'win32' }, async () => {
+  const ctx = await setup();
+  try {
+    await writeNote(ctx.vaultDir, 'Folder/English.md', { body: '# English\n\n- [ ] One task\n' });
+    await ctx.indexer.scan();
+    await ctx.indexer.scan({ paths: ['folder/english.MD', 'FOLDER/ENGLISH.md'] });
+    assert.equal(ctx.db.countNotes(), 1);
+    assert.equal(ctx.db.listTasks({ includeDone: true }).length, 1);
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+
+    // 模拟旧版遗留的大小写重复行，规范拼写事件也应该对账清除它。
+    ctx.db.raw.exec(`
+      INSERT INTO notes SELECT 'folder/english.md', section, title_raw, body_raw, data_json, hash, size, mtime_ms, indexed_at FROM notes;
+      INSERT INTO notes_fts SELECT 'folder/english.md', title, body FROM notes_fts;
+      INSERT INTO tasks SELECT 'folder/english.md', line, done, title, due FROM tasks;
+    `);
+    assert.equal(ctx.db.countNotes(), 2);
+    assert.equal(ctx.db.listTasks({ includeDone: true }).length, 2);
+    await ctx.indexer.scan({ paths: ['Folder/English.md'] });
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test('Windows 大小写改名、普通改名与别名删除和全量重建一致', { skip: process.platform !== 'win32' }, async () => {
+  const ctx = await setup();
+  try {
+    await writeNote(ctx.vaultDir, 'Folder/English.md', { body: '# English\n\n- [ ] One task\n' });
+    await ctx.indexer.scan();
+    await fs.rename(path.join(ctx.vaultDir, 'Folder', 'English.md'), path.join(ctx.vaultDir, 'Folder', 'ENGLISH.md'));
+    await ctx.indexer.scan({ paths: ['Folder/ENGLISH.md'] });
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+    await fs.rename(path.join(ctx.vaultDir, 'Folder', 'ENGLISH.md'), path.join(ctx.vaultDir, 'Folder', 'Renamed.md'));
+    await ctx.indexer.scan({ paths: ['folder/english.md', 'folder/renamed.md'] });
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+    await fs.unlink(path.join(ctx.vaultDir, 'Folder', 'Renamed.md'));
+    await ctx.indexer.scan({ paths: ['FOLDER/RENAMED.MD'] });
+    assert.equal(ctx.db.countNotes(), 0);
+    assert.equal(ctx.db.listTasks({ includeDone: true }).length, 0);
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
+test('大小写敏感文件系统上的两篇不同笔记不会被合并', async t => {
+  const ctx = await setup();
+  try {
+    await fs.writeFile(path.join(ctx.vaultDir, 'A.md'), '# Upper\n');
+    await fs.writeFile(path.join(ctx.vaultDir, 'a.md'), '# Lower\n');
+    if ((await fs.readdir(ctx.vaultDir)).filter(name => /^[Aa]\.md$/.test(name)).length !== 2) {
+      t.skip('当前文件系统不区分大小写');
+      return;
+    }
+    await ctx.indexer.scan({ paths: ['A.md', 'a.md'] });
+    assert.equal(ctx.db.countNotes(), 2);
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+  } finally {
+    await ctx.cleanup();
+  }
+});
+
 test('增量新增笔记会让指向它的「待建链接」接上', async () => {
   const ctx = await setup();
   try {
