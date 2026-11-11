@@ -16,8 +16,7 @@
 <% if (total === 0) { %>
   <section class="panel empty-state board-onboarding">
     <h2>还没有<%= workflow.noun %></h2>
-    <%# 不再贴一整段 frontmatter 模板：「新建项目」会把这些字段预先填好，上手指南里也有说明。 %>
-    <p>研究项目就是 <code>notes/<%= workflow.section %>/</code> 下带 <code>status</code> 字段的普通笔记。<% if (!readOnly) { %>点右上角「新建项目」，状态、截止日、数据集、参数、seed、commit 和下一步这些字段会预先填好。<% } %></p>
+    <p><%= readOnly ? '项目用于记录进展、下一步和结论。' : '创建项目，记录进展、下一步和结论。' %></p>
   </section>
 <% } else { %>
   <div class="board" data-board data-workflow="<%= workflow.key %>">
@@ -25,8 +24,6 @@
       <section class="board-col <%= column.muted ? 'is-muted' : '' %> <%= column.warn ? 'is-warn' : '' %>" data-board-column data-status="<%= column.key %>" aria-labelledby="board-col-<%= column.key %>">
         <h2 id="board-col-<%= column.key %>"><%- statusIcon[column.key] || statusIcon.planned %><span><%= column.label %></span><span class="count" data-column-count><%= column.items.length %></span></h2>
         <div class="board-items" data-board-items>
-          <p class="board-empty"<% if (column.items.length) { %> hidden<% } %>>空</p>
-
         <% column.items.forEach(item => {
           const deadline = ui.toDateString(item.data.deadline);
           const active = item.status !== 'done' && item.status !== 'abandoned';
@@ -38,11 +35,8 @@
           <article class="board-card" data-board-card data-path="<%= item.path %>" data-status="<%= item.status %>" data-hash="<%= item.hash %>">
             <a class="board-title" href="/note/<%= encodePath(item.path) %>"><%= item.title %></a>
 
-            <% if (dataset || deadline) { %>
-              <p class="board-meta">
-                <% if (dataset) { %><span class="board-dataset"><%= dataset %></span><% } %>
-                <% if (deadline) { %><span class="board-deadline<%= overdue ? ' is-overdue' : active && deadline === today ? ' is-today' : '' %>" data-board-deadline data-deadline-state="<%= deadline < today ? 'overdue' : deadline === today ? 'today' : '' %>" data-active-label="<%= deadline < today ? '已逾期 · ' : '截止 ' %><%= ui.shortDate(deadline, today) %>" data-inactive-label="截止 <%= ui.shortDate(deadline, today) %>"><%= overdue ? '已逾期 · ' : '截止 ' %><%= ui.shortDate(deadline, today) %></span><% } %>
-              </p>
+            <% if (dataset) { %>
+              <p class="board-dataset" aria-label="数据集：<%= dataset %>" title="<%= dataset %>"><%= dataset %></p>
             <% } %>
             <% if (result) { %>
               <p class="board-next" data-board-result<% if (item.status !== 'done') { %> hidden<% } %>><span>结果</span><%= result %></p>
@@ -50,6 +44,8 @@
             <% if (next) { %>
               <p class="board-next" data-board-next<% if (item.status === 'done' && result) { %> hidden<% } %>><span>下一步</span><%= next %></p>
             <% } %>
+
+            <% if (deadline) { %><footer class="board-card-footer"><time datetime="<%= deadline %>" class="board-deadline<%= overdue ? ' is-overdue' : active && deadline === today ? ' is-today' : '' %>" data-board-deadline data-deadline-state="<%= deadline < today ? 'overdue' : deadline === today ? 'today' : '' %>" data-active-label="<%= deadline < today ? '逾期 ' : '截止 ' %><%= ui.shortDate(deadline, today) %>" data-inactive-label="截止 <%= ui.shortDate(deadline, today) %>"><%= overdue ? '逾期 ' : '截止 ' %><%= ui.shortDate(deadline, today) %></time></footer><% } %>
 
             <% if (!readOnly) { %>
               <form class="statusform" action="/board/status" method="post">

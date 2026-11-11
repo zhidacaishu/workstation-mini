@@ -82,7 +82,7 @@
     if (window.workstationCalendar?.hasUnsavedChanges()) {
       const done = form.querySelector('[name="done"]');
       done.checked = done.defaultChecked;
-      window.workstationUI.notify('请先保存当天备注，再更新待办。', { type: 'info' });
+      window.workstationUI.notify('请先保存备注，再更新待办。', { type: 'info' });
       return;
     }
     const plan = window.workstationPlan;

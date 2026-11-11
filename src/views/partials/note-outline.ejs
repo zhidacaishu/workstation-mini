@@ -1,0 +1,8 @@
+<ol>
+  <% entries.forEach(entry => { %>
+    <li>
+      <a class="note-outline-link" href="#<%= entry.id %>" data-outline-target="<%= entry.id %>" data-heading-level="<%= entry.level %>"><%= entry.text %></a>
+      <% if (entry.children.length) { %><%- include('note-outline', { entries: entry.children }) %><% } %>
+    </li>
+  <% }) %>
+</ol>

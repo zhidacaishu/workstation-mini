@@ -11,7 +11,7 @@
   </div>
   <div class="actions">
     <a class="button quiet" href="/decks">返回卡组</a>
-    <% if (deck && cards.some(card => !card.suspended)) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习这个卡组</a><% } %>
+    <% if (deck && cards.some(card => !card.suspended)) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习</a><% } %>
   </div>
 </header>
 

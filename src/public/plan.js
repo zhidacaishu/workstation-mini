@@ -27,9 +27,21 @@
     form.classList.add('is-enhanced');
     const date = form.querySelector('[name="due"]');
     const baseline = date.value;
+    const reschedule = form.querySelector('.plan-task-reschedule');
+    const summary = reschedule?.querySelector('summary');
+    if (summary) {
+      reschedule.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !reschedule.open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        reschedule.open = false;
+        summary.focus();
+      });
+    }
     dates.set(form, baseline);
     date.addEventListener('input', () => {
       form.classList.toggle('is-edited', date.value !== baseline);
+      if (summary) summary.textContent = date.value !== baseline ? '待保存' : '改期';
     });
     form.querySelector('[data-task-toggle]').addEventListener('change', () => form.requestSubmit());
   }

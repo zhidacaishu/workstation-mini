@@ -207,3 +207,26 @@ test('搜索页去重真实标题，但保留以笔记名开头的正文', async
   assert.match(numeric.text, /<mark>0<\/mark>/);
   assert.doesNotMatch(numeric.text, /\u0000/);
 });
+
+test('阅读侧栏提供目录与反向链接选项，只读页面也可用且无内容时不占栏', async t => {
+  for (const readOnly of [false, true]) {
+    const { app, notesDir, indexer } = await setup(t, { readOnly });
+    await writeNote(notesDir, 'outline.md', { body: '# 标题\n\n## **章节** <script>\n\n#### 子节\n' });
+    await writeNote(notesDir, 'plain.md', { body: '# 无章节\n\n只有正文\n' });
+    await writeNote(notesDir, 'source.md', { body: '# 来源\n\n[[outline]]\n\n[[plain]]\n' });
+    await indexer.scan();
+    const page = await request(app).get('/note/outline.md').expect(200);
+    assert.match(page.text, /role="tablist" aria-label="笔记侧栏"/);
+    assert.match(page.text, /data-note-tab="outline"[^>]*aria-selected="true"/);
+    assert.match(page.text, /data-note-panel="backlinks" hidden/);
+    assert.match(page.text, /data-heading-level="2">章节 &lt;script&gt;<\/a>/);
+    assert.match(page.text, /data-heading-level="4">子节<\/a>/);
+    assert.match(page.text, /src="\/static\/note-sidebar.js"/);
+    const plain = await request(app).get('/note/plain.md').expect(200);
+    assert.match(plain.text, /data-note-tab="backlinks"[^>]*aria-selected="true"/);
+    assert.match(plain.text, /暂无标题/);
+    const source = await request(app).get('/note/source.md').expect(200);
+    assert.match(source.text, /class="note-layout is-single"/);
+    assert.doesNotMatch(source.text, /data-note-sidebar/);
+  }
+});

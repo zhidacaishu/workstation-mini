@@ -592,6 +592,103 @@ test('增量扫描的结果与全量重建一致：新增、修改、删除', as
   }
 });
 
+test('Windows 普通删除不列目录或重读其他笔记', async () => {
+  let reads = 0, listings = 0;
+  const ctx = await setup({
+    platform: 'win32',
+    readOpenedFile: handle => { reads += 1; return handle.readFile('utf8'); },
+    listNotesFn: dir => { listings += 1; return listNotes(dir); }
+  });
+  try {
+    for (let i = 0; i < 100; i += 1) {
+      await writeNote(ctx.vaultDir, 'note-' + i + '.md', { body: '# Note ' + i + '\n\n- [ ] Task\n' });
+    }
+    await ctx.indexer.scan();
+    reads = 0; listings = 0;
+    await fs.unlink(path.join(ctx.vaultDir, 'note-0.md'));
+    const result = await ctx.indexer.scan({ paths: ['note-0.md'] });
+    assert.equal(result.removed, 1);
+    assert.equal(reads, 0);
+    assert.equal(listings, 0);
+    assert.equal(ctx.db.countNotes(), 99);
+    assert.equal(ctx.db.listTasks({ includeDone: true }).length, 99);
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+  } finally { await ctx.cleanup(); }
+});
+
+test('Windows 删除大小写别名清理旧索引，不重读无关笔记', async () => {
+  const reads = [];
+  const ctx = await setup({
+    platform: 'win32',
+    readOpenedFile: (handle, relativePath) => { reads.push(relativePath); return handle.readFile('utf8'); }
+  });
+  try {
+    await writeNote(ctx.vaultDir, 'English.md', { body: '# English\n\n- [ ] Task\n' });
+    await writeNote(ctx.vaultDir, 'other.md', { body: '# Other\n' });
+    await ctx.indexer.scan();
+    reads.length = 0;
+    await fs.unlink(path.join(ctx.vaultDir, 'English.md'));
+    const result = await ctx.indexer.scan({ paths: ['ENGLISH.md'] });
+    assert.equal(result.removed, 1);
+    assert.deepEqual(reads, []);
+    assert.ok(!ctx.db.getNote('English.md'));
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+  } finally { await ctx.cleanup(); }
+});
+
+test('Windows 大小写对账只强制读取本批路径，正文大小和时间未变也更新', async () => {
+  const reads = [];
+  let canonicalRoot;
+  const ctx = await setup({
+    platform: 'win32',
+    fsOps: { realpath: async absolute => absolute.endsWith(path.sep + 'ENGLISH.md')
+      ? path.join(canonicalRoot, 'English.md') : fs.realpath(absolute) },
+    readOpenedFile: (handle, relativePath) => { reads.push(relativePath); return handle.readFile('utf8'); }
+  });
+  try {
+    canonicalRoot = await fs.realpath(ctx.vaultDir);
+    await writeNote(ctx.vaultDir, 'English.md', { body: '# Before\n' });
+    await writeNote(ctx.vaultDir, 'other.md', { body: '# Other\n' });
+    await ctx.indexer.scan();
+    const original = await fs.stat(path.join(ctx.vaultDir, 'English.md'));
+    await fs.writeFile(path.join(ctx.vaultDir, 'English.md'), '# After!\n');
+    await fs.utimes(path.join(ctx.vaultDir, 'English.md'), original.atime, original.mtime);
+    reads.length = 0;
+    await ctx.indexer.scan({ paths: ['ENGLISH.md'] });
+    assert.deepEqual(reads, ['English.md']);
+    assert.match(ctx.db.getNote('English.md').body_raw, /After!/);
+    assert.deepEqual(snapshot(ctx.db), await fullRebuildSnapshot(ctx.vaultDir));
+  } finally { await ctx.cleanup(); }
+});
+
+test('Windows 大小写对账保留无关笔记的读取失败状态', async () => {
+  let denyRead = false;
+  let canonicalRoot;
+  const ctx = await setup({
+    platform: 'win32',
+    fsOps: { realpath: async absolute => absolute.endsWith(path.sep + 'ENGLISH.md')
+      ? path.join(canonicalRoot, 'English.md') : fs.realpath(absolute) },
+    readOpenedFile: (handle, relativePath) => {
+      if (denyRead && relativePath === 'other.md') throw Object.assign(new Error('denied'), { code: 'EACCES' });
+      return handle.readFile('utf8');
+    }
+  });
+  try {
+    canonicalRoot = await fs.realpath(ctx.vaultDir);
+    await writeNote(ctx.vaultDir, 'English.md', { body: '# English' });
+    await writeNote(ctx.vaultDir, 'other.md', { body: '# Other' });
+    await ctx.indexer.scan();
+    denyRead = true;
+    await ctx.indexer.scan({ paths: ['other.md'] });
+    assert.equal(ctx.indexer.getStatus().phase, 'degraded');
+    await ctx.indexer.scan({ paths: ['ENGLISH.md'] });
+    assert.equal(ctx.indexer.getStatus().phase, 'degraded');
+    assert.equal(ctx.indexer.getStatus().failureTotal, 1);
+    assert.equal(ctx.indexer.getStatus().failures[0].path, 'other.md');
+    assert.ok(ctx.db.getNote('other.md'));
+  } finally { await ctx.cleanup(); }
+});
+
 test('Windows 增量扫描统一大小写别名，并清除旧版本留下的重复索引', { skip: process.platform !== 'win32' }, async () => {
   const ctx = await setup();
   try {
@@ -912,4 +1009,27 @@ test('增量扫描不依赖 mtime 和大小判断变更', async () => {
   } finally {
     await ctx.cleanup();
   }
+});
+
+test('Windows 删除未入库失败文件的大小写别名会立即清除旧错误', async () => {
+  const reads = [];
+  const ctx = await setup({
+    platform: 'win32',
+    readOpenedFile: (handle, relativePath) => { reads.push(relativePath); return handle.readFile('utf8'); }
+  });
+  try {
+    await fs.writeFile(path.join(ctx.vaultDir, 'Broken.md'), '---\ntags: [broken\n---\ncontent');
+    await writeNote(ctx.vaultDir, 'other.md', { body: '# Other\n' });
+    await ctx.indexer.scan();
+    assert.equal(ctx.indexer.getStatus().failureTotal, 1);
+    assert.equal(ctx.db.getNote('Broken.md'), undefined);
+    reads.length = 0;
+    await fs.unlink(path.join(ctx.vaultDir, 'Broken.md'));
+    const result = await ctx.indexer.scan({ paths: ['BROKEN.md'] });
+    assert.equal(result.phase, 'ready');
+    assert.equal(result.failureTotal, 0);
+    assert.deepEqual(ctx.indexer.getStatus().failures, []);
+    assert.deepEqual(reads, [], '删除错误记录不重读无关笔记');
+    assert.equal(ctx.db.countNotes(), 1);
+  } finally { await ctx.cleanup(); }
 });

@@ -400,7 +400,25 @@ function dropLeadingTitle(tokens, title) {
   tokens.splice(0, 3);
 }
 
-function renderMarkdown(body, resolve = () => '', { notePath = '', anchors = true, images = true, today = '', taskToggle = false, title = '', readOnly = false } = {}) {
+// 和正文共用解析结果与锚点，避免代码块伪标题、重复标题或被省略的页标题进入目录。
+function collectOutline(tokens, outline) {
+  const parents = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index], inline = tokens[index + 1];
+    if (token.type !== 'heading_open' || inline?.type !== 'inline' || !token.attrGet('id')) continue;
+    const text = (inline.children || []).map(child => {
+      if (['text', 'code_inline', 'image', 'math_inline'].includes(child.type)) return child.content;
+      return ['softbreak', 'hardbreak'].includes(child.type) ? ' ' : '';
+    }).join('').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    const heading = { id: token.attrGet('id'), level: Number(token.tag.slice(1)), text, children: [] };
+    while (parents.length && parents.at(-1).level >= heading.level) parents.pop();
+    (parents.at(-1)?.children || outline).push(heading);
+    parents.push(heading);
+  }
+}
+
+function renderMarkdown(body, resolve = () => '', { notePath = '', anchors = true, images = true, today = '', taskToggle = false, title = '', readOnly = false, outline = null } = {}) {
   const visible = stripMachineDirectives(body);
   const source = replaceWikilinks(visible, resolve, notePath, { linkMissing: !readOnly });
   // 替换双链和去掉机器指令都不增删行，所以这里的行号与索引里的待办行号一致。
@@ -408,6 +426,7 @@ function renderMarkdown(body, resolve = () => '', { notePath = '', anchors = tru
   const tokens = md.parse(source, env);
   if (title) dropLeadingTitle(tokens, title);
   if (anchors) assignAnchors(tokens);
+  if (outline) collectOutline(tokens, outline);
   return md.renderer.render(tokens, md.options, env);
 }
 

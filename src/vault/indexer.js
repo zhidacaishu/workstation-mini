@@ -80,7 +80,8 @@ function createIndexer({
   onProgress = null,
   fsOps = fsp,
   listNotesFn = listNotes,
-  readOpenedFile = handle => handle.readFile('utf8')
+  readOpenedFile = handle => handle.readFile('utf8'),
+  platform = process.platform
 }) {
   fsOps = { ...fsp, ...fsOps };
   let queue = Promise.resolve();
@@ -303,7 +304,7 @@ function createIndexer({
   }
 
   async function scanOnce(options = {}) {
-    const { force = false, kind = 'full' } = options;
+    const { force = false, kind = 'full', forcePaths = new Set() } = options;
     const stats = { added: 0, updated: 0, removed: 0, unchanged: 0 };
     try {
       const onDisk = await listNotesFn(vaultDir);
@@ -315,7 +316,7 @@ function createIndexer({
       let done = 0;
 
       for (const relativePath of onDisk) {
-        const result = await indexOne(relativePath, indexed.get(relativePath), force);
+        const result = await indexOne(relativePath, indexed.get(relativePath), force || forcePaths.has(relativePath.toLowerCase()));
         if (result.kind === 'failed') {
           eligibleSet.add(relativePath);
           nextFailures.set(relativePath, result.failure);
@@ -353,12 +354,14 @@ function createIndexer({
   }
 
   async function needsCaseReconciliation(candidates) {
-    if (process.platform !== 'win32' || candidates.length === 0) return false;
+    if (platform !== 'win32' || candidates.length === 0) return false;
     const indexed = new Map();
-    for (const row of db.listIndexed()) {
-      const key = row.path.toLowerCase();
+    // 从未成功入库的文件也可能留下失败记录，删除别名时必须一并对账。
+    const knownPaths = new Set([...db.listIndexed().map(row => row.path), ...failureMap.keys()]);
+    for (const knownPath of knownPaths) {
+      const key = knownPath.toLowerCase();
       const aliases = indexed.get(key) || [];
-      aliases.push(row.path);
+      aliases.push(knownPath);
       indexed.set(key, aliases);
     }
     let root;
@@ -371,7 +374,10 @@ function createIndexer({
           return true;
         }
       } catch (error) {
-        if (error.code === 'ENOENT') return true;
+        if (error.code === 'ENOENT' && indexed.get(candidate.toLowerCase())?.some(alias => alias !== candidate)) {
+          return true;
+        }
+        // 普通删除只清理该路径；其他大小写的索引行才需要按磁盘拼写对账。
         // 权限等读取错误交给原有逐文件检查，不能把失败误当删除。
       }
     }
@@ -386,7 +392,10 @@ function createIndexer({
     let done = 0;
 
     try {
-      if (await needsCaseReconciliation(candidates)) return await scanOnce({ kind, force: true });
+      if (await needsCaseReconciliation(candidates)) {
+        // 核对目录拼写，但只强制读取本批路径；其他笔记保留 mtime / size 快路径。
+        return await scanOnce({ kind, forcePaths: new Set([...candidates, ...failureMap.keys()].map(value => value.toLowerCase())) });
+      }
       beginScan(kind, candidates.length);
       for (const relativePath of candidates) {
         const previous = db.getIndexed(relativePath);

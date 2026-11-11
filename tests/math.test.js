@@ -59,3 +59,23 @@ test('未闭合行内公式不会跨段吞掉挖空或双链', () => {
   assert.deepEqual(parseCloze(source).answers, ['答案']);
   assert.deepEqual(parseWikilinks(source).map(x => x.target), ['real']);
 });
+
+test('正文目录复用渲染锚点，保留标题层级并排除页标题与代码示例', () => {
+  const outline = [];
+  const source = [
+    '# 目录测试', '', '## **研究** `方法` 与 [[source|资料]]', '',
+    '#### 深层小节', '', '###### 最深层', '', '### 同级分支', '',
+    '## 重复', '', '## 重复', '', '```md', '# 示例不入目录', '```', '',
+    '# 独立章节', '', '## $x$ 与 ![图示](image.png)'
+  ].join('\n');
+  const html = renderMarkdown(source, () => 'source.md', { title: '目录测试', outline });
+  assert.deepEqual(outline.map(item => [item.text, item.level]), [['研究 方法 与 资料', 2], ['重复', 2], ['重复', 2], ['独立章节', 1]]);
+  assert.deepEqual(outline[0].children.map(item => [item.text, item.level]), [['深层小节', 4], ['同级分支', 3]]);
+  assert.equal(outline[0].children[0].children[0].level, 6);
+  assert.equal(outline[3].children[0].text, 'x 与 图示');
+  const flat = entries => entries.flatMap(item => [item, ...flat(item.children)]);
+  const entries = flat(outline);
+  assert.equal(new Set(entries.map(item => item.id)).size, entries.length);
+  for (const entry of entries) assert.match(html, new RegExp('<h' + entry.level + ' id="' + entry.id + '"'));
+  assert.ok(!entries.some(item => /目录测试|示例不入目录/.test(item.text)));
+});

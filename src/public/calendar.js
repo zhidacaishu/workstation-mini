@@ -32,7 +32,7 @@
       preview.textContent = submitted.trim();
       day.setAttribute('aria-label', originalLabel + (submitted.trim() ? '，有备注' : ''));
       noteLink.hidden = !result.hash;
-      status.textContent = text.value !== baseline ? '已保存；还有未保存的更改' : result.hash ? '备注已保存' : '备注已清空';
+      status.textContent = text.value !== baseline ? '已保存；还有未保存的更改' : result.hash ? '已保存' : '已清空';
     } catch (error) {
       status.textContent = '保存失败：' + error.message;
     } finally {

@@ -140,9 +140,7 @@
       const items = column.querySelector('[data-board-items]');
       const count = items?.querySelectorAll('[data-board-card]').length || 0;
       const counter = column.querySelector('[data-column-count]');
-      const empty = column.querySelector('.board-empty');
       if (counter) counter.textContent = String(count);
-      if (empty) empty.hidden = count > 0;
     };
 
     const data = Object.fromEntries(new FormData(form));

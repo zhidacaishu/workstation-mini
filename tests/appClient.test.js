@@ -549,8 +549,6 @@ async function loadBoard(fetch) {
   const targetCount = element();
   sourceCount.textContent = '1';
   targetCount.textContent = '0';
-  const sourceEmpty = { hidden: true };
-  const targetEmpty = { hidden: false };
   const sourceItems = element();
   const targetItems = element();
   const sourceColumn = element();
@@ -559,13 +557,11 @@ async function loadBoard(fetch) {
   targetColumn.dataset.status = 'done';
   sourceColumn.querySelector = selector => ({
     '[data-board-items]': sourceItems,
-    '[data-column-count]': sourceCount,
-    '.board-empty': sourceEmpty
+    '[data-column-count]': sourceCount
   }[selector] || null);
   targetColumn.querySelector = selector => ({
     '[data-board-items]': targetItems,
-    '[data-column-count]': targetCount,
-    '.board-empty': targetEmpty
+    '[data-column-count]': targetCount
   }[selector] || null);
 
   const board = element();
@@ -623,7 +619,7 @@ async function loadBoard(fetch) {
   });
 
   return {
-    card, select, sourceItems, targetItems, sourceCount, targetCount, sourceEmpty, targetEmpty,
+    card, select, sourceItems, targetItems, sourceCount, targetCount,
     change() {
       for (const handler of documentListeners.get('change') || []) handler({ target: select });
     }
@@ -657,8 +653,6 @@ test('看板状态成功后移动原卡片并更新两列计数', async () => {
   assert.deepEqual(ui.targetItems.cards, [ui.card]);
   assert.equal(ui.sourceCount.textContent, '0');
   assert.equal(ui.targetCount.textContent, '1');
-  assert.equal(ui.sourceEmpty.hidden, false);
-  assert.equal(ui.targetEmpty.hidden, true);
   assert.equal(ui.select.disabled, false);
   assert.equal(ui.select.focusCalls, 1);
 });

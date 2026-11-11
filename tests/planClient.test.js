@@ -18,7 +18,7 @@ function load({ href = 'http://localhost/plan', saved = null, blocked = false } 
       remove: name => classes.delete(name),
       toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name)
     },
-    querySelector: selector => selector === '[name="due"]' ? date : checkbox,
+    querySelector: selector => selector === '.plan-task-reschedule' ? null : selector === '[name="due"]' ? date : checkbox,
     requestSubmit: () => { state.submitted += 1; }
   };
   const windowListeners = new Map();
@@ -96,7 +96,7 @@ test('当天备注未保存时不更新待办，避免刷新丢失输入', async
   assert.equal(requested, false);
   assert.equal(reloaded, false);
   assert.equal(done.checked, false);
-  assert.match(message, /先保存当天备注/);
+  assert.match(message, /先保存备注/);
 });
 
 test('计划日期未保存时离开有保护，还原后解除', () => {

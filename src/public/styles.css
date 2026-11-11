@@ -158,15 +158,17 @@ kbd {
   position: absolute;
   top: 4px;
   right: 7px;
-  min-width: 17px;
-  height: 16px;
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
   padding: 0 4px;
   border-radius: var(--radius-pill);
   background: var(--badge);
   color: var(--badge-text);
   font-size: var(--fs-2xs);
   font-weight: 700;
-  line-height: 16px;
+  line-height: 1;
   text-align: center;
 }
 .nav-badge.is-warn { background: var(--warn); color: var(--on-warn); }
@@ -307,22 +309,14 @@ kbd {
 .index-banner-failures li { display: flex; gap: 8px; }
 .index-banner-summary { flex-basis: 100%; color: var(--muted); }
 
+/* 页面铺满侧栏右侧的工作区；分栏和折行交给各页面，页头与两侧边距保持一致。 */
 .page {
-  /* 默认页面共用一条左边缘：取标准宽度居中时的位置，宽页面只向右展开、窄页面只在右侧留白。
-     阅读页单独使用全宽与对称边距。 */
-  --page-left: max(0px, calc((100% - 1120px) / 2));
   flex: 1;
-  width: calc(100% - var(--page-left));
-  max-width: 1120px;
-  margin: 0 0 0 var(--page-left);
-  padding: 40px 40px 72px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 32px 28px 48px;
 }
-/* 阅读页随窗口展开，仅保留页面边距，不限制正文最大行宽。 */
-.page.page-reading { width: 100%; max-width: none; margin-inline: 0; }
-.page.page-canvas { max-width: 1320px; }
-.page.page-focus { max-width: 900px; }
-/* 复习是专注模式，卡片仍居中。 */
-.page:has(> .reviewer, > .review-empty) { width: 100%; margin-inline: auto; }
 
 /* ---------- 基础组件 ---------- */
 
@@ -365,6 +359,7 @@ kbd {
   font-size: var(--fs-xs);
 }
 .icon-button {
+  flex: none;
   display: inline-grid;
   place-items: center;
   width: var(--control-sm);
@@ -648,7 +643,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 
 /* ---------- 资料库 ---------- */
 
-.library, .narrow { min-width: 0; max-width: 880px; }
+.library, .narrow { min-width: 0; width: 100%; }
 .library-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 24px; }
 .library-filters .select-field { min-width: 0; max-width: 220px; }
 .library-filters select { width: 100%; min-width: 0; text-overflow: ellipsis; }
@@ -733,7 +728,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 
 /* ---------- 笔记阅读 ---------- */
 
-.note-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(200px, 240px); gap: 56px; align-items: start; }
+.note-layout { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: clamp(28px, 3vw, 48px); align-items: start; }
 .note-layout.is-single { grid-template-columns: minmax(0, 1fr); }
 .note { min-width: 0; }
 .note-header { display: flex; flex-direction: column; gap: 12px; padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid var(--line); }
@@ -795,15 +790,27 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 .project-fields dt { color: var(--subtle); }
 .project-fields dd { min-width: 0; margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
 
-.note-links { position: sticky; top: 40px; display: flex; flex-direction: column; gap: 22px; padding-top: 6px; }
-.note-links h2 { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .02em; }
+.note-links { position: sticky; top: 32px; min-width: 0; display: flex; flex-direction: column; gap: 12px; max-height: calc(100dvh - 64px); }
+.note-sidebar-tabs { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-bottom: 1px solid var(--line); }
+.note-sidebar-tabs button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--control); padding: 0 4px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--subtle); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; transition: color var(--motion), border-color var(--motion); }
+.note-sidebar-tabs button:hover { color: var(--text); }
+.note-sidebar-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); }
+.note-sidebar-count { color: var(--subtle); font-size: var(--fs-xs); font-weight: 400; }
+.note-sidebar-panel { min-height: 0; overflow: auto; padding: 2px 0 4px; scrollbar-width: thin; }
+.note-sidebar-panel:focus-visible { outline-offset: 3px; border-radius: var(--radius-xs); }
+.note-outline ol { list-style: none; margin: 0; padding: 0; }
+.note-outline ol ol { padding-left: 14px; }
+.note-outline-link { position: relative; display: block; padding: 7px 10px; border-radius: var(--radius-sm); color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; overflow-wrap: anywhere; text-decoration: none; }
+.note-outline-link:hover { background: var(--hover); color: var(--text); text-decoration: none; }
+.note-outline-link[aria-current="location"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 500; }
+.note-outline-link[aria-current="location"]::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; border-radius: var(--radius-pill); background: var(--accent); }
 .note-links-empty { color: var(--subtle); font-size: var(--fs-sm); }
 .notelist { margin: 0; padding: 0; list-style: none; }
 .note-links .notelist a {
   overflow-wrap: anywhere;
   display: block;
-  margin: 0 -8px;
-  padding: 6px 8px;
+  margin: 0;
+  padding: 7px 10px;
   border-radius: var(--radius);
   color: var(--text);
   font-size: var(--fs-md);
@@ -815,11 +822,13 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 .prose { color: var(--text-2); font-size: var(--fs-lg); line-height: 1.85; overflow-wrap: break-word; }
 .prose > :first-child { margin-top: 0; }
 .prose p, .prose ul, .prose ol, .prose blockquote, .prose pre, .prose table, .prose figure { margin: 0 0 1.05em; }
-.prose h1, .prose h2, .prose h3, .prose h4 { color: var(--text); font-weight: 600; letter-spacing: -.005em; scroll-margin-top: 24px; }
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 { color: var(--text); font-weight: 600; letter-spacing: -.005em; scroll-margin-top: 24px; }
 .prose h1 { margin: 1.6em 0 .6em; font-size: var(--fs-3xl); }
 .prose h2 { margin: 1.7em 0 .55em; font-size: var(--fs-2xl); }
 .prose h3 { margin: 1.5em 0 .5em; font-size: var(--fs-xl); }
 .prose h4 { margin: 1.4em 0 .4em; font-size: var(--fs-lg); }
+.prose h5 { margin: 1.3em 0 .4em; font-size: var(--fs-md); }
+.prose h6 { margin: 1.3em 0 .4em; color: var(--muted); font-size: var(--fs-sm); }
 .prose ul, .prose ol { padding-left: 1.4em; }
 .prose li + li { margin-top: .3em; }
 .prose li > ul, .prose li > ol { margin: .3em 0 0; }
@@ -900,7 +909,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 
 /* ---------- 编辑 ---------- */
 
-.editform { display: flex; flex-direction: column; gap: 16px; min-height: calc(100vh - 112px); }
+.editform { display: flex; flex-direction: column; gap: 16px; min-height: calc(100dvh - 80px); }
 .editor-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; }
 .editor-title { flex: 1 1 360px; min-width: 0; display: flex; align-items: center; gap: 14px; }
 /* 标题是笔记名，可能很长：单行截断，路径至少留出 160px。 */
@@ -964,8 +973,25 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 
 /* ---------- 计划 ---------- */
 
+/* 计划使用整个工作区，避免宽屏上继承普通页面的居中留白。
+   月历的剩余高度由 flex 传到日期网格，不再按固定上限截断行高。 */
+.page.page-canvas:has(> .plan-header) {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+}
+.page > [data-plan-view="calendar"] { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 给桌面月历明确的可分配高度，避免多事项日期把六行的固有高度一起撑大。
+   矮窗口允许页面滚动，保留完整日期格与改期控件。 */
+@media (min-width: 1041px) {
+  .page.page-canvas:has(> [data-plan-view="calendar"]) { flex: none; height: 100dvh; min-height: 700px; }
+}
+
+
 .plan-header { align-items: center; }
-.plan-filters { max-width: 880px; }
 .plan-title { display: flex; align-items: center; gap: 16px; }
 .plan-month-nav { display: flex; align-items: center; gap: 4px; }
 .plan-month-nav h1 { min-width: 132px; text-align: center; font-size: var(--fs-2xl); }
@@ -1009,7 +1035,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 /* 选中态与侧栏、分段控件统一：浅灰底 + 正文色，不再用整块黑色。 */
 .plan-filters a[aria-current="page"] { border-color: transparent; background: var(--nav-active); color: var(--text); font-weight: 600; }
 
-.plan-list { display: flex; flex-direction: column; gap: 28px; max-width: 880px; }
+.plan-list { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
 .plan-group h2 {
   display: flex;
   align-items: baseline;
@@ -1050,22 +1076,29 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .plan-project-mark::before { width: 9px; height: 9px; border-radius: 2px; background: var(--accent); content: ""; transform: rotate(45deg); }
 .plan-empty { padding: 28px 0; }
 
-.plan-calendar-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; }
-.plan-calendar { min-width: 0; }
+.plan-calendar-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.plan-calendar { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .calgrid {
-  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* 密集日期可滚动到末周；聚焦首周时给固定星期表头留出空间。 */
+  overflow: auto;
+  scroll-padding-top: 40px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-card);
 }
-.calgrid-head { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.calgrid-head { position: sticky; top: 0; z-index: 1; flex: none; background: var(--surface); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
 .calgrid-head span { padding: 9px 12px; color: var(--faint); font-size: var(--fs-xs); font-weight: 500; }
 .calgrid-head span.is-weekend { color: var(--subtle); }
-.calgrid-body { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: minmax(clamp(84px, calc((100vh - 300px) / 6), 132px), auto); }
+.calgrid-body { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(min-content, 1fr)); }
 .calday {
   position: relative;
   min-width: 0;
+  min-height: 84px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1083,21 +1116,24 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .calday.is-weekend { background: var(--weekend); }
 .calday.is-outside { background: var(--outside); }
 .calday.is-outside .calday-num { color: var(--subtle); font-weight: 400; }
-.calday.is-selected { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.calday.is-selected { box-shadow: inset 0 0 0 2px var(--accent); }
 .calday-num {
   position: relative;
   align-self: flex-start;
   display: grid;
   place-items: center;
-  min-width: 24px;
-  height: 24px;
-  border-radius: var(--radius-pill);
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
   font-size: var(--fs-sm);
   font-weight: 500;
+  line-height: 1;
 }
-.calday.is-today .calday-num { padding: 0 6px; background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.calday.is-today .calday-num { background: var(--accent); color: var(--on-accent); font-weight: 700; }
 /* 有备注的日子只标一个小点，内容在右侧详情里看。 */
-.calendar-note-preview { position: absolute; top: 15px; right: 10px; width: 6px; height: 6px; overflow: hidden; border-radius: 50%; background: var(--subtle); font-size: 0; color: transparent; }
+.calendar-note-preview { position: absolute; top: 19px; right: 10px; width: 6px; height: 6px; overflow: hidden; border-radius: 50%; background: var(--subtle); font-size: 0; color: transparent; }
 .calendar-note-preview:empty { display: none; }
 .calday-items { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .calpill {
@@ -1117,16 +1153,27 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .calpill.is-more { align-self: flex-start; background: transparent; color: var(--subtle); }
 .plan-undated-link { display: inline-block; margin-top: 12px; color: var(--muted); font-size: var(--fs-sm); }
 
-.plan-day-detail { position: sticky; top: 40px; display: flex; flex-direction: column; gap: 20px; padding: 20px; }
-.plan-day-detail > header { display: flex; align-items: baseline; gap: 10px; }
+.plan-day-detail { align-self: start; position: sticky; top: 28px; display: flex; flex-direction: column; gap: 20px; padding: 20px; }
+.plan-day-detail > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .plan-day-detail > header h2 { font-size: var(--fs-xl); font-weight: 600; }
 .plan-day-detail > header span { color: var(--subtle); font-size: var(--fs-sm); }
 .plan-day-section { display: flex; flex-direction: column; gap: 6px; }
 .plan-day-section h3, .calendar-note-form label { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .02em; }
-.plan-day-section .plan-task-form { flex-wrap: wrap; min-height: 0; padding: 10px 0; }
-.plan-day-section .plan-task-content { flex-basis: calc(100% - 30px); }
-/* 日期文字左边有 11px 内边距，往回收 11px，和上面的待办标题对齐。 */
-.plan-day-section .plan-task-due { margin-left: 18px; }
+.plan-day-section .plan-task-form { display: grid; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: start; gap: 6px 10px; min-height: 0; padding: 12px 0; }
+.plan-day-section .task-check { margin-top: 3px; }
+.plan-day-section .plan-task-content { gap: 3px; }
+.plan-day-section .plan-task-content > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-task-reschedule { position: relative; }
+.plan-task-reschedule > summary { display: flex; align-items: center; min-height: var(--control-sm); padding: 0 6px; border-radius: var(--radius-sm); color: var(--muted); font-size: var(--fs-xs); cursor: pointer; list-style: none; }
+.plan-task-reschedule > summary::-webkit-details-marker { display: none; }
+.plan-task-reschedule > summary:hover, .plan-task-reschedule[open] > summary { background: var(--hover); color: var(--text); }
+.plan-task-date-popover { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; display: grid; gap: 6px; width: 190px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--raised); box-shadow: var(--shadow-pop); color: var(--muted); font-size: var(--fs-xs); }
+.plan-task-date-popover input.plan-task-date { position: static; opacity: 1; height: var(--control); color: var(--text); }
+.plan-task-reschedule:not([open]) > .plan-task-date-popover { display: none; }
+.plan-task-date-popover > label { display: grid; gap: 6px; }
+.plan-task-date-popover > button { justify-self: end; }
+.plan-task-form.is-edited .plan-task-reschedule > summary { color: var(--warn-text); }
+
 .plan-day-empty { color: var(--subtle); font-size: var(--fs-sm); }
 .calendar-note-form { display: flex; flex-direction: column; gap: 8px; }
 .calendar-note-form textarea { min-height: 96px; background: var(--inset); }
@@ -1154,15 +1201,6 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .board-col h2 .status-mark { color: var(--muted); }
 .board-col.is-muted h2 { color: var(--muted); }
 .board-items { display: flex; flex-direction: column; gap: 10px; }
-.board-empty {
-  display: grid;
-  place-items: center;
-  min-height: 64px;
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--radius-lg);
-  color: var(--subtle);
-  font-size: var(--fs-sm);
-}
 /* 卡片排成两列网格：标题和状态下拉框共用第一行，其余各行占满宽度。
    状态不再单独占卡片底部一行。 */
 .board-card {
@@ -1170,8 +1208,8 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 10px 6px;
-  padding: 14px 16px;
+  gap: 10px 8px;
+  padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -1184,35 +1222,26 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .board-card.is-pending { opacity: .6; }
 /* 「已放弃」一栏的卡片整体淡一些，和栏标题的灰色呼应；悬停或操作时恢复。 */
 .board-col.is-muted .board-card:not(:hover, :focus-within) { opacity: .72; }
-.board-title { color: var(--text); font-size: var(--fs-md); font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.board-title { color: var(--text); font-size: var(--fs-lg); font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
 .board-title:hover { color: var(--accent-text); text-decoration: none; }
-.board-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-xs); }
-.board-dataset, .board-deadline {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-}
-.board-dataset { display: block; max-width: 100%; height: auto; min-height: 22px; overflow-wrap: anywhere; border: 1px solid var(--line); background: var(--inset); color: var(--text-2); font-family: var(--font-mono); }
-.board-deadline.is-today { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
-.board-deadline.is-overdue { background: var(--warn-soft); color: var(--warn-text); font-weight: 600; }
-.board-next { overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-sm); line-height: 1.6; }
-.board-next span { margin-right: 6px; color: var(--faint); }
-/* 状态下拉框在标题行右端，平时隐藏，悬停卡片或键盘聚焦时才出现，只露一个小箭头：
-   当前状态看所在的列就知道。点开是系统下拉菜单，选项文字照常显示。
-   键盘聚焦时展开成「计划中 ⌄」，用方向键换状态时看得见选到了哪一项。 */
-.board-card > .statusform { grid-column: 2; grid-row: 1; margin: -4px -8px -4px 0; opacity: 0; transition: opacity var(--motion); }
+.board-dataset { margin: 0; color: var(--subtle); font-size: var(--fs-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.board-card-footer { margin-top: 4px; }
+.board-deadline { display: inline-flex; align-items: center; min-height: 24px; color: var(--muted); font-size: var(--fs-xs); }
+.board-deadline.is-today, .board-deadline.is-overdue { padding: 0 7px; border-radius: var(--radius-sm); font-weight: 500; }
+.board-deadline.is-today { background: var(--accent-soft); color: var(--accent-text); }
+.board-deadline.is-overdue { background: var(--warn-soft); color: var(--warn-text); }
+.board-next { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--line-soft); overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-md); line-height: 1.65; }
+.board-next > span { display: block; margin-bottom: 4px; color: var(--subtle); font-size: var(--fs-xs); }
+/* 轻量箭头提示状态可改；悬停或聚焦增强，键盘聚焦时显示选中状态。 */
+.board-card > .statusform { grid-column: 2; grid-row: 1; margin: -2px -6px 0 0; opacity: .65; transition: opacity var(--motion); }
 .board-card:hover > .statusform, .board-card > .statusform:focus-within { opacity: 1; }
 .statusform .select-field.small { display: inline-flex; }
-.statusform .select-field.small select { width: 28px; height: var(--control-sm); padding: 0; border-color: transparent; border-radius: var(--radius-sm); background: transparent; color: transparent; font-size: var(--fs-xs); }
-.statusform .select-field.small select:hover, .statusform .select-field.small select:focus { border-color: var(--line); background: var(--inset); }
+.statusform .select-field.small select { width: 28px; height: var(--control-sm); padding: 0; border-color: var(--line-soft); border-radius: var(--radius-sm); background: var(--inset); color: transparent; font-size: var(--fs-xs); }
+.statusform .select-field.small select:hover, .statusform .select-field.small select:focus { border-color: var(--line-strong); }
 .statusform .select-field.small select:focus-visible { width: auto; padding: 0 24px 0 8px; color: var(--text-2); }
 .statusform option { background: var(--surface); color: var(--text); }
 .statusform .select-field::after { right: 11px; width: 5px; height: 5px; }
 .statusform .select-field:has(select:focus-visible)::after { right: 9px; }
-.board-onboarding { max-width: 640px; }
 
 /* ---------- 卡组 ---------- */
 
@@ -1266,7 +1295,9 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .card-state.is-suspended { color: var(--subtle); }
 .card-row-action { flex: none; margin: 0; }
 
-.card-edit-form { display: flex; flex-direction: column; gap: 18px; padding: 22px 24px; }
+.card-edit { display: flex; flex-direction: column; min-height: calc(100dvh - 80px); }
+.card-edit-form { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 22px 24px; }
+.card-edit-form .card-field:has(textarea), .card-edit-form .card-field textarea { flex: 1; }
 .card-field { display: flex; flex-direction: column; gap: 6px; color: var(--faint); font-size: var(--fs-sm); font-weight: 500; }
 .card-field input[type="text"], .card-field textarea { width: 100%; color: var(--text); font-size: var(--fs-md); font-weight: 400; }
 .card-field textarea { min-height: 200px; font-size: var(--fs-md); line-height: 1.7; }
@@ -1286,7 +1317,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 
 /* ---------- 复习 ---------- */
 
-.reviewer { display: flex; flex-direction: column; gap: 16px; max-width: 760px; margin: 0 auto; }
+.reviewer { display: flex; flex-direction: column; gap: 16px; min-width: 0; min-height: calc(100dvh - 80px); }
 /* 复习区和结束面板只是焦点落点（tabindex=-1，方便读屏和数字快捷键），不是可操作的控件，不画焦点框。 */
 .reviewer:focus-visible, .review-done:focus-visible { outline: none; }
 .review-progress { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: var(--fs-sm); }
@@ -1298,8 +1329,9 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .reviewcard {
   display: flex;
   flex-direction: column;
-  /* 卡片随窗口长高，不再只占上半屏。 */
-  min-height: clamp(340px, 52vh, 520px);
+  /* 剩余高度留给卡片；答案较长时由内容自然撑高。 */
+  flex: 1;
+  min-height: 340px;
   padding: 24px 36px 32px;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
@@ -1401,7 +1433,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .rating:disabled { opacity: .55; cursor: wait; }
 /* 四个评分权重相同，不预选、不用颜色暗示答案。快捷键保留在悬停提示中。 */
 .review-retry { color: var(--warn-text); font-size: var(--fs-sm); }
-.review-done, .review-empty { max-width: 760px; margin: 0 auto; padding: 36px; align-items: center; text-align: center; }
+.review-done, .review-empty { min-height: calc(100dvh - 80px); padding: 36px; align-items: center; justify-content: center; text-align: center; }
 .review-empty h1 { font-size: var(--fs-xl); font-weight: 600; }
 
 /* ---------- 历史与草稿 ---------- */
@@ -1409,7 +1441,8 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .history-filter { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; font-size: var(--fs-sm); }
 .history-filter .chip { display: block; min-width: 0; overflow: hidden; font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 24px; text-overflow: ellipsis; }
 .history-filter > a { flex: none; }
-.history-layout { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.history-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.history-layout.has-preview { grid-template-columns: clamp(280px, 32%, 480px) minmax(0, 1fr); }
 .history-records { padding: 6px; }
 .history-records .empty-state { padding: 14px; }
 .history-list a {
@@ -1669,17 +1702,17 @@ dialog { color: var(--text); }
 /* ---------- 窄窗口（仍是桌面窗口，最小 900px） ---------- */
 
 @media (max-width: 1180px) {
-  .note-layout, .note-layout.is-single { grid-template-columns: minmax(0, 1fr); }
-  .note-links { position: static; padding-top: 22px; border-top: 1px solid var(--line); }
+  .note-layout { grid-template-columns: minmax(0, 1fr) 200px; gap: 28px; }
+  .note-layout.is-single { grid-template-columns: minmax(0, 1fr); }
   .board { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
   .plan-calendar-layout { grid-template-columns: minmax(0, 1fr) 280px; }
 }
 @media (max-width: 1040px) {
   .desk-layout { grid-template-columns: minmax(0, 1fr); }
   .desk-main { grid-column: auto; }
-  .plan-calendar-layout { grid-template-columns: minmax(0, 1fr); }
+  .plan-calendar-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
   .plan-day-detail { position: static; }
-  .history-layout { grid-template-columns: minmax(0, 1fr); }
+  .history-layout.has-preview { grid-template-columns: minmax(0, 1fr); }
   .page { padding-inline: 28px; }
 }
 
@@ -1882,7 +1915,7 @@ dialog { color: var(--text); }
 .onboarding-next-title { margin-bottom: 2px; color: var(--text); font-weight: 600; }
 .onboarding-next .button { flex: none; }
 
-.guide-page { max-width: 880px; }
+.guide-page { min-width: 0; width: 100%; }
 .guide-restore { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .guide-start { padding: 20px 22px 8px; }
 .guide-muted { color: var(--muted); font-size: var(--fs-sm); }

@@ -8,10 +8,10 @@
   const deadline = isProject ? ui.toDateString(note.data.deadline) : '';
   const active = isProject && note.data.status !== 'done' && note.data.status !== 'abandoned';
   const next = isProject ? ui.fieldText(note.data.next) : '';
-  // 侧栏只放反向链接。还没写的 [[双链]] 在正文里是灰色虚线，点一下就能新建，不再在侧栏另列一遍。
-  const hasLinks = backlinks.length > 0;
+  const hasSidebar = outline.length > 0 || backlinks.length > 0;
+  const sidebarView = outline.length ? 'outline' : 'backlinks';
 %>
-<div class="note-layout<%= hasLinks ? '' : ' is-single' %>">
+<div class="note-layout<%= hasSidebar ? '' : ' is-single' %>">
   <article class="note">
     <header class="note-header">
       <div class="note-title-row">
@@ -68,20 +68,27 @@
     <% } %>
   </article>
 
-  <% if (hasLinks) { %>
-    <aside class="note-links" aria-label="笔记链接">
-      <% if (backlinks.length) { %>
-        <section>
-          <h2>反向链接 <span class="count"><%= backlinks.length %></span></h2>
+  <% if (hasSidebar) { %>
+    <aside class="note-links" data-note-sidebar aria-label="笔记导航">
+      <div class="note-sidebar-tabs" role="tablist" aria-label="笔记侧栏">
+        <button id="note-tab-outline" type="button" role="tab" data-note-tab="outline" aria-controls="note-panel-outline" aria-selected="<%= sidebarView === 'outline' %>" tabindex="<%= sidebarView === 'outline' ? '0' : '-1' %>">目录</button>
+        <button id="note-tab-backlinks" type="button" role="tab" data-note-tab="backlinks" aria-controls="note-panel-backlinks" aria-selected="<%= sidebarView === 'backlinks' %>" tabindex="<%= sidebarView === 'backlinks' ? '0' : '-1' %>">反向链接<% if (backlinks.length) { %><span class="note-sidebar-count"><%= backlinks.length %></span><% } %></button>
+      </div>
+      <div id="note-panel-outline" class="note-sidebar-panel" role="tabpanel" aria-labelledby="note-tab-outline" tabindex="0" data-note-panel="outline"<% if (sidebarView !== 'outline') { %> hidden<% } %>>
+        <% if (outline.length) { %>
+          <nav class="note-outline" aria-label="正文目录"><%- include('partials/note-outline', { entries: outline }) %></nav>
+        <% } else { %><p class="note-links-empty">暂无标题</p><% } %>
+      </div>
+      <div id="note-panel-backlinks" class="note-sidebar-panel" role="tabpanel" aria-labelledby="note-tab-backlinks" tabindex="0" data-note-panel="backlinks"<% if (sidebarView !== 'backlinks') { %> hidden<% } %>>
+        <% if (backlinks.length) { %>
           <ul class="notelist">
-            <% backlinks.forEach(link => { %>
-              <li><a href="/note/<%= encodePath(link.path) %>"><%= link.title %></a></li>
-            <% }) %>
+            <% backlinks.forEach(link => { %><li><a href="/note/<%= encodePath(link.path) %>"><%= link.title %></a></li><% }) %>
           </ul>
-        </section>
-      <% } %>
+        <% } else { %><p class="note-links-empty">暂无反向链接</p><% } %>
+      </div>
     </aside>
   <% } %>
 </div>
 
+<script src="/static/note-sidebar.js" defer></script>
 <%- include('partials/foot') %>

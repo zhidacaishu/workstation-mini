@@ -137,22 +137,22 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     await check('项目状态变更立即更新截止提示和结果，刷新后相同', async () => {
       await visit('/board/experiment');
       const card = page.locator('[data-board-card]');
-      assert.match(await card.innerText(), /已逾期/);
+      assert.match(await card.innerText(), /逾期/);
       await card.locator('select').selectOption('done');
       await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'done');
-      assert.doesNotMatch(await card.innerText(), /已逾期|下一步测试/);
+      assert.doesNotMatch(await card.innerText(), /逾期|下一步测试/);
       assert.match(await card.innerText(), /结果测试/);
       const before = await card.innerText();
       await page.reload();
       assert.equal(await card.innerText(), before);
       await card.locator('select').selectOption('running');
       await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'running');
-      assert.match(await card.innerText(), /已逾期/);
+      assert.match(await card.innerText(), /逾期/);
       assert.match(await card.innerText(), /下一步测试/);
       assert.doesNotMatch(await card.innerText(), /结果测试/);
       await card.locator('select').selectOption('abandoned');
       await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'abandoned');
-      assert.doesNotMatch(await card.innerText(), /已逾期/);
+      assert.doesNotMatch(await card.innerText(), /逾期/);
     });
     await check('计划改期、完成和重新打开写回 Markdown', async () => {
       await visit('/plan?view=list');
@@ -220,7 +220,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       const text = page.locator('#calendar-note');
       await text.fill('当天备注测试');
       await page.getByRole('button', { name: '保存备注', exact: true }).click();
-      await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '备注已保存');
+      await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '已保存');
       assert.equal(await visible('[data-calendar-note-link]'), true);
       assert.match(await fs.readFile(path.join(vault, 'notes', 'calendar', today + '.md'), 'utf8'), /当天备注测试/);
       await text.fill('未保存内容');
@@ -229,7 +229,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await text.inputValue(), '未保存内容');
       await text.fill('');
       await page.getByRole('button', { name: '保存备注', exact: true }).click();
-      await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '备注已清空');
+      await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '已清空');
       assert.equal(await visible('[data-calendar-note-link]'), false);
       await assert.rejects(fs.access(path.join(vault, 'notes', 'calendar', today + '.md')), { code: 'ENOENT' });
       await page.getByRole('link', { name: '下个月', exact: true }).click();

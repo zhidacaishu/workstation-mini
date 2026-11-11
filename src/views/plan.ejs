@@ -70,8 +70,8 @@
     <aside class="plan-day-detail panel" aria-labelledby="calendar-day-title">
       <header><h2 id="calendar-day-title"><%= Number(selected.slice(5, 7)) %> 月 <%= Number(selected.slice(8)) %> 日</h2><span><%= selectedWeekday %><%= selected === today ? ' · 今天' : '' %></span></header>
       <section class="plan-day-section" aria-labelledby="plan-day-tasks-title">
-        <h3 id="plan-day-tasks-title">当天到期</h3>
-        <% if (!selectedTasks.length && !selectedProjects.length) { %><p class="plan-day-empty">没有到期事项</p><% } else { %>
+        <h3 id="plan-day-tasks-title">到期</h3>
+        <% if (!selectedTasks.length && !selectedProjects.length) { %><p class="plan-day-empty">暂无事项</p><% } else { %>
           <ul class="plan-task-list">
             <% selectedTasks.forEach(task => { %><%- include('partials/plan-task', { task }) %><% }) %>
             <% selectedProjects.forEach(project => { %><li class="plan-project"><span class="plan-project-mark" aria-hidden="true"></span><div class="plan-task-content"><a href="/note/<%= encodePath(project.path) %>"><%= project.label %></a><span>项目期限</span></div></li><% }) %>
@@ -80,17 +80,17 @@
       </section>
       <section class="plan-day-section" aria-labelledby="plan-note-label">
         <% if (selectedNote?.parseError) { %>
-          <h3 id="plan-note-label">当天备注</h3><p class="plan-note-error" role="alert">备注格式有误，需修复。</p>
+          <h3 id="plan-note-label">备注</h3><p class="plan-note-error" role="alert">备注格式有误，需修复。</p>
           <% if (!readOnly) { %><a class="button small" href="/edit/<%= encodePath(selectedPath) %>">修复备注</a><% } %>
-        <% } else if (readOnly) { %><h3 id="plan-note-label">当天备注</h3><p class="calendar-note-readonly"><%= selectedNote?.body || '暂无备注' %></p><% } else { %>
+        <% } else if (readOnly) { %><h3 id="plan-note-label">备注</h3><p class="calendar-note-readonly"><%= selectedNote?.body || '暂无内容' %></p><% } else { %>
           <form class="calendar-note-form" action="/plan/notes" method="post" data-calendar-form>
             <input type="hidden" name="date" value="<%= selected %>"><input type="hidden" name="month" value="<%= month %>"><input type="hidden" name="expectedHash" value="<%= selectedNote?.hash || '' %>">
-            <label id="plan-note-label" for="calendar-note">当天备注</label>
-            <textarea id="calendar-note" name="text" rows="4" placeholder="写点什么…"><%= selectedNote?.body || '' %></textarea>
-            <div class="plan-note-actions"><button class="button primary small" type="submit">保存备注</button><p class="calendar-note-status" data-calendar-status role="status" aria-live="polite"></p></div>
+            <label id="plan-note-label" for="calendar-note">备注</label>
+            <textarea id="calendar-note" name="text" rows="4"><%= selectedNote?.body || '' %></textarea>
+            <div class="plan-note-actions"><button class="button primary small" type="submit" aria-label="保存备注">保存</button><p class="calendar-note-status" data-calendar-status role="status" aria-live="polite"></p></div>
           </form>
         <% } %>
-        <a class="calendar-note-open" data-calendar-note-link href="/note/<%= encodePath(selectedPath) %>"<% if (!selectedNote || selectedNote.parseError) { %> hidden<% } %>>打开备注笔记</a>
+        <a class="calendar-note-open" data-calendar-note-link href="/note/<%= encodePath(selectedPath) %>"<% if (!selectedNote || selectedNote.parseError) { %> hidden<% } %>>打开笔记</a>
       </section>
     </aside>
   </div>

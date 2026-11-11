@@ -3,7 +3,7 @@
   const kindLabel = record => record.kind === 'draft' ? '草稿' : record.reason === 'delete' ? '已删除' : '版本';
   const kindClass = record => record.kind === 'draft' ? 'is-draft' : record.reason === 'delete' ? 'is-deleted' : 'is-version';
   // 列表里绝大多数是普通的保存前版本：只给草稿、已删除、卡组挂标签，普通版本不再每行写一遍「版本」。
-  // 没选中记录时右边留白，不再放一个写着「选择一条记录预览」的空框。
+  // 没选中记录时列表铺满；选中后再分出预览栏。
 %>
 <header class="page-head">
   <div>

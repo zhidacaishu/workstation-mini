@@ -114,17 +114,20 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
           title: note.title,
           note: { ...note, section: sectionOf(notePath), tags: [], data: {} },
           html: '',
+          outline: [],
           parseError: note.parseError,
           backlinks: db.backlinks(notePath)
         });
         return;
       }
+      const outline = [];
+      // 非只读时阅读页的待办可以直接勾选，提交到 /tasks/update，和计划页同一条路径。
+      const html = renderMarkdown(note.body, resolver(), { notePath, today: res.locals.today, taskToggle: !config.readOnly, title: note.title, readOnly: config.readOnly, outline });
       res.render('note', {
         title: note.title,
         note,
         parseError: '',
-        // 非只读时阅读页的待办可以直接勾选，提交到 /tasks/update，和计划页同一条路径。
-        html: renderMarkdown(note.body, resolver(), { notePath, today: res.locals.today, taskToggle: !config.readOnly, title: note.title, readOnly: config.readOnly }),
+        html, outline,
         backlinks: db.backlinks(notePath)
       });
     } catch (error) {
