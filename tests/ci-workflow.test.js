@@ -24,7 +24,13 @@ test('CI 工作流检查兼容 CRLF checkout', () => {
   assert.equal(normalized, workflow);
   assert.match(job('regression', 'verify', normalized), /runs-on: ubuntu-24\.04/);
   assert.match(job('verify', 'verify-mac', normalized), /runs-on: windows-latest/);
-  assert.match(job('verify-mac', undefined, normalized), /runs-on: macos-14/);
+  assert.match(job('verify-mac', undefined, normalized), /runs-on: macos-15/);
+});
+
+test('CI 与发布流程使用受支持的 Apple Silicon runner', () => {
+  const release = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8'));
+  assert.match(job('verify-mac'), /runs-on: macos-15\s/);
+  assert.match(job('macos', 'publish', release), /runs-on: macos-15\s/);
 });
 
 test('CI 保留跨平台构建与打包态冒烟门禁', () => {

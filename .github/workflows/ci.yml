@@ -124,13 +124,13 @@ jobs:
   # 是纯 arm64、原生模块能从 ASAR 外加载、菜单栏 template 资源在、签名确实是
   # ad-hoc」这几件事必须自动验，否则 macOS 侧坏掉不会有任何红灯。
   #
-  # macos-14 是 Apple Silicon runner，正好是唯一支持的目标架构；x86 runner 上
+  # macos-15 是 Apple Silicon runner，正好是唯一支持的目标架构；x86 runner 上
   # 这个 job 没有意义（verify-mac-package 会直接判定不是纯 arm64）。
   # 只出 --dir 不出 DMG：要验的东西都在 .app 里，而 hdiutil 打包又慢又容易在
   # CI 上因为磁盘镜像挂载失败而抖。
   verify-mac:
     name: macOS 打包与冒烟
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     env:
       CI: true
