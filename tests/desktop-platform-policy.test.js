@@ -134,7 +134,7 @@ test('macOS 菜单使用标准角色，并让 Settings 与 Quit 委托共享回�
 test('只有 macOS 隐藏系统标题栏，红绿灯按各窗口侧栏定位；Windows 和 Linux 只收起菜单栏', () => {
   const mac = createPlatformPolicy({ platform: 'darwin' });
   assert.equal(mac.insetTitleBar, true);
-  assert.deepEqual(mac.windowChrome('main'), { titleBarStyle: 'hidden', trafficLightPosition: { x: 12, y: 18 } });
+  assert.deepEqual(mac.windowChrome('main'), { titleBarStyle: 'hidden', trafficLightPosition: { x: 8, y: 18 } });
   assert.deepEqual(mac.windowChrome('panel'), { titleBarStyle: 'hidden', trafficLightPosition: { x: 18, y: 18 } });
   // 每次给新对象：BrowserWindow 的选项不能共享同一个可变的坐标。
   assert.notEqual(mac.windowChrome('main').trafficLightPosition, mac.windowChrome('main').trafficLightPosition);

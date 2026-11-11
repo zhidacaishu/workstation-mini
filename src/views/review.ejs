@@ -37,8 +37,8 @@
       <button class="button primary review-reveal" id="review-reveal" type="button">显示答案 <kbd>空格</kbd></button>
       <div class="rating-row" id="review-ratings" hidden>
         <% ratings.forEach(rating => { %>
-          <button class="rating is-<%= rating.rating %>" type="button" data-rating="<%= rating.rating %>" title="<%= rating.hint %>">
-            <%= rating.label %><kbd><%= rating.key %></kbd>
+          <button class="rating" type="button" data-rating="<%= rating.rating %>" aria-keyshortcuts="<%= rating.key %>" title="<%= rating.hint %>（快捷键 <%= rating.key %>）">
+            <%= rating.label %>
           </button>
         <% }) %>
       </div>

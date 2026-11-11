@@ -395,15 +395,29 @@ kbd {
   margin-bottom: 8px;
 }
 .section-head h2, .section-label {
-  color: var(--faint);
+  color: var(--text-2);
   font-size: var(--fs-sm);
-  font-weight: 500;
-  letter-spacing: .04em;
+  font-weight: 600;
+  letter-spacing: .02em;
 }
-/* 「全部 →」这类次级入口用中性色，强调色留给主操作、选中态和正文链接。 */
-.section-head a { color: var(--muted); font-size: var(--fs-sm); }
-.section-head a:hover { color: var(--text); text-decoration: none; }
-.section-head a::after { content: " →"; }
+/* 辅助入口比内容小一档；留出点击区域，通过悬停底色与正文链接区分。 */
+.section-head > a, .review-totals > a {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-height: var(--control-sm);
+  margin-right: -6px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background var(--motion), color var(--motion);
+}
+.section-head > a:hover, .review-totals > a:hover { background: var(--hover); color: var(--text); text-decoration: none; }
+.section-head > a::after { content: "→"; color: var(--subtle); }
 
 .page-head {
   display: flex;
@@ -546,6 +560,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
   width: 17px;
   height: 17px;
   margin: 2px 0 0;
+  padding: 0;
   border: 1.5px solid var(--line-strong);
   border-radius: var(--radius-xs);
   background: var(--field);
@@ -553,19 +568,22 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
   transition: border-color var(--motion), background var(--motion);
 }
 .task-check:hover, .card-check input[type="checkbox"]:hover { border-color: var(--accent); }
-.task-check::after, .card-check input[type="checkbox"]::after {
-  width: 5px;
-  height: 9px;
-  margin-top: -2px;
-  border-right: 2px solid var(--on-accent);
-  border-bottom: 2px solid var(--on-accent);
+/* 勾形与外框分别居中；避免旋转边框的实际尺寸把勾推向右下角。 */
+.task-check::after, .card-check input[type="checkbox"]::after,
+:is(.prose, .review-front, .review-back) li.task-item .task-box::after {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: var(--on-accent);
+  mask: url("icons/check.svg") center / contain no-repeat;
   content: "";
   opacity: 0;
-  transform: rotate(45deg) scale(.6);
+  transform: scale(.8);
   transition: opacity var(--motion), transform var(--motion);
 }
 .task-check:checked, .task-check.is-checked, .card-check input[type="checkbox"]:checked { border-color: var(--accent); background: var(--accent); }
-.task-check:checked::after, .task-check.is-checked::after, .card-check input[type="checkbox"]:checked::after { opacity: 1; transform: rotate(45deg) scale(1); }
+.task-check:checked::after, .task-check.is-checked::after, .card-check input[type="checkbox"]:checked::after,
+:is(.prose, .review-front, .review-back) li.task-item .task-box.is-done::after { opacity: 1; transform: scale(1); }
 .task-check.is-static { cursor: default; }
 .task-check:disabled { opacity: .6; }
 
@@ -670,7 +688,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
-.library-list-heading h2 { color: var(--faint); font-size: var(--fs-sm); font-weight: 500; letter-spacing: .04em; }
+.library-list-heading h2 { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .02em; }
 .library-list-heading span { color: var(--subtle); font-size: var(--fs-xs); }
 .library-list { margin: 0; padding: 0; list-style: none; }
 .library-list li { border-bottom: 1px solid var(--line-soft); }
@@ -777,7 +795,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 .project-fields dd { min-width: 0; margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
 
 .note-links { position: sticky; top: 40px; display: flex; flex-direction: column; gap: 22px; padding-top: 6px; }
-.note-links h2 { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; color: var(--faint); font-size: var(--fs-sm); font-weight: 500; letter-spacing: .04em; }
+.note-links h2 { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .02em; }
 .note-links-empty { color: var(--subtle); font-size: var(--fs-sm); }
 .notelist { margin: 0; padding: 0; list-style: none; }
 .note-links .notelist a {
@@ -842,25 +860,16 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 :is(.prose, .review-front, .review-back) li.task-item { list-style: none; position: relative; }
 :is(.prose, .review-front, .review-back) li.task-item .task-box {
   position: absolute;
-  top: .5em;
-  left: -1.45em;
+  top: calc((1lh - 15px) / 2);
+  left: -1.4em;
+  display: inline-grid;
+  place-items: center;
   width: 15px;
   height: 15px;
   border: 1.5px solid var(--line-strong);
   border-radius: var(--radius-xs);
 }
 :is(.prose, .review-front, .review-back) li.task-item .task-box.is-done { border-color: var(--accent); background: var(--accent); }
-:is(.prose, .review-front, .review-back) li.task-item .task-box.is-done::after {
-  position: absolute;
-  top: 1px;
-  left: 4px;
-  width: 4px;
-  height: 8px;
-  border-right: 2px solid var(--on-accent);
-  border-bottom: 2px solid var(--on-accent);
-  content: "";
-  transform: rotate(45deg);
-}
 :is(.prose, .review-front, .review-back) li.task-item.is-done > p, :is(.prose, .review-front, .review-back) li.task-item.is-done { color: var(--subtle); }
 :is(.prose, .review-front, .review-back) li.task-item.is-done > p { text-decoration: line-through; text-decoration-color: var(--line-strong); }
 .task-due {
@@ -1006,10 +1015,10 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
   gap: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
-  color: var(--faint);
+  color: var(--text-2);
   font-size: var(--fs-sm);
-  font-weight: 500;
-  letter-spacing: .04em;
+  font-weight: 600;
+  letter-spacing: .02em;
 }
 .plan-group h2 span { color: var(--subtle); font-size: var(--fs-xs); }
 .plan-group h2.is-overdue { color: var(--warn-text); }
@@ -1112,7 +1121,7 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .plan-day-detail > header h2 { font-size: var(--fs-xl); font-weight: 600; }
 .plan-day-detail > header span { color: var(--subtle); font-size: var(--fs-sm); }
 .plan-day-section { display: flex; flex-direction: column; gap: 6px; }
-.plan-day-section h3, .calendar-note-form label { color: var(--faint); font-size: var(--fs-sm); font-weight: 500; letter-spacing: .04em; }
+.plan-day-section h3, .calendar-note-form label { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .02em; }
 .plan-day-section .plan-task-form { flex-wrap: wrap; min-height: 0; padding: 10px 0; }
 .plan-day-section .plan-task-content { flex-basis: calc(100% - 30px); }
 /* 日期文字左边有 11px 内边距，往回收 11px，和上面的待办标题对齐。 */
@@ -1291,7 +1300,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
   background: var(--surface);
-  box-shadow: var(--shadow-card), 0 24px 48px -32px rgba(0, 0, 0, .35);
+  box-shadow: var(--shadow-card);
 }
 .review-deck { min-width: 0; overflow-wrap: anywhere; }
 .review-card-meta { display: flex; align-items: center; gap: 8px; min-height: 20px; color: var(--muted); font-size: var(--fs-xs); }
@@ -1306,16 +1315,16 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
   color: var(--faint);
 }
 .review-state { border-color: transparent; background: var(--warn-soft); color: var(--warn-text); font-weight: 600; }
-.review-tools { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; }
+.review-tools { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
 .review-tool {
   height: 24px;
   padding: 0 8px;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--subtle);
+  background: var(--inset);
+  color: var(--muted);
   font-size: var(--fs-xs);
-  line-height: 24px;
+  line-height: 22px;
   text-decoration: none;
 }
 .review-tool:hover { background: var(--hover); color: var(--text); text-decoration: none; }
@@ -1372,7 +1381,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
   align-items: center;
   gap: 8px;
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 500;
   justify-content: center;
   height: var(--control-xl);
   padding: 0 8px;
@@ -1385,11 +1394,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .rating:hover { background: var(--button-hover); }
 .rating:active { transform: translateY(1px); }
 .rating:disabled { opacity: .55; cursor: wait; }
-/* 四个评分是同一组选择，外观一致；只让「记得」作为默认项实心，「忘了」只给文字一点暖色。 */
-.rating kbd { height: 17px; border: 0; background: color-mix(in srgb, currentColor 12%, transparent); color: inherit; opacity: .75; }
-.rating.is-1 { color: var(--warn-text); }
-.rating.is-3 { border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
-.rating.is-3:hover { border-color: var(--primary-hover); background: var(--primary-hover); }
+/* 四个评分权重相同，不预选、不用颜色暗示答案。快捷键保留在悬停提示中。 */
 .review-retry { color: var(--warn-text); font-size: var(--fs-sm); }
 .review-done, .review-empty { max-width: 760px; margin: 0 auto; padding: 36px; align-items: center; text-align: center; }
 .review-empty h1 { font-size: var(--fs-xl); font-weight: 600; }
@@ -1461,7 +1466,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
   border-radius: var(--radius-lg);
   background: var(--surface);
 }
-.health-tile h2 { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: var(--fs-sm); font-weight: 500; letter-spacing: .04em; }
+.health-tile h2 { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .02em; }
 .health-tile h2::before { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); content: ""; }
 .health-tile.is-warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .health-tile.is-warn h2::before { background: var(--warn); }
@@ -1475,7 +1480,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .health-detail strong { color: var(--text-2); font-weight: 500; }
 .health-failures ul { margin: 8px 0 0; padding: 0; list-style: none; }
 .health-failures li { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
-.health-failures h2 { color: var(--faint); font-size: var(--fs-sm); font-weight: 500; }
+.health-failures h2 { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
 
 /* ---------- 错误页 ---------- */
 

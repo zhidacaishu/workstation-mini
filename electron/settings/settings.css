@@ -70,6 +70,8 @@ nav a {
   padding: 9px 11px;
   border-radius: var(--radius-md);
   color: var(--faint);
+  font-size: var(--fs-sm);
+  font-weight: 500;
   text-decoration: none;
   transition: color var(--motion), background var(--motion);
 }
@@ -113,11 +115,11 @@ h1 { margin: 0; font-size: var(--fs-3xl); font-weight: 600; letter-spacing: -.01
 .settings-section:first-child { border-top: 0; padding-top: 0; }
 .section-heading { margin-bottom: 16px; }
 h2 { margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.01em; line-height: 1.35; }
-.section-heading p { max-width: 62ch; font-size: var(--fs-md); }
+.section-heading p { max-width: 62ch; color: var(--subtle); font-size: var(--fs-sm); line-height: 1.6; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
 .field { display: grid; align-content: start; gap: 6px; margin-bottom: 16px; }
-.field > span { color: var(--muted); font-size: var(--fs-sm); font-weight: 600; }
-.field small, .toggle small { color: var(--subtle); font-size: var(--fs-xs); line-height: 1.45; }
+.field > span { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
+.field small, .toggle small { color: var(--subtle); font-size: var(--fs-xs); line-height: 1.6; }
 .field em { margin-left: 4px; color: var(--accent-text); font-size: var(--fs-2xs); font-style: normal; font-weight: 600; }
 input[type="text"], input[type="url"], input[type="email"], input[type="password"], input[type="number"] {
   width: 100%;

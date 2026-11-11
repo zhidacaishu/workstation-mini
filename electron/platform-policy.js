@@ -130,7 +130,7 @@ function createPlatformPolicy({
   // 页面靠 html.chrome-inset 知道要给红绿灯让位：主窗口由服务端按运行时配置
   // 输出（runtime-config 的 windowChrome），设置和恢复窗口由 preload 按
   // INSET_CHROME_ARGUMENT 加上。
-  // 横坐标按各自侧栏算：主窗口侧栏 76px，三颗按钮占 52px，x=12 正好居中；
+  // 横坐标按各自侧栏算：主窗口侧栏 76px，当前原生按钮组占 60px，左右各留 8px；
   // 设置和恢复窗口与侧栏里标记的左边缘对齐。
   //
   // Windows 和 Linux 保留系统标题栏，只把菜单栏默认收起来：菜单里只有
@@ -138,7 +138,7 @@ function createPlatformPolicy({
   // 前一项的动作托盘菜单里也都有。菜单仍然挂在窗口上，按一下 Alt 就会出现；
   // 不用 removeMenu()：那样窗口里就再也打不开这两个菜单了。
   const insetTitleBar = isMac;
-  const TRAFFIC_LIGHTS = { main: { x: 12, y: 18 }, panel: { x: 18, y: 18 } };
+  const TRAFFIC_LIGHTS = { main: { x: 8, y: 18 }, panel: { x: 18, y: 18 } };
 
   function windowChrome(kind = 'panel') {
     if (!insetTitleBar) return { autoHideMenuBar: true };
