@@ -248,18 +248,21 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
     await check('月历日期为正圆，宽高窗口不留下额外的左侧与底部空白', async () => {
       for (const colorScheme of ['light', 'dark']) {
         await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
-        for (const [width, height] of [[900, 620], [1100, 800], [1440, 900], [1920, 1200]]) {
+        for (const [width, height] of [[900, 620], [1100, 620], [1100, 800], [1440, 900], [1920, 1200]]) {
           await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith('http')).setContentSize(size.width, size.height), { width, height });
           await page.goto(origin + '/plan?view=calendar&date=' + today);
           await page.evaluate(() => document.fonts.ready);
           await assertPage(page);
           const geometry = await page.evaluate(() => {
             const rect = selector => document.querySelector(selector).getBoundingClientRect();
-            const grid = rect('.calgrid'), rail = rect('.workspace-sidebar');
+            const grid = rect('.calgrid'), rail = rect('.workspace-sidebar'), canvas = rect('.page');
             return {
               left: grid.left - rail.right,
               right: document.documentElement.clientWidth - rect('.plan-day-detail').right,
-              bottom: innerHeight - grid.bottom,
+              viewportWidth: innerWidth, viewportHeight: innerHeight,
+              pageHeight: canvas.height,
+              minPageHeight: parseFloat(getComputedStyle(document.querySelector('.page')).minHeight) || 0,
+              bottom: canvas.bottom - grid.bottom,
               markers: [...document.querySelectorAll('.calday-num')].map(element => {
                 const r = element.getBoundingClientRect();
                 const range = document.createRange(); range.selectNodeContents(element);
@@ -273,7 +276,18 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
           });
           assert.ok(geometry.left >= 24 && geometry.left <= 32, '月历靠近侧栏，保留标准页边距：' + JSON.stringify(geometry));
           assert.ok(geometry.right >= 24 && geometry.right <= 32, '两侧页边距一致：' + JSON.stringify(geometry));
-          if (width > 1040) assert.ok(geometry.bottom >= 16 && geometry.bottom <= 32, '月历铺满剩余高度：' + JSON.stringify(geometry));
+          // 原生窗口可能被 CI 显示器限高；使用实际 viewport，矮窗口保留页面最小高度。
+          if (geometry.viewportWidth > 1040) {
+            assert.ok(Math.abs(geometry.pageHeight - Math.max(geometry.viewportHeight, geometry.minPageHeight)) <= 1, '月历页面随可用高度展开：' + JSON.stringify(geometry));
+            assert.ok(geometry.bottom >= 16 && geometry.bottom <= 32, '月历铺满页面剩余高度：' + JSON.stringify(geometry));
+            if (geometry.pageHeight > geometry.viewportHeight) {
+              await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+              assert.equal(await page.locator('.calgrid').evaluate(element => {
+                const box = element.getBoundingClientRect();
+                return box.bottom > 0 && box.bottom <= innerHeight;
+              }), true, '矮窗口可滚动到月历底部');
+            }
+          }
           assert.ok(geometry.markers.every(marker => marker.width === marker.height && marker.width === 28 && marker.centered), '单双位日期都有固定正方形尺寸且居中');
           assert.ok(geometry.badges.every(delta => delta < 1), '单数字角标不被内边距撑成椭圆');
           if (process.env.WORKSTATION_VISUAL_OUTPUT) {
