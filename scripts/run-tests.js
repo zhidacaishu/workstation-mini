@@ -33,6 +33,8 @@ const miniCoreTests = [
   'config.test.js',
   'dates.test.js',
   'desktop-config.test.js',
+  'desktop-build-config.test.js',
+  'desktop-trusted-sender.test.js',
   'desktop-platform-policy.test.js',
   'desktop-quit-coordinator.test.js',
   'desktop-resource-links.test.js',
@@ -68,20 +70,14 @@ const miniCoreTests = [
   'recovery-journal.test.js',
   'testNetwork.test.js'
 ];
+// 原生窗口共享桌面焦点，按文件串行执行；纯逻辑/配置测试只在核心集跑一次。
 const desktopTests = [
   'desktop-guide.test.js',
   'desktop-math.test.js',
-  'desktop-build-config.test.js',
-  'desktop-config.test.js',
   'desktop-local-history-smoke.test.js',
   'desktop-ui-layout.test.js',
   'desktop-ui-details.test.js',
-  'desktop-ui-actions.test.js',
-  'desktop-platform-policy.test.js',
-  'desktop-quit-coordinator.test.js',
-  'desktop-resource-links.test.js',
-  'desktop-trusted-sender.test.js',
-  'desktop-vault-resolution.test.js'
+  'desktop-ui-actions.test.js'
 ];
 const testFiles = (desktopOnly ? desktopTests : miniCoreTests)
   .map(name => path.join('tests', name));
@@ -123,7 +119,7 @@ function virtualDisplayWrapper() {
   return [xvfbRun, '-a'];
 }
 
-const electronArguments = ['--require', path.join(__dirname, 'http-test-transport.cjs'), '--test', ...forwarded, ...testFiles];
+const electronArguments = ['--require', path.join(__dirname, 'http-test-transport.cjs'), '--test', ...(desktopOnly ? ['--test-concurrency=1'] : []), ...forwarded, ...testFiles];
 const wrapper = virtualDisplayWrapper();
 const [command, commandArguments] = wrapper
   ? [wrapper[0], [...wrapper.slice(1), electronPath, ...electronArguments]]

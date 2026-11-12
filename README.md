@@ -103,6 +103,8 @@ npm run test:desktop # 使用临时资料库运行真实桌面交互测试
 
 better-sqlite3 自带 N-API 预编译文件，安装依赖时不需要 Python 或 VS 构建工具；请用上述测试脚本运行测试，而不是直接用系统 Node.js 执行依赖 SQLite 的测试。桌面测试覆盖设置/恢复入口、草稿跨重启恢复、待办更新和已删除笔记恢复、卡片管理与复习中的编辑/暂停、阅读页勾选待办、按标题新建笔记，以及主题切换时的未保存编辑保护，不使用实际资料库。布局回归在明暗主题下检查 900／1100／1440px 窗口中的长卡组、历史长路径和操作按钮；主页面另外验证 900／1440／1920／2560px 下的全宽边距、历史预览分栏，以及编辑与复习区的剩余高度。设置窗口从 760px、恢复窗口从 900px 起检查底栏对齐、最后一个控件的可达性、长错误信息换行及恢复残留提示中的按钮高度。
 
+纯逻辑和配置检查统一由 `npm test` 执行；`test:desktop` 只运行真实窗口用例，按文件串行执行，避免原生窗口争抢焦点。布局断言照常执行，成功用例的验收截图仅在设置 `WORKSTATION_VISUAL_OUTPUT` 输出目录时生成，失败截图仍自动保留并在日志中输出位置。
+
 本地 UI 验收截图、测试日志与临时资料库应放在系统临时目录或仓库 `tmp/` 中，不提交到版本库。
 
 打包：Windows 用 `npm run desktop:build`（NSIS 安装器），macOS 用 `npm run desktop:build:mac`（Apple Silicon，ad-hoc 签名）。应用主体按白名单仅包含 `electron/`、`src/`、应用元数据和运行依赖，运行时图标另外随包分发；本地 `tmp/`、`dist/`、测试脚本和旧安装包不进入应用主体。安装包只带本平台的 SQLite 预编译文件。Mini 不做自动更新；推送版本标签（如 v0.2.0）后，Release 工作流会运行回归测试、构建 Windows x64 与 macOS arm64 安装包并验证打包应用，再发布到 GitHub Releases。Windows 安装包未配置代码签名，macOS 使用 ad-hoc 签名且未经 Apple 公证。打包配置里 `publish` 为空，不会生成更新清单。打包后的应用用 Electron fuses 关闭了 `ELECTRON_RUN_AS_NODE` 和 `NODE_OPTIONS`，只从 asar 加载应用代码，所以不能再拿安装好的应用当 Node 运行脚本；开发和测试使用 `node_modules` 里未加固的 Electron。

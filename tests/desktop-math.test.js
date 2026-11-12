@@ -10,6 +10,8 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
   const vault = path.join(root, 'vault');
   const userData = path.join(root, 'user');
   let app, page, passed = false;
+  const startupLog = [];
+  const recordStartup = value => { startupLog.push(String(value)); if (startupLog.length > 40) startupLog.shift(); };
   try {
     await fs.mkdir(path.join(vault, 'notes'), { recursive: true });
     await fs.mkdir(path.join(vault, 'cards'), { recursive: true });
@@ -24,7 +26,17 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     app = await electron.launch(process.env.WORKSTATION_EXECUTABLE
       ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env }
       : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
-    page = await app.firstWindow();
+    app.process().stdout?.on('data', recordStartup);
+    app.process().stderr?.on('data', recordStartup);
+    try {
+      page = await app.firstWindow();
+    } catch (error) {
+      const windows = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(window => ({
+        title: window.getTitle(), url: window.webContents.getURL(), visible: window.isVisible(), loading: window.webContents.isLoading()
+      }))).catch(failure => ({ diagnosticError: failure.message }));
+      console.error('[math-startup] ' + JSON.stringify({ windows, output: startupLog }));
+      throw error;
+    }
     const errors = [], external = [], failed = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('requestfailed', r => failed.push(r.url()));
@@ -71,7 +83,10 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     await page.locator('.selection-card button').click();
     assert.equal(await page.locator('.selection-form [name=back]').inputValue(), block);
     await page.locator('.selection-form [data-cancel]').click();
-    await page.screenshot({ path: '/tmp/workstation-katex-preview.png', fullPage: true });
+    if (process.env.WORKSTATION_VISUAL_OUTPUT) {
+      await fs.mkdir(process.env.WORKSTATION_VISUAL_OUTPUT, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.WORKSTATION_VISUAL_OUTPUT, 'katex-preview.png'), fullPage: true });
+    }
     await page.goto(origin + '/review?deck=math');
     assert.equal(await page.locator('#review-front .katex').count(), 0);
     await page.locator('#review-reveal').click();

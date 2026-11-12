@@ -54,8 +54,9 @@ test('笔记阅读宽度随窗口增长，保持边距与右侧操作对齐', { 
           assert.ok(layout.proseWidth > previousWidth + 100, '宽窗口中正文继续增长，不停在固定上限');
           assert.ok(layout.scrollWidth <= layout.viewport + 1, '不引入横向溢出');
           previousWidth = layout.proseWidth;
-          if (route.includes('/inbox/') && width === 1440) {
-            await page.screenshot({ path: path.join(os.tmpdir(), 'workstation-fluid-reading-' + colorScheme + '.png') });
+          if (process.env.WORKSTATION_VISUAL_OUTPUT && route.includes('/inbox/') && width === 1440) {
+            await fs.mkdir(process.env.WORKSTATION_VISUAL_OUTPUT, { recursive: true });
+            await page.screenshot({ path: path.join(process.env.WORKSTATION_VISUAL_OUTPUT, 'fluid-reading-' + colorScheme + '.png') });
           }
         }
       }
@@ -79,7 +80,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
   let page;
   let passed = false;
   const errors = [];
-  const screenshots = path.join(os.tmpdir(), 'workstation-ui-visual-audit');
+  const screenshots = process.env.WORKSTATION_VISUAL_OUTPUT || path.join(os.tmpdir(), 'workstation-ui-visual-audit');
   await fs.mkdir(screenshots, { recursive: true });
   try {
     await fs.mkdir(path.join(vault, 'notes', 'experiments'), { recursive: true });
@@ -175,7 +176,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
           assert.deepEqual(sidebar.outside, [], route + ': 侧栏按钮必须完整可见');
           assert.ok(sidebar.scrollWidth <= sidebar.width && sidebar.scrollHeight <= sidebar.height + 1, '侧栏无需横向或纵向滚动');
           assert.ok(sidebar.footer.every((r, i, all) => i === 0 || Math.abs(r.x - all[0].x) < 1 && r.top >= all[i - 1].bottom), '底部图标垂直居中且互不覆盖');
-          if (width === 900 || width === 1440) {
+          if (process.env.WORKSTATION_VISUAL_OUTPUT && (width === 900 || width === 1440)) {
             const name = route === '/' ? 'today' : route.replace(/[^a-zA-Z0-9]/g, '-');
             await page.screenshot({ path: path.join(screenshots, colorScheme + '-' + width + '-' + name + '.png') });
           }
@@ -191,7 +192,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith('http')).setContentSize(900, 620));
     await page.evaluate(() => document.documentElement.classList.remove('chrome-inset'));
     assert.equal(await page.locator('.workspace-sidebar').evaluate(e => e.scrollHeight <= e.clientHeight + 1 && e.scrollWidth <= e.clientWidth), true);
-    await page.screenshot({ path: path.join(screenshots, 'native-titlebar-900-new.png') });
+    if (process.env.WORKSTATION_VISUAL_OUTPUT) await page.screenshot({ path: path.join(screenshots, 'native-titlebar-900-new.png') });
     await page.goto(origin + '/edit/research/source.md');
     const draft = '尚未保存的主题切换验证';
     await page.locator('[name="body"]').fill(draft);
@@ -208,7 +209,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
       await settingsPage.waitForFunction(() => document.querySelector('#message').textContent === '设置已保存。');
       assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), theme);
       assert.equal((await settingsPage.evaluate(() => window.workstationSettings.get())).settings.theme, theme);
-      await settingsPage.screenshot({ path: path.join(screenshots, 'settings-' + theme + '.png'), fullPage: true });
+      if (process.env.WORKSTATION_VISUAL_OUTPUT) await settingsPage.screenshot({ path: path.join(screenshots, 'settings-' + theme + '.png'), fullPage: true });
       assert.equal(page.url(), editorUrl);
       assert.equal(await page.locator('[name="body"]').inputValue(), draft);
     }
@@ -218,7 +219,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
     await recoveryPage.waitForLoadState('domcontentloaded');
     for (const scheme of ['light', 'dark']) {
       await recoveryPage.emulateMedia({ colorScheme: scheme });
-      await recoveryPage.screenshot({ path: path.join(screenshots, 'recovery-' + scheme + '.png'), fullPage: true });
+      if (process.env.WORKSTATION_VISUAL_OUTPUT) await recoveryPage.screenshot({ path: path.join(screenshots, 'recovery-' + scheme + '.png'), fullPage: true });
       assert.equal(await recoveryPage.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
     }
     await recoveryPage.close();
@@ -282,11 +283,11 @@ test('正文目录切换、键盘导航、章节跳转与滚动高亮在真实�
         const indents = await page.locator('.note-outline-link').evaluateAll(links => links.slice(0, 5).map(link => link.getBoundingClientRect().left));
         assert.ok(indents.every((left, i) => i === 0 || left > indents[i - 1]), '各级目录逐层缩进');
         await page.waitForFunction(() => document.querySelector('.note-outline-link[aria-current="location"]'));
-        await page.screenshot({ path: path.join(output, colorScheme + '-' + width + '-outline.png') });
+        if (process.env.WORKSTATION_VISUAL_OUTPUT) await page.screenshot({ path: path.join(output, colorScheme + '-' + width + '-outline.png') });
         await backlinks.click();
         assert.equal(await page.locator('#note-panel-outline').isVisible(), false);
         assert.equal(await page.getByRole('link', { name: '关联研究', exact: true }).isVisible(), true);
-        await page.screenshot({ path: path.join(output, colorScheme + '-' + width + '-backlinks.png') });
+        if (process.env.WORKSTATION_VISUAL_OUTPUT) await page.screenshot({ path: path.join(output, colorScheme + '-' + width + '-backlinks.png') });
         await page.keyboard.press('ArrowLeft');
         assert.equal(await toc.evaluate(element => element === document.activeElement), true);
         assert.equal(await toc.getAttribute('aria-selected'), 'true');
@@ -312,7 +313,7 @@ test('正文目录切换、键盘导航、章节跳转与滚动高亮在真实�
     await page.goto(origin + '/note/long-outline.md');
     const panel = await page.locator('#note-panel-outline').evaluate(element => ({ bottom: element.getBoundingClientRect().bottom, height: innerHeight, scroll: element.scrollHeight, client: element.clientHeight }));
     assert.ok(panel.bottom <= panel.height - 28 && panel.scroll > panel.client, JSON.stringify(panel));
-    await page.screenshot({ path: path.join(output, 'dark-900-long-outline.png') });
+    if (process.env.WORKSTATION_VISUAL_OUTPUT) await page.screenshot({ path: path.join(output, 'dark-900-long-outline.png') });
     await page.locator('.note-outline-link').last().click();
     await page.getByRole('tab', { name: /反向链接/ }).click();
     await page.locator('#note-panel-outline').evaluate(element => { element.scrollTop = 0; });

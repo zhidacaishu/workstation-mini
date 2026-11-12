@@ -64,7 +64,10 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       await recoveryPage.waitForLoadState('domcontentloaded');
       assert.equal(await recoveryPage.locator('#restore-blobs, [data-stage="blobs"]').count(), 0);
       assert.equal(await recoveryPage.locator('#stages li').count(), 4);
-      await recoveryPage.screenshot({ path: path.join(root, 'recovery.png') });
+      if (process.env.WORKSTATION_VISUAL_OUTPUT) {
+        await fs.mkdir(process.env.WORKSTATION_VISUAL_OUTPUT, { recursive: true });
+        await recoveryPage.screenshot({ path: path.join(process.env.WORKSTATION_VISUAL_OUTPUT, 'history-recovery.png') });
+      }
       await recoveryPage.close();
       await settingsPage.close();
     });

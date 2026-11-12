@@ -213,9 +213,14 @@ test('close 之后不再回调', async () => {
 test('真实文件系统上能监听到外部写入', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-watch-'));
   const batches = [];
+  let resolveChange, timeout;
+  const changed = new Promise(resolve => { resolveChange = resolve; });
   const watcher = createWatcher({
     dir, debounceMs: 50, logger: quiet,
-    onChange: batch => { batches.push(batch); }
+    onChange: batch => {
+      batches.push(batch);
+      if (batch.full || batch.paths.includes('research/外部.md')) resolveChange(true);
+    }
   });
 
   const started = watcher.start();
@@ -229,13 +234,15 @@ test('真实文件系统上能监听到外部写入', async t => {
   try {
     await fs.mkdir(path.join(dir, 'research'), { recursive: true });
     await fs.writeFile(path.join(dir, 'research', '外部.md'), '# 在应用外面写的');
-    await tick(700);
-
-    const seen = batches.flatMap(batch => batch.paths);
-    const sawFile = seen.includes('research/外部.md');
-    const sawFull = batches.some(batch => batch.full);
-    assert.ok(sawFile || sawFull, `应当感知到外部写入，实际收到 ${JSON.stringify(batches)}`);
+    // 等实际事件；FSEvents 在繁忙机器上的投递可能晚于固定的 700ms。
+    // 上限短于默认的 30 秒轮询周期，避免把轮询误当成原生监听成功。
+    const received = await Promise.race([
+      changed,
+      new Promise(resolve => { timeout = setTimeout(() => resolve(false), 5000); })
+    ]);
+    assert.ok(received, `应当感知到外部写入，实际收到 ${JSON.stringify(batches)}`);
   } finally {
+    clearTimeout(timeout);
     watcher.close();
     await fs.rm(dir, { recursive: true, force: true });
   }

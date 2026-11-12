@@ -103,7 +103,10 @@ test('界面导览、上手清单与上手指南：首次显示、进度、跳�
         assertSpotlight(await spotlightOf(page, selector), scheme + ' ' + step);
         assert.notEqual(await page.locator('[data-guide-card]').evaluate(e => getComputedStyle(e).backgroundColor), 'rgba(0, 0, 0, 0)');
       }
-      await page.screenshot({ path: path.join(os.tmpdir(), 'workstation-tour-' + scheme + '.png') });
+      if (process.env.WORKSTATION_VISUAL_OUTPUT) {
+        await fs.mkdir(process.env.WORKSTATION_VISUAL_OUTPUT, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.WORKSTATION_VISUAL_OUTPUT, 'tour-' + scheme + '.png') });
+      }
       while (await page.locator('[data-guide-progress]').textContent() !== '3 / 6') {
         await page.locator('[data-guide-prev]').click();
       }

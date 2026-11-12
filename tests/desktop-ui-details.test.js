@@ -258,7 +258,7 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
             const grid = rect('.calgrid'), rail = rect('.workspace-sidebar');
             return {
               left: grid.left - rail.right,
-              right: innerWidth - rect('.plan-day-detail').right,
+              right: document.documentElement.clientWidth - rect('.plan-day-detail').right,
               bottom: innerHeight - grid.bottom,
               markers: [...document.querySelectorAll('.calday-num')].map(element => {
                 const r = element.getBoundingClientRect();
@@ -272,7 +272,7 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
             };
           });
           assert.ok(geometry.left >= 24 && geometry.left <= 32, '月历靠近侧栏，保留标准页边距：' + JSON.stringify(geometry));
-          assert.ok(geometry.right >= 24 && geometry.right <= 32, '两侧页边距一致');
+          assert.ok(geometry.right >= 24 && geometry.right <= 32, '两侧页边距一致：' + JSON.stringify(geometry));
           if (width > 1040) assert.ok(geometry.bottom >= 16 && geometry.bottom <= 32, '月历铺满剩余高度：' + JSON.stringify(geometry));
           assert.ok(geometry.markers.every(marker => marker.width === marker.height && marker.width === 28 && marker.centered), '单双位日期都有固定正方形尺寸且居中');
           assert.ok(geometry.badges.every(delta => delta < 1), '单数字角标不被内边距撑成椭圆');
