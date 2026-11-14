@@ -270,6 +270,63 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.waitForSelector('.selection-form', { state: 'detached' });
       assert.match(await fs.readFile(path.join(vault, 'cards', 'inbox.md'), 'utf8'), /新增卡片/);
     });
+    await check('页面淡入期间真实坐标点击链接、按钮和保存仍然有效', async () => {
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      const styles = '**/static/styles.css';
+      // 在浏览器里读取实际样式，沿用桌面壳的内部请求认证。
+      const sourceStyles = await page.evaluate(async () => {
+        const response = await fetch('/static/styles.css', { cache: 'no-store' });
+        if (!response.ok) throw new Error('读取样式失败：' + response.status);
+        return response.text();
+      });
+      await page.route(styles, route => route.fulfill({
+        status: 200, contentType: 'text/css; charset=utf-8', headers: { 'cache-control': 'no-store' },
+        body: sourceStyles + '\n.workspace-main { animation-duration: 3s !important; }\n'
+          + '::view-transition-old(root), ::view-transition-new(root) { animation-duration: 3s !important; }\n'
+      }));
+      const duringFade = async () => {
+        try {
+          await page.waitForFunction(() => document.getAnimations().some(animation =>
+            animation.playState === 'running' && animation.effect?.getComputedTiming().duration >= 2500));
+        } catch (error) {
+          console.error('[fade-diagnostic]', await page.evaluate(() => ({
+            url: location.href,
+            motion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+            name: getComputedStyle(document.querySelector('.workspace-main')).animationName,
+            duration: getComputedStyle(document.querySelector('.workspace-main')).animationDuration,
+            animations: document.getAnimations().map(animation => ({ state: animation.playState, timing: animation.effect?.getComputedTiming() }))
+          })));
+          throw error;
+        }
+      };
+      const clickAt = async locator => {
+        const box = await locator.boundingBox();
+        assert.ok(box);
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      };
+      try {
+        await visit('/decks');
+        await duringFade();
+        await Promise.all([
+          page.waitForURL(url => url.pathname === '/review'),
+          clickAt(page.locator('.page-head a[href="/review"]'))
+        ]);
+        await duringFade();
+        await clickAt(page.locator('#review-reveal'));
+        await page.waitForSelector('#review-back:not([hidden])');
+        await visit('/edit/sample.md');
+        await duringFade();
+        const body = page.locator('[name="body"]');
+        await body.fill(await body.inputValue() + '\n动画期间保存验证\n');
+        await Promise.all([
+          page.waitForURL('**/note/sample.md'),
+          clickAt(page.locator('[data-editor-save]'))
+        ]);
+        assert.match(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), /动画期间保存验证/);
+      } finally {
+        await page.unroute(styles);
+      }
+    });
     await check('鼠标显示答案后数字快捷键仍可评分，评分按钮完成复习', async () => {
       await visit('/review?deck=' + encodeURIComponent('交互卡组'));
       await page.locator('#review-reveal').focus();

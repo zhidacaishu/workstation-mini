@@ -2164,12 +2164,13 @@ dialog { color: var(--text); }
 
 /* ---------- 页面切换 ---------- */
 
-/* 这是多页应用，每次点侧栏都是一次整页加载。让新旧两页交叉淡化 140 毫秒，
-   侧栏单独成一层、内容相同，所以看起来纹丝不动，只有右边的内容在换。 */
-@view-transition { navigation: auto; }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: 140ms; }
-.workspace-sidebar { view-transition-name: workspace-sidebar; }
-::view-transition-group(workspace-sidebar) { animation-duration: 0s; }
+/* 普通内容淡入不创建原生跨文档快照层，动画期间按钮和链接仍可交互。
+   侧栏保持静止；内容只改透明度，不移动点击区域。 */
+@keyframes workspace-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.workspace-main { animation: workspace-enter 140ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
-  @view-transition { navigation: none; }
+  .workspace-main { animation: none; }
 }
