@@ -23,10 +23,12 @@ function twoDevices(files) {
   const B = path.join(root, 'B');
   execFileSync('git', ['init', '--bare', '-b', 'main', remote], { stdio: 'ignore' });
   const clone = target => {
-    execFileSync('git', ['clone', remote, target], { stdio: 'ignore' });
+    // 克隆检出前就固定 LF，避免 Windows 全局 autocrlf 污染初始文件。
+    execFileSync('git', ['-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'clone', remote, target], { stdio: 'ignore' });
     git(target, 'config', 'user.name', 'tester');
     git(target, 'config', 'user.email', 'tester@example.invalid');
     git(target, 'config', 'core.autocrlf', 'false');
+    git(target, 'config', 'core.eol', 'lf');
   };
   clone(A);
   for (const [name, content] of Object.entries(files)) {
