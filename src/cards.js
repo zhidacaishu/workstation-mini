@@ -129,9 +129,59 @@ function splitCards(body) {
   }));
 }
 
+const CLOZE_OPEN = '\uE000';
+const CLOZE_CLOSE = '\uE001';
+
+/** 把渲染好的 HTML 里的挖空标记换成高亮标签，复习时答案在原位亮出来。 */
+function markClozeAnswers(html) {
+  return String(html).replaceAll(CLOZE_OPEN, '<mark class="cloze-answer">').replaceAll(CLOZE_CLOSE, '</mark>');
+}
+
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+
+// 标记能不能安全地换成 <mark>：成对出现、不落在标签的属性里、夹着的那段 HTML 自己是配平的
+// （答案跨了段落或列表项时，<mark> 会横跨块级边界，得到的是坏掉的 HTML）。
+function clozeMarksAreInline(html) {
+  let open = false;
+  let depth = 0;
+  const pattern = /<[^>]*>|[\uE000\uE001]/g;
+  for (let match = pattern.exec(html); match; match = pattern.exec(html)) {
+    const token = match[0];
+    if (token === CLOZE_OPEN) {
+      if (open) return false;
+      open = true; depth = 0;
+    } else if (token === CLOZE_CLOSE) {
+      if (!open || depth !== 0) return false;
+      open = false;
+    } else {
+      if (token.includes(CLOZE_OPEN) || token.includes(CLOZE_CLOSE)) return false;
+      if (!open) continue;
+      const tag = /^<(\/?)([a-zA-Z][\w:-]*)/.exec(token);
+      if (!tag || token.endsWith('/>') || VOID_TAGS.has(tag[2].toLowerCase())) continue;
+      depth += tag[1] ? -1 : 1;
+      if (depth < 0) return false;
+    }
+  }
+  return !open;
+}
+
+/**
+ * 挖空卡翻面后的 HTML：整句填好，答案高亮。render 是把 Markdown 变成 HTML 的函数。
+ * 标记字符夹在答案两侧，偶尔会改变排版（答案是独占一行的公式、列表、代码块）；
+ * 那种情况不高亮，原样给出填好的内容——宁可少一点提示，不能把公式显示成源码。
+ */
+function renderClozeAnswer(text, render) {
+  const cloze = parseCloze(text);
+  const plain = render(cloze.filled);
+  if (!cloze.hasCloze) return plain;
+  const marked = render(cloze.marked);
+  if (marked.replaceAll(CLOZE_OPEN, '').replaceAll(CLOZE_CLOSE, '') !== plain) return plain;
+  return clozeMarksAreInline(marked) ? markClozeAnswers(marked) : plain;
+}
+
 /** 把 `{{答案}}` 拆成挖空题面和填好的答案面。 */
 function parseCloze(text) {
-  const source = String(text ?? '');
+  const source = String(text ?? '').replaceAll(CLOZE_OPEN, '').replaceAll(CLOZE_CLOSE, '');
   CLOZE_PATTERN.lastIndex = 0;
   const protectedSource = maskMath(maskCode(source));
   const matches = [...protectedSource.matchAll(CLOZE_PATTERN)].filter(match => source.slice(match.index + 2, match.index + match[0].length - 2).trim());
@@ -140,16 +190,18 @@ function parseCloze(text) {
     let output = source;
     for (let i = matches.length - 1; i >= 0; i -= 1) {
       const match = matches[i];
-      output = output.slice(0, match.index) + (fill ? answers[i] : '＿＿＿＿') + output.slice(match.index + match[0].length);
+      output = output.slice(0, match.index) + fill(answers[i]) + output.slice(match.index + match[0].length);
     }
     return output;
   };
-  if (answers.length === 0) return { hasCloze: false, masked: source, filled: source, answers: [] };
+  if (answers.length === 0) return { hasCloze: false, masked: source, filled: source, marked: source, answers: [] };
 
   return {
     hasCloze: true,
-    masked: replace(false),
-    filled: replace(true),
+    masked: replace(() => '＿＿＿＿'),
+    filled: replace(answer => answer),
+    // 答案两侧夹上私用区字符，渲染成 HTML 以后再换成高亮标签（见 markClozeAnswers）。
+    marked: replace(answer => `${CLOZE_OPEN}${answer}${CLOZE_CLOSE}`),
     answers
   };
 }
@@ -334,6 +386,11 @@ function normalizeDeckFile(deckFile) {
   // 不折叠重复的斜杠：`a//b` 这类非规范写法直接拒绝，和笔记路径的规则一致。
   const value = String(deckFile ?? '').trim().replaceAll('\\', '/').replace(/^cards\//, '').replace(/\.md$/i, '');
   if (!value || !isSafeRelativePath(`${CARDS_DIR}/${value}.md`)) throw httpFailure(400, '卡组文件名不合法。');
+  // 列卡组时跳过点号开头的名字和 node_modules（见 listNotes）。写进去的卡片永远列不出来，
+  // 接口却返回成功，所以在入口就拒绝。
+  if (value.split('/').some(segment => segment.startsWith('.') || segment === 'node_modules')) {
+    throw httpFailure(400, '卡组名不能以点号开头，也不能叫 node_modules。');
+  }
   return value;
 }
 
@@ -478,8 +535,9 @@ async function appendCard(vaultDir, {
   let relative;
   try {
     relative = await resolveDeckPath(vaultDir, deckFile);
-  } catch {
-    const error = new Error('卡组文件名不合法');
+  } catch (cause) {
+    // 校验给出的具体原因（比如「不能以点号开头」）原样带出去。
+    const error = new Error(cause?.status === 400 ? cause.message : '卡组文件名不合法');
     error.status = 400;
     throw error;
   }
@@ -596,8 +654,8 @@ async function deleteCard(vaultDir, { id, expectedHash = '' }) {
     if (!card) throw httpFailure(409, '卡片已被移动或删除，请刷新后重试。');
     const remaining = cards.filter((_, position) => position !== index).map(item => ({ id: item.id, legacyId: item.legacyId }));
     const raw = preserveIds(source, replaceCard(note.raw, index, null), taken, remaining);
-    // 删卡前的整份卡组以「删除」记录存进本机历史，不参与定期清理。
-    const written = await writeNote(vaultDir, source, { raw }, { versionReason: 'delete' });
+    // 删卡前的整份卡组单独记成 card：60 天内全留，更早的每天留最早一份（见 history.js）。
+    const written = await writeNote(vaultDir, source, { raw }, { versionReason: 'card' });
     return { path: source, hash: written.hash };
   });
 }
@@ -621,6 +679,7 @@ module.exports = {
   DEFAULT_TYPE,
   splitCards,
   parseCloze,
+  markClozeAnswers, renderClozeAnswer,
   cardId,
   parseCardFile,
   listCardFiles,

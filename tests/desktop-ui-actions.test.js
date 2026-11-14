@@ -72,7 +72,10 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await trigger.click();
       await page.keyboard.press('Tab');
       assert.equal(await visible('.note-more-menu'), true);
+      // 菜单里有三项：阅读行宽、版本历史、删除。
       await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
+      assert.equal(await visible('.note-more-menu'), true);
       await page.keyboard.press('Tab');
       assert.equal(await visible('.note-more-menu'), false, '移出焦点应关闭菜单');
       await trigger.click();
@@ -434,7 +437,10 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await page.locator('.readonly-status').isVisible(), true);
       const readonlyOrigin = new URL(page.url()).origin;
       await page.goto(readonlyOrigin + '/note/sample.md');
-      assert.equal(await page.locator('.note-actions, .workspace-create, .selection-card').count(), 0);
+      assert.equal(await page.locator('.note-actions a[href^="/edit"], .note-actions form[action="/delete"], .note-actions a[href^="/history"], .workspace-create, .selection-card').count(), 0);
+      // 只读时「更多」里只剩阅读行宽这一项：它只改显示，不写资料库。
+      assert.equal(await page.locator('.note-more-menu > *').count(), 1);
+      assert.equal(await page.locator('.note-more-menu form[action="/prefs/reading-width"]').count(), 1);
       await page.goto(readonlyOrigin + '/board/experiment');
       assert.equal(await page.locator('.statusform').count(), 0);
       await page.goto(readonlyOrigin + '/plan?view=list');

@@ -52,11 +52,52 @@ const FRONTMATTER_OPTIONS = Object.freeze({
   engines: { javascript: BLOCKED_ENGINE, js: BLOCKED_ENGINE, json: BLOCKED_ENGINE, coffee: BLOCKED_ENGINE, cson: BLOCKED_ENGINE }
 });
 
+function frontmatterError(message) {
+  const error = new Error(message);
+  error.name = 'FrontmatterError';
+  return error;
+}
+
+const FRONTMATTER_NODE_LIMIT = 50_000;
+
+/**
+ * YAML 锚点能让一个值引用它自己（`refs: &r [*r]`），也能用几行别名摆出指数级的结构。
+ * 前者让 JSON.stringify 直接抛错 —— 而那一步在入库时，一篇这样的笔记会让整轮索引失败；
+ * 后者会把内存吃光。两种都当成这篇笔记的属性区写坏了，别的笔记照常入库。
+ */
+function assertPlainTree(root) {
+  const ancestors = new Set();
+  let visited = 0;
+  const walk = value => {
+    if (!value || typeof value !== 'object' || value instanceof Date) return;
+    if (ancestors.has(value)) throw frontmatterError('frontmatter 里的 YAML 锚点引用了它自己，无法解析。');
+    visited += 1;
+    if (visited > FRONTMATTER_NODE_LIMIT) throw frontmatterError('frontmatter 的结构过于庞大，无法解析。');
+    ancestors.add(value);
+    for (const child of Array.isArray(value) ? value : Object.values(value)) walk(child);
+    ancestors.delete(value);
+  };
+  walk(root);
+}
+
+const FRONTMATTER_CLOSING = /\n---[ \t]*(?=\r?\n|$)/;
+
 function parseFrontmatter(raw) {
   const source = String(raw ?? '');
   const language = frontmatterLanguage(source);
   if (language && language !== 'yaml' && language !== 'yml') onlyYaml();
-  return matter(source, { ...FRONTMATTER_OPTIONS });
+  const plain = () => ({ data: {}, content: source.replace(/^\uFEFF/, '') });
+  // 开头的 `---` 也可能只是一条分隔线。没有结束标记、或者中间那段解析出来不是键值
+  // 映射（一句话、一个列表）时，gray-matter 会把它当属性区吃掉，正文在阅读页和搜索里
+  // 就不见了，也不报错。这两种情况都按「没有属性区」处理，整篇都是正文。
+  const opening = /^\uFEFF?---[ \t]*\r?\n/.exec(source);
+  if (opening && !FRONTMATTER_CLOSING.test(source.slice(opening[0].length - 1))) return plain();
+  const parsed = matter(source, { ...FRONTMATTER_OPTIONS });
+  const data = parsed.data;
+  if (data === null || data === undefined) return parsed;
+  if (typeof data !== 'object' || Array.isArray(data) || data instanceof Date) return plain();
+  assertPlainTree(data);
+  return parsed;
 }
 
 /** 写回 frontmatter。同样要显式传 options，`matter.stringify` 内部也会走那层缓存。 */

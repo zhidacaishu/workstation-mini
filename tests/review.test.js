@@ -432,3 +432,39 @@ test('卡片正面压成一行，多行内容不会漏进背面', async () => {
     await fs.rm(vault, { recursive: true, force: true });
   }
 });
+
+test('撤销事件跨月和重读生效，旧评分重试不会恢复它，也不会撤销名称后缀相同的别的设备', async () => {
+  const vault = await makeVault();
+  try {
+    const at = new Date('2026-11-14T09:00:00Z');
+    const store = review.createReviewStore({ vaultDir: vault, device: 'desk', now: () => at });
+    await store.record('card', 3, 10, 'e1');
+    writeLog(vault, '2026-12-other-desk.jsonl', [{ event_id: 'other', card_id: 'card', ts: at.toISOString(), rating: 3 }]);
+    await store.undo('e1');
+    const retry = await store.record('card', 3, 10, 'e1');
+    assert.equal(retry.duplicate, true);
+    assert.deepEqual((await store.readEvents()).map(event => event.eventId), ['other']);
+    assert.deepEqual((await review.readEvents(vault)).map(event => event.eventId), ['other']);
+    assert.equal((await review.createReviewStore({ vaultDir: vault, device: 'desk' }).states(['card'])).get('card').reviewCount, 1);
+    const raw = await fs.readFile(path.join(vault, 'reviews/2026-11-desk.jsonl'), 'utf8');
+    assert.deepEqual(raw.trim().split('\n').map(JSON.parse).map(event => event.type || 'answer'), ['answer', 'undo']);
+  } finally { await fs.rm(vault, { recursive: true, force: true }); }
+});
+
+test('撤销响应丢失后的重试幂等成功，不追加第二个撤销，也不影响新评分', async () => {
+  const vault = await makeVault();
+  try {
+    const store = review.createReviewStore({ vaultDir: vault, device: 'desk' });
+    await store.record('card', 1, 10, 'e1');
+    await store.undo('e1');
+    await store.record('card', 3, 20, 'e2');
+    assert.deepEqual(await store.undo('e1'), { ok: true, eventId: 'e1' });
+    const reopened = review.createReviewStore({ vaultDir: vault, device: 'desk' });
+    assert.deepEqual(await reopened.undo('e1'), { ok: true, eventId: 'e1' });
+    assert.deepEqual((await reopened.readEvents()).map(event => event.eventId), ['e2']);
+    const rawEvents = (await reopened.snapshot()).allEvents;
+    assert.equal(rawEvents.filter(event => event.undoOf === 'e1').length, 1);
+    const other = review.createReviewStore({ vaultDir: vault, device: 'other' });
+    await assert.rejects(other.undo('e1'), /只能撤销最后一次评分/);
+  } finally { await fs.rm(vault, { recursive: true, force: true }); }
+});

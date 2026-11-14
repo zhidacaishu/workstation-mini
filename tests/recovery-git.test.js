@@ -71,8 +71,10 @@ test('Git 调用使用固定参数、shell false 且永不 commit/push', async (
 
 test('clone 参数固定且在 clone 后执行只读验证', async () => {
   const calls = [];
-  const runner = async (program, args) => {
+  const timeouts = [];
+  const runner = async (program, args, options) => {
     calls.push(args);
+    timeouts.push(options.timeout);
     const joined = args.join(' ');
     if (joined.includes('symbolic-ref --short HEAD')) return { stdout: 'main\n' };
     if (joined.includes('remote get-url origin')) return { stdout: `${VALID[0]}\n` };
@@ -87,8 +89,12 @@ test('clone 参数固定且在 clone 后执行只读验证', async () => {
 
   assert.deepEqual(calls[0], [
     '-c', 'protocol.ext.allow=never',
+    '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=30',
     'clone', '--origin', 'origin', '--', VALID[0], '/safe/candidate'
   ]);
+  // 克隆要拉附件：总时长比本地命令宽得多，卡住的连接靠低速限制放弃。
+  assert.ok(timeouts[0] >= 30 * 60_000, '克隆不该沿用两分钟的超时');
+  assert.equal(timeouts[1], 120_000);
   assert.ok(calls.some(args => args.includes('status')));
   assert.ok(calls.some(args => args.includes('ls-files')));
   assert.ok(!calls.flat().includes('push'));

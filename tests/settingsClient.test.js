@@ -262,7 +262,7 @@ test('同步恢复状态独立展示，并阻止手工同步', async () => {
 
   assert.equal(ui.syncStatus.dataset.phase, 'recovery-required');
   assert.match(ui.syncStatusTitle.textContent, /rebase/);
-  assert.match(ui.syncStatusDetail.textContent, /2 个未合并文件/);
+  assert.match(ui.syncStatusDetail.textContent, /2 个文件两边都改过/);
   assert.equal(ui.abortGit.hidden, false);
   assert.equal(ui.sync.disabled, true);
   assert.equal(ui.body.dataset.settingsState, 'clean');

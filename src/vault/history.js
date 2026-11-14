@@ -12,7 +12,10 @@ const { replaceFile } = require('./atomic');
  *
  *   .workstation-local/
  *     versions/<笔记键>/path.json                       这一组版本属于哪篇笔记
- *     versions/<笔记键>/<时间戳>-<save|delete>-<uuid>.json  保存或删除前的全文
+ *     versions/<笔记键>/<时间戳>-<save|delete|abort|conflict|card>-<uuid>.json
+ *                                                      保存前、删除笔记前、中止 Git 操作前、
+ *                                                      解决同步冲突时没采用的那一边、
+ *                                                      删除卡片前的全文
  *     drafts/<uuid>.json                               编辑器自动保存的草稿
  *
  * 版本按笔记分目录，种类和时间写在文件名里：列出历史只需要 readdir，不必把每份
@@ -22,15 +25,17 @@ const { replaceFile } = require('./atomic');
  * 每次保存后只清理这一篇笔记的旧版本：最近 KEEP_RECENT 份全部保留；更早的在
  * KEEP_DAYS 天内每天留最后一份，再早的删除。删除前的那一份是被删笔记唯一的副本：
  * 之后在同一路径新建、反复保存，也不能把它挤掉，所以删除记录一律不清理。
+ * 删卡前的卡组（card）和中止 Git 操作前的内容（abort）见 pruneVersions。
  */
 const DIRECTORY = '.workstation-local';
 const KEEP_RECENT = 20;
 const KEEP_DAYS = 60;
+const DRAFT_KEEP_DAYS = 30;
 const DAY_MS = 86_400_000;
 
 const UUID = /^[a-f0-9-]{36}$/;
-const VERSION_FILE = /^(\d{8}T\d{9}Z)-(save|delete)-([a-f0-9-]{36})\.json$/;
-const VERSION_ID = /^([a-f0-9]{16})~(\d{8}T\d{9}Z-(?:save|delete)-[a-f0-9-]{36})$/;
+const VERSION_FILE = /^(\d{8}T\d{9}Z)-(save|delete|abort|conflict|card)-([a-f0-9-]{36})\.json$/;
+const VERSION_ID = /^([a-f0-9]{16})~(\d{8}T\d{9}Z-(?:save|delete|abort|conflict|card)-[a-f0-9-]{36})$/;
 
 const notFound = () => Object.assign(new Error('恢复记录不存在。'), { status: 404, code: 'ENOENT' });
 
@@ -163,19 +168,33 @@ function versionEntries(key, names) {
 async function pruneVersions(root, key, now = Date.now()) {
   const directory = `${DIRECTORY}/versions/${key}`;
   const entries = versionEntries(key, await listDirectory(root, directory)).sort(newestFirst);
+  // 删卡前的整份卡组：KEEP_DAYS 天内全留，更早的每天只留当天最早的一份。一天里连删
+  // 多张卡时，最早那份里有当天删掉的全部卡片，其余几份是它的子集。不这样收的话，
+  // 每删一张卡就永久多一份整个卡组。
+  const earliestCardOfDay = new Map();
+  for (const entry of entries) if (entry.reason === 'card') earliestCardOfDay.set(entry.day, entry.name);
   const keptDays = new Set();
   for (const [index, entry] of entries.entries()) {
-    if (index < KEEP_RECENT || entry.reason === 'delete') continue;
+    if (entry.reason === 'delete') continue;
     const age = now - Date.parse(entry.at);
-    if (age <= KEEP_DAYS * DAY_MS && !keptDays.has(entry.day)) {
-      keptDays.add(entry.day);
-      continue;
+    if (entry.reason === 'card') {
+      if (age <= KEEP_DAYS * DAY_MS || earliestCardOfDay.get(entry.day) === entry.name) continue;
+    } else {
+      if (index < KEEP_RECENT) continue;
+      if (age <= KEEP_DAYS * DAY_MS && !keptDays.has(entry.day)) {
+        keptDays.add(entry.day);
+        continue;
+      }
     }
     await fs.rm(await ensureSafeFilePath(root, `${directory}/${entry.name}`), { force: true });
   }
 }
 
+const VERSION_REASONS = new Set(['save', 'delete', 'abort', 'conflict', 'card']);
+
 async function saveVersion(root, notePath, raw, reason) {
+  // 原因写进文件名；不认识的写法列不出来，等于白存。
+  if (!VERSION_REASONS.has(reason)) reason = 'save';
   return storeVersion(root, { path: notePath, raw, reason, at: new Date().toISOString() }, crypto.randomUUID());
 }
 
@@ -258,6 +277,32 @@ async function discardDraft(root, id) {
   });
 }
 
+/**
+ * 清掉很久没动过的草稿。放弃编辑留下的草稿没有别的出口，不清就只增不减，
+ * 而每次打开编辑页都要把全部草稿读一遍。
+ */
+async function pruneDrafts(root, { maxAgeDays = DRAFT_KEEP_DAYS, now = Date.now() } = {}) {
+  await migrated(root);
+  let removed = 0;
+  for (const entry of await listDirectory(root, `${DIRECTORY}/drafts`)) {
+    const id = entry.slice(0, -5);
+    if (!entry.endsWith('.json') || !UUID.test(id)) continue;
+    const relative = `${DIRECTORY}/drafts/${entry}`;
+    try {
+      const stat = await fs.stat(await ensureSafeFilePath(root, relative));
+      if (now - stat.mtimeMs <= maxAgeDays * DAY_MS) continue;
+      await enqueueFile(root, relative, async () => {
+        // 排队期间可能刚被自动保存更新过：按当前的修改时间再判一次。
+        const latest = await fs.stat(await ensureSafeFilePath(root, relative));
+        if (now - latest.mtimeMs <= maxAgeDays * DAY_MS) return;
+        await fs.rm(await ensureSafeFilePath(root, relative), { force: true });
+        removed += 1;
+      });
+    } catch { /* 清理是顺手的事，一份草稿出错不影响其余。 */ }
+  }
+  return removed;
+}
+
 // ---------- 查询 ----------
 
 /**
@@ -301,5 +346,6 @@ async function getRecord(root, id) {
 
 module.exports = {
   DIRECTORY, KEEP_RECENT, KEEP_DAYS,
-  getRecord, listRecords, saveVersion, saveDraft, removeDraft, discardDraft, pruneVersions, noteKey
+  DRAFT_KEEP_DAYS,
+  getRecord, listRecords, saveVersion, saveDraft, removeDraft, discardDraft, pruneVersions, pruneDrafts, noteKey
 };

@@ -139,7 +139,8 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
         deadlines: openTasks.filter(task => task.due).length + projects.length,
         done: allTasks.filter(task => task.done).length
       },
-      groups: planGroups({ filter: resolvedFilter, tasks: allTasks, projects, today })
+      groups: planGroups({ filter: resolvedFilter, tasks: allTasks, projects, today }),
+      added: req.query.added === '1'
     });
   }
 
@@ -193,6 +194,47 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
   };
 
   router.post(['/plan/notes', '/calendar/notes'], blockWhenReadOnly(config, '不能修改月历备注。'), saveCalendarNote);
+
+  /**
+   * 快速添加待办：不用先打开一篇笔记。写成一行 `- [ ] 文字 @日期`，追加到今天的月历备注里
+   * —— 那是「今天随手记的东西」本来就该去的地方，之后照常在笔记里改。
+   */
+  const DATE_TAG = /(?:^|\s)@\d{4}-\d{2}-\d{2}(?=\s|$)/;
+  router.post('/plan/tasks', blockWhenReadOnly(config, '不能添加待办。'), async (req, res, next) => {
+    try {
+      const text = String(req.body.text ?? '').replace(/\s+/g, ' ').trim();
+      if (!text) throw httpError(400, '请先写下待办内容。');
+      if (text.length > 500) throw httpError(400, '待办内容太长，请控制在 500 字以内。');
+      const due = String(req.body.due || '');
+      if (due && !isValidDateString(due)) throw httpError(400, '请选择有效日期。');
+      // 文字里已经手写了 @日期 的，以手写的为准，不再追加第二个。
+      const line = `- [ ] ${text}${due && !DATE_TAG.test(text) ? ` @${due}` : ''}`;
+      const date = toLocalDate(now());
+      const notePath = notePathFor(date);
+      await enqueueNote(config.notesDir, notePath, async () => {
+        const existing = await readDay(config.notesDir, date);
+        if (existing?.parseError) throw httpError(409, '今天的月历备注格式有误，请先在笔记编辑器中修复。');
+        if (!existing) {
+          await writeNote(config.notesDir, notePath, { data: { title: date + ' 月历备注' }, body: line + '\n' }, { exclusive: true });
+          return;
+        }
+        const eol = existing.raw.includes('\r\n') ? '\r\n' : '\n';
+        const trimmed = existing.raw.replace(/\s+$/, '');
+        const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
+        // 接在列表后面就直接续一项；前面是普通段落或属性区时空一行，免得粘在一起。
+        const gap = !existing.body.trim() ? eol : /^\s*[-*+]\s/.test(lastLine) ? eol : eol + eol;
+        await writeNote(config.notesDir, notePath, { raw: trimmed + gap + line + eol });
+      });
+      await indexer.scan({ paths: [notePath] });
+      if ((req.get('accept') || '').includes('application/json')) {
+        res.json({ ok: true, path: notePath });
+      } else {
+        const returnTo = String(req.body.returnTo || '');
+        const target = returnTo === '/' || returnTo.startsWith('/plan?') ? returnTo : '/plan?view=list';
+        res.redirect(target + (target.includes('?') ? '&' : '?') + 'added=1');
+      }
+    } catch (error) { next(error); }
+  });
 
   return router;
 }

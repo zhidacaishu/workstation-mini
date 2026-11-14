@@ -129,14 +129,20 @@ function classifyGitError(error) {
   return new RecoveryGitError('git-failed', '系统 Git 操作失败。');
 }
 
-function createGitRecovery({ runner = exec, timeoutMs = 120_000 } = {}) {
+// 克隆要把附件和录音一起拉下来，两分钟不够。总时长放宽到一小时，卡住的连接靠
+// http.lowSpeedLimit 提前放弃（SSH 远端没有这项保护，一小时是最后的保险）；
+// 恢复窗口里随时可以取消。
+const CLONE_TIMEOUT_MS = 60 * 60_000;
+const CLONE_LOW_SPEED = ['-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=30'];
+
+function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs = CLONE_TIMEOUT_MS } = {}) {
   async function run(args, options = {}) {
     try {
       return await runner('git', ['-c', 'protocol.ext.allow=never', ...args], {
         encoding: 'utf8',
         windowsHide: true,
         shell: false,
-        timeout: timeoutMs,
+        timeout: options.timeoutMs ?? timeoutMs,
         signal: options.signal,
         cwd: options.cwd,
         env: { ...process.env, ...SAFE_ENV }
@@ -157,7 +163,7 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000 } = {}) {
 
   async function cloneRemote(value, candidateDir, options = {}) {
     const remote = validateRemote(value);
-    await run(['clone', '--origin', 'origin', '--', remote, candidateDir], options);
+    await run([...CLONE_LOW_SPEED, 'clone', '--origin', 'origin', '--', remote, candidateDir], { ...options, timeoutMs: cloneTimeoutMs });
     return validateClonedRepository(candidateDir, { ...options, expectedRemote: remote });
   }
 

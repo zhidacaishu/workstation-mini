@@ -554,6 +554,34 @@
 
   watchIndexStatus();
 
+  // 代码块右上角的「复制」。
+  for (const pre of document.querySelectorAll?.('.prose pre') || []) {
+    const code = pre.querySelector('code');
+    if (!code || pre.closest('.code-block')) continue;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block';
+    pre.before(wrapper);
+    wrapper.append(pre);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'code-copy';
+    button.textContent = '复制';
+    button.setAttribute('aria-label', '复制这段代码');
+    let timer = 0;
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent.replace(/\n$/, ''));
+        button.textContent = '已复制';
+        button.classList.add('is-done');
+      } catch {
+        button.textContent = '复制失败';
+      }
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => { button.textContent = '复制'; button.classList.remove('is-done'); }, 1600);
+    });
+    wrapper.append(button);
+  }
+
   document.addEventListener('keydown', event => {
     if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
     if (hasOpenDialog() || isInteractiveTarget(document.activeElement)) return;

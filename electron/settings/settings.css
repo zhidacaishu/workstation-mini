@@ -241,6 +241,37 @@ button:active:not(:disabled) { transform: translateY(.5px); }
 .sync-status[data-phase="error"] strong { color: var(--danger); }
 .sync-status[data-phase="recovery-required"] { border-color: color-mix(in srgb, var(--warn-text) 65%, var(--line)); background: color-mix(in srgb, var(--warn-text) 8%, var(--surface)); }
 .sync-status[data-phase="recovery-required"] strong { color: var(--warn-text); }
+/* 冲突文件逐个选边。 */
+.conflict-panel { margin: 0 0 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.conflict-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.conflict-head strong { display: block; font-size: var(--fs-sm); font-weight: 600; }
+.conflict-head p { max-width: 58ch; margin: 3px 0 0; color: var(--subtle); font-size: var(--fs-xs); }
+.conflict-bulk { display: flex; flex: none; gap: 8px; }
+button.small { min-height: var(--control-sm); padding: 0 10px; font-size: var(--fs-xs); }
+.conflict-list { margin: 12px 0 0; padding: 0; list-style: none; }
+.conflict-file { padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.conflict-path { display: block; overflow-wrap: anywhere; color: var(--text); font-family: var(--font-mono); font-size: var(--fs-xs); }
+.conflict-auto { margin: 4px 0 0; color: var(--subtle); font-size: var(--fs-xs); }
+.conflict-options { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+.conflict-option { display: inline-flex; align-items: center; gap: 7px; min-height: var(--control-sm); padding: 0 12px 0 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--button); font-size: var(--fs-sm); cursor: pointer; }
+.conflict-option:hover { background: var(--button-hover); }
+.conflict-option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); font-weight: 500; }
+.conflict-option:has(input:disabled) { cursor: default; opacity: .6; }
+.conflict-option input { margin: 0; accent-color: var(--accent); }
+.conflict-diff { margin-top: 8px; font-size: var(--fs-xs); }
+.conflict-diff summary { width: fit-content; color: var(--muted); cursor: pointer; }
+.conflict-diff summary:hover { color: var(--text); }
+.conflict-diff-body { max-height: 260px; margin-top: 8px; padding: 8px 0; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--code-bg); font-family: var(--font-mono); line-height: 1.7; }
+.conflict-diff .diff-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); padding-right: 12px; }
+.conflict-diff .diff-sign { color: var(--subtle); text-align: center; user-select: none; }
+.conflict-diff .diff-text { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.conflict-diff .diff-row.is-add { background: var(--diff-add); color: var(--diff-add-text); }
+.conflict-diff .diff-row.is-del { background: var(--diff-del); color: var(--diff-del-text); }
+.conflict-diff .diff-row.is-add .diff-sign, .conflict-diff .diff-row.is-del .diff-sign { color: inherit; }
+.conflict-diff .diff-skip { margin: 4px 0; padding: 1px 12px 1px 22px; border-block: 1px dashed var(--line); color: var(--subtle); font-family: var(--font-sans); }
+.conflict-legend { margin: 6px 0 0; color: var(--subtle); }
+.conflict-actions { display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.conflict-actions span { color: var(--subtle); font-size: var(--fs-xs); }
 
 .save-bar {
   position: fixed;

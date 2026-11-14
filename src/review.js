@@ -4,6 +4,8 @@ const path = require('node:path');
 const { fsrs, createEmptyCard, generatorParameters, Rating, State } = require('ts-fsrs');
 
 const { appendLinesSync } = require('./vault/atomic');
+const { randomUUID } = require('node:crypto');
+const { enqueueFile } = require('./vault/note-queue');
 
 const REVIEWS_DIR = 'reviews';
 const VALID_RATINGS = new Set([Rating.Again, Rating.Hard, Rating.Good, Rating.Easy]);
@@ -26,7 +28,20 @@ function reviewLogName(dateString, device) {
   return `${dateString.slice(0, 7)}-${device}.jsonl`;
 }
 
+function isUndoEvent(event) {
+  return Boolean(event) && event.type === 'undo'
+    && typeof event.event_id === 'string' && event.event_id.length > 0 && event.event_id.length <= 128
+    && typeof event.undo_event_id === 'string' && event.undo_event_id.length > 0 && event.undo_event_id.length <= 128
+    && typeof event.ts === 'string' && !Number.isNaN(Date.parse(event.ts));
+}
+
+function activeEvents(events) {
+  const cancelled = new Set(events.filter(event => event.undoOf).map(event => event.undoOf));
+  return events.filter(event => !event.undoOf && (!event.eventId || !cancelled.has(event.eventId)));
+}
+
 function isValidEvent(event) {
+  if (isUndoEvent(event)) return true;
   return Boolean(event)
     && typeof event.card_id === 'string' && event.card_id.length > 0
     && typeof event.ts === 'string' && !Number.isNaN(Date.parse(event.ts))
@@ -55,6 +70,7 @@ function parseEventLines(file, raw) {
     if (!isValidEvent(parsed)) return;
     events.push({
       eventId: parsed.event_id || '',
+      ...(isUndoEvent(parsed) ? { undoOf: parsed.undo_event_id } : {}),
       cardId: parsed.card_id,
       identityVersion: parsed.card_id_version || 1,
       ts: parsed.ts,
@@ -68,6 +84,21 @@ function parseEventLines(file, raw) {
 }
 
 /**
+ * 目录项是不是普通文件。Windows 上 readdir 把所有重解析点（包括 OneDrive、Dropbox 的
+ * 占位文件）都报成链接，lstat 才分得清：真符号链接仍然不认，占位文件按普通文件处理。
+ */
+async function isRegularFile(entry, absolute) {
+  if (entry.isFile()) return true;
+  if (entry.isDirectory()) return false;
+  try {
+    const stat = await fsp.lstat(absolute);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 复习日志文件。reviews 目录本身或其中的文件是符号链接时一律不认：
  * 否则一个指向资料库外的链接就能让应用去读写别处的文件。
  */
@@ -75,10 +106,12 @@ async function listLogFiles(vaultDir) {
   const directory = path.join(vaultDir, REVIEWS_DIR);
   try {
     if (!(await fsp.lstat(directory)).isDirectory()) return [];
-    return (await fsp.readdir(directory, { withFileTypes: true }))
-      .filter(entry => entry.isFile() && entry.name.endsWith('.jsonl'))
-      .map(entry => entry.name)
-      .sort();
+    const names = [];
+    for (const entry of await fsp.readdir(directory, { withFileTypes: true })) {
+      if (!entry.name.endsWith('.jsonl')) continue;
+      if (await isRegularFile(entry, path.join(directory, entry.name))) names.push(entry.name);
+    }
+    return names.sort();
   } catch (error) {
     if (error.code === 'ENOENT') return [];
     throw error;
@@ -99,7 +132,7 @@ async function readEvents(vaultDir) {
   for (const file of await listLogFiles(vaultDir)) {
     events.push(...parseEventLines(file, await fsp.readFile(path.join(vaultDir, REVIEWS_DIR, file), 'utf8')));
   }
-  return events;
+  return activeEvents(events);
 }
 
 /**
@@ -141,7 +174,7 @@ function createEventCache(vaultDir) {
     if (changed || !snapshot) {
       generation += 1;
       const events = [...files.values()].flatMap(entry => entry.events);
-      snapshot = { generation, events, byId: null };
+      snapshot = { generation, events: activeEvents(events), allEvents: events, byId: null };
     }
     return snapshot;
   }
@@ -150,7 +183,7 @@ function createEventCache(vaultDir) {
   function byId(current) {
     if (!current.byId) {
       current.byId = new Map();
-      for (const event of current.events) {
+      for (const event of current.allEvents) {
         if (event.eventId && !current.byId.has(event.eventId)) current.byId.set(event.eventId, event);
       }
     }
@@ -186,7 +219,7 @@ function replay(events, cardIds) {
   const byCard = new Map();
   const seenEventIds = new Set();
 
-  for (const event of [...events].sort(compareEvents)) {
+  for (const event of activeEvents(events).sort(compareEvents)) {
     if (event.eventId) {
       if (seenEventIds.has(event.eventId)) continue;
       seenEventIds.add(event.eventId);
@@ -281,8 +314,6 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
       const at = now();
       const iso = at.toISOString();
       const dir = path.join(vaultDir, REVIEWS_DIR);
-      assertWritableLog(dir, dir);
-      fs.mkdirSync(dir, { recursive: true });
       const event = {
         ...(normalized.eventId ? { event_id: normalized.eventId } : {}),
         card_id: normalized.cardId,
@@ -292,9 +323,16 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
         elapsed_ms: normalized.elapsedMs
       };
       const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-      const logFile = path.join(dir, reviewLogName(local, device));
-      assertWritableLog(dir, logFile);
-      appendLinesSync(logFile, [JSON.stringify(event)]);
+      const logName = reviewLogName(local, device);
+      const logFile = path.join(dir, logName);
+      // 和笔记一样过写入闸门：Git 变基改工作区的那一小段时间里，评分等变基结束再落盘。
+      // 否则这一行要么让变基失败并留下需要中止的现场，要么在中止时被一起丢掉。
+      await enqueueFile(vaultDir, `${REVIEWS_DIR}/${logName}`, async () => {
+        assertWritableLog(dir, dir);
+        fs.mkdirSync(dir, { recursive: true });
+        assertWritableLog(dir, logFile);
+        appendLinesSync(logFile, [JSON.stringify(event)]);
+      });
       return {
         eventId: normalized.eventId,
         cardId: normalized.cardId,
@@ -307,12 +345,50 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
     return operation;
   }
 
+  /** 撤销也是追加事件：Git 合并或中止后仍能知道原评分已经作废。 */
+  function undo(eventId) {
+    const wanted = String(eventId || '').trim();
+    const operation = recordQueue.then(async () => {
+      if (!wanted || wanted.length > 128) {
+        throw Object.assign(new Error('缺少或无效的事件 ID。'), { status: 400 });
+      }
+      const isLocalLog = name => /^\d{4}-\d{2}-/.test(name) && name.slice(8) === device + '.jsonl';
+      const latestLocal = snapshot => snapshot.events.filter(event => isLocalLog(event.source))
+        .sort((left, right) => left.source.localeCompare(right.source) || left.line - right.line).at(-1);
+      // 响应丢失后重试同一撤销仍成功，但只能认本设备评分及本设备撤销。
+      const alreadyUndone = snapshot => snapshot.allEvents.some(event =>
+        event.eventId === wanted && !event.undoOf && isLocalLog(event.source))
+        && snapshot.allEvents.some(event => event.undoOf === wanted && isLocalLog(event.source));
+      const snapshot = await cache.refresh();
+      if (alreadyUndone(snapshot)) return { ok: true, eventId: wanted };
+      const latest = latestLocal(snapshot);
+      if (!latest || latest.eventId !== wanted) throw conflict('只能撤销最后一次评分。');
+      await enqueueFile(vaultDir, REVIEWS_DIR + '/' + latest.source, async () => {
+        // 等待 Git 写入闸门时日志可能已被换过，落盘前重新校验。
+        const refreshed = await cache.refresh();
+        if (alreadyUndone(refreshed)) return;
+        const current = latestLocal(refreshed);
+        if (!current || current.eventId !== wanted) throw conflict('只能撤销最后一次评分。');
+        const dir = path.join(vaultDir, REVIEWS_DIR);
+        const logFile = path.join(dir, latest.source);
+        assertWritableLog(dir, logFile);
+        appendLinesSync(logFile, [JSON.stringify({
+          type: 'undo', event_id: randomUUID(), undo_event_id: wanted, ts: now().toISOString()
+        })]);
+      });
+      return { ok: true, eventId: wanted };
+    });
+    recordQueue = operation.catch(() => {});
+    return operation;
+  }
+
   async function states(cardIds) {
     return replay((await cache.refresh()).events, cardIds);
   }
 
   return {
     record,
+    undo,
     states,
     /** 当前全部事件（缓存过的）；generation 变了才说明日志有变化。 */
     snapshot: () => cache.refresh(),
@@ -321,6 +397,7 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
 }
 
 module.exports = {
+  isRegularFile,
   REVIEWS_DIR,
   RATING_LABELS,
   FSRS_PARAMETERS,

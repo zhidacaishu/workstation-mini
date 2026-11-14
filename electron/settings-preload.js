@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('workstationSettings', {
   chooseDirectory: field => invoke('settings:choose-directory', field),
   syncNow: () => invoke('settings:sync-now'),
   abortGitOperation: () => invoke('settings:abort-git-operation'),
+  listGitConflicts: () => invoke('settings:list-git-conflicts'),
+  resolveGitConflicts: choices => invoke('settings:resolve-git-conflicts', choices),
   openVault: () => invoke('settings:open-vault'),
   openConfigDirectory: () => invoke('settings:open-config-directory'),
   openRecovery: mode => invoke('settings:open-recovery', mode),

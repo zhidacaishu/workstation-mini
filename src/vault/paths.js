@@ -46,10 +46,11 @@ async function ensureSafeTargetParent(targetDir, absolute, { create = false } = 
     }
     const stats = await fsp.lstat(current);
     if (!stats.isDirectory() || stats.isSymbolicLink()) {
-      throw new Error('目标路径包含符号链接或非目录祖先。');
+      // 带上 400：这是用户填的路径有问题（上级是个文件或符号链接），不是应用内部错误。
+      throw Object.assign(new Error('目标路径包含符号链接或非目录祖先。'), { status: 400 });
     }
     if (!samePath(await fsp.realpath(current), expectedReal)) {
-      throw new Error('目标路径离开了资料库目录。');
+      throw Object.assign(new Error('目标路径离开了资料库目录。'), { status: 400 });
     }
   }
   return absolute;

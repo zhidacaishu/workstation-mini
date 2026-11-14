@@ -142,7 +142,7 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
     });
   }
 
-  return { allCards, withStates, queue, stats, answer, store };
+  return { allCards, withStates, queue, stats, answer, undo: eventId => store.undo(eventId), store };
 }
 
 module.exports = { createReviewService, DEFAULT_NEW_LIMIT };

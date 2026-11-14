@@ -13,13 +13,20 @@
 
   <label class="card-field">
     <span>正面</span>
-    <input type="text" name="front" value="<%= card.front %>" required autocomplete="off" spellcheck="false">
+    <input id="card-front" type="text" name="front" value="<%= card.front %>" required autocomplete="off" spellcheck="false">
   </label>
-  <label class="card-field">
-    <span>背面</span>
-    <textarea name="back" rows="10" spellcheck="false"><%= card.back %></textarea>
+  <div class="card-field card-back-field">
+    <label for="card-back">背面</label>
+    <%# 宽窗口下右边是这张卡排好的样子：公式、挖空不用保存就能看到。 %>
+    <div class="card-back-panes" data-preview-host>
+      <textarea id="card-back" name="back" rows="10" spellcheck="false" data-md-editor data-preview="#card-preview" data-preview-kind="card" data-preview-front="#card-front" aria-controls="link-suggest"><%= card.back %></textarea>
+      <section id="card-preview" class="card-preview" aria-label="预览" hidden>
+        <div class="card-preview-front" data-preview-front></div>
+        <div class="card-preview-back review-back" data-preview-body></div>
+      </section>
+    </div>
     <small>支持 Markdown、<code>$公式$</code> 和 <code>{{挖空}}</code>。</small>
-  </label>
+  </div>
   <label class="card-field">
     <span>卡组文件</span>
     <span class="card-deck-input"><span aria-hidden="true">cards/</span><input type="text" name="deckFile" value="<%= card.deckFile %>" list="deck-files" autocomplete="off" spellcheck="false"><span aria-hidden="true">.md</span></span>

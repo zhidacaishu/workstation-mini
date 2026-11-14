@@ -9,6 +9,10 @@ const syncStatusPanel = document.getElementById('sync-status');
 const syncStatusTitle = document.getElementById('sync-status-title');
 const syncStatusDetail = document.getElementById('sync-status-detail');
 const abortGitButton = document.getElementById('abort-git-operation');
+const conflictPanel = document.getElementById('conflict-panel');
+const conflictList = document.getElementById('conflict-list');
+const conflictProgress = document.getElementById('conflict-progress');
+const resolveButton = document.getElementById('resolve-conflicts');
 const capabilityElements = [...document.querySelectorAll('[data-capability]')];
 
 const PLAIN_FIELDS = [
@@ -31,6 +35,11 @@ let revision = 0;
 let disabledBeforeBusy = new Map();
 let syncStatus = { phase: 'disabled', operation: '', recovery: null, lastResult: null };
 let capabilities = { launchAtLogin: true };
+// 冲突文件和已经做的选择。状态每变一次就重新问一遍主进程，选过的按路径留着。
+let conflictFiles = [];
+let conflictChoices = new Map();
+let conflictSignature = '';
+let conflictToken = 0;
 
 function field(name) {
   return form.elements.namedItem(name);
@@ -76,6 +85,7 @@ function updateActions() {
     || ['disabled', 'running'].includes(syncStatus.phase)
     || Boolean(syncStatus.recovery);
   abortGitButton.disabled = locked || syncStatus.phase === 'running';
+  if (resolveButton) resolveButton.disabled = locked || syncStatus.phase === 'running' || !conflictsReady();
   document.getElementById('open-vault').disabled = locked || !savedVaultDir;
   document.getElementById('open-config').disabled = locked;
   document.getElementById('open-recovery').disabled = locked;
@@ -87,8 +97,12 @@ function renderSyncStatus(status = {}) {
   const recovery = syncStatus.recovery;
   if (recovery) {
     const labels = { rebase: 'rebase', merge: 'merge', 'cherry-pick': 'cherry-pick', revert: 'revert', unmerged: '未合并文件' };
-    syncStatusTitle.textContent = `Git ${labels[recovery.kind] || '操作'} 需要恢复`;
-    syncStatusDetail.textContent = `有 ${recovery.unmergedCount} 个未合并文件。Git 写操作已暂停，本地编辑、浏览和复习仍可继续。`;
+    syncStatusTitle.textContent = recovery.unmergedCount > 0 && recovery.abortable
+      ? `同步遇到冲突，等你处理（Git ${labels[recovery.kind] || '操作'}）`
+      : `Git ${labels[recovery.kind] || '操作'} 需要恢复`;
+    syncStatusDetail.textContent = recovery.abortable
+      ? `有 ${recovery.unmergedCount} 个文件两边都改过，同步已暂停。浏览和复习可以继续。可以在下面逐个选保留哪一边；也可以中止，回到同步前的状态（这期间保存的笔记修改会从正文撤掉并存进「历史与草稿」）。`
+      : `有 ${recovery.unmergedCount} 个未合并文件，同步已暂停。这种状态应用里无法中止，请用 Git 工具处理后重启应用。`;
     abortGitButton.hidden = !recovery.abortable;
   } else if (syncStatus.phase === 'disabled') {
     syncStatusTitle.textContent = '自动同步已关闭';
@@ -96,7 +110,7 @@ function renderSyncStatus(status = {}) {
     abortGitButton.hidden = true;
   } else if (syncStatus.phase === 'running') {
     syncStatusTitle.textContent = 'Git 同步正在进行';
-    syncStatusDetail.textContent = syncStatus.operation === 'abort' ? '正在中止当前 Git 操作…' : '请稍候，本地内容仍可继续使用。';
+    syncStatusDetail.textContent = syncStatus.operation === 'abort' ? '正在中止当前 Git 操作…' : syncStatus.operation === 'resolve' ? '正在按选择解决冲突…' : '请稍候，本地内容仍可继续使用。';
     abortGitButton.hidden = true;
   } else if (syncStatus.phase === 'error') {
     syncStatusTitle.textContent = '上次 Git 同步失败';
@@ -109,6 +123,125 @@ function renderSyncStatus(status = {}) {
     syncStatusDetail.textContent = syncStatus.lastResult?.ok === true ? '上次操作已完成。' : '本地编辑和索引不受影响。';
     abortGitButton.hidden = true;
   }
+  refreshConflicts();
+  updateActions();
+}
+
+function pendingConflicts() {
+  return conflictFiles.filter(file => !file.auto && !conflictChoices.has(file.path));
+}
+
+function conflictsReady() {
+  return conflictFiles.length > 0 && pendingConflicts().length === 0;
+}
+
+function hideConflicts() {
+  conflictToken += 1;
+  conflictFiles = [];
+  conflictChoices = new Map();
+  conflictSignature = '';
+  if (conflictPanel) conflictPanel.hidden = true;
+}
+
+function refreshConflicts() {
+  if (!conflictPanel || typeof api.listGitConflicts !== 'function') return;
+  if (!syncStatus.recovery) { hideConflicts(); return; }
+  // 正在处理时列表先留着不动，结束后状态会再变一次。
+  if (syncStatus.phase === 'running') return;
+  const token = ++conflictToken;
+  api.listGitConflicts().then(result => {
+    if (token !== conflictToken) return;
+    if (!result || !result.resolvable) { hideConflicts(); updateActions(); return; }
+    showConflicts(result.files);
+  }).catch(() => {
+    if (token === conflictToken) { hideConflicts(); updateActions(); }
+  });
+}
+
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function conflictOption(file, index, value, label) {
+  const wrapper = element('label', 'conflict-option');
+  const input = element('input');
+  input.type = 'radio';
+  input.name = `conflict-${index}`;
+  input.value = value;
+  input.checked = conflictChoices.get(file.path) === value;
+  input.addEventListener('change', () => {
+    if (!input.checked) return;
+    conflictChoices.set(file.path, value);
+    updateConflictProgress();
+    updateActions();
+  });
+  wrapper.append(input, element('span', '', label));
+  return wrapper;
+}
+
+function conflictDiff(diff) {
+  const details = element('details', 'conflict-diff');
+  details.append(element('summary', '', `看两边差在哪里（本机比远端多 ${diff.added} 行、少 ${diff.removed} 行）`));
+  const box = element('div', 'conflict-diff-body');
+  for (const hunk of diff.hunks) {
+    if (hunk.type === 'skip') { box.append(element('p', 'diff-skip', `两边一样的 ${hunk.count} 行`)); continue; }
+    for (const row of hunk.rows) {
+      const line = element('div', `diff-row is-${row.type}`);
+      line.append(element('span', 'diff-sign', row.type === 'add' ? '+' : row.type === 'del' ? '−' : ''), element('span', 'diff-text', row.text));
+      box.append(line);
+    }
+  }
+  if (diff.truncated) box.append(element('p', 'diff-skip', '后面还有，只显示了前一部分'));
+  details.append(box, element('p', 'conflict-legend', '－ 只有远端有的行　＋ 只有本机有的行'));
+  return details;
+}
+
+function showConflicts(files) {
+  const signature = JSON.stringify(files.map(file => [file.path, file.remote, file.local, file.current, file.auto, file.diff?.added, file.diff?.removed]));
+  conflictFiles = files;
+  const known = new Set(files.map(file => file.path));
+  for (const path of [...conflictChoices.keys()]) if (!known.has(path)) conflictChoices.delete(path);
+  for (const file of files) if (conflictChoices.get(file.path) === 'current' && !file.current) conflictChoices.delete(file.path);
+  conflictPanel.hidden = false;
+  if (signature !== conflictSignature) {
+    conflictSignature = signature;
+    conflictList.replaceChildren(...files.map((file, index) => {
+      const item = element('li', 'conflict-file');
+      item.append(element('code', 'conflict-path', file.path));
+      if (file.auto) {
+        item.append(element('p', 'conflict-auto', '复习记录两边都保留，不用选。'));
+        return item;
+      }
+      const options = element('div', 'conflict-options');
+      options.setAttribute('role', 'radiogroup');
+      options.setAttribute('aria-label', `${file.path} 保留哪一边`);
+      options.append(
+        conflictOption(file, index, 'remote', file.remote ? '用远端的' : '跟远端一样删掉'),
+        conflictOption(file, index, 'local', file.local ? '用本机的' : '跟本机一样删掉')
+      );
+      if (file.current) options.append(conflictOption(file, index, 'current', '用现在文件里的内容（已经手工改好）'));
+      item.append(options);
+      if (file.diff) item.append(conflictDiff(file.diff));
+      return item;
+    }));
+  }
+  updateConflictProgress();
+  updateActions();
+}
+
+function updateConflictProgress() {
+  if (!conflictProgress) return;
+  const left = pendingConflicts().length;
+  conflictProgress.textContent = left ? `还有 ${left} 个文件没选` : '';
+}
+
+function chooseAllConflicts(side) {
+  for (const file of conflictFiles) if (!file.auto) conflictChoices.set(file.path, side);
+  for (const input of conflictList.querySelectorAll('input[type="radio"]')) input.checked = input.value === side;
+  updateConflictProgress();
   updateActions();
 }
 
@@ -353,7 +486,10 @@ syncButton.addEventListener('click', async () => {
   try {
     const result = await api.syncNow();
     if (result.ok === false) {
-      const detail = result.blocked === 'recovery-required' ? 'Git 需要先恢复，未执行同步。' : `同步失败：${result.error || '未知错误'}`;
+      // 撞上冲突时 Git 的原话是一大段英文提示；上面的状态栏和冲突列表已经说清楚该做什么。
+      const detail = result.blocked === 'recovery-required' ? 'Git 需要先恢复，未执行同步。'
+        : result.recovery ? `同步停在了冲突上：有 ${result.recovery.unmergedCount} 个文件两边都改过，请在上面选保留哪一边。`
+        : `同步失败：${result.error || '未知错误'}`;
       throw new Error(detail);
     }
     settleOperation(result.skipped ? `同步跳过：${result.skipped}` : '同步完成。');
@@ -369,7 +505,35 @@ abortGitButton.addEventListener('click', async () => {
     const result = await api.abortGitOperation();
     if (result.cancelled) settleOperation('未中止 Git 操作。');
     else if (result.ok === false) throw new Error(result.error || 'Git 操作未能安全中止。');
-    else settleOperation('Git 操作已中止；请检查资料库后手动同步。');
+    else {
+      const preserved = Array.isArray(result.preserved) ? result.preserved : [];
+      const notes = preserved.filter(item => item.kind === 'history').length;
+      const reviews = preserved.filter(item => item.kind === 'review').reduce((sum, item) => sum + (item.count || 0), 0);
+      const kept = [
+        notes ? `${notes} 个文件的未提交修改已存进「历史与草稿」` : '',
+        reviews ? `${reviews} 条复习记录已补回` : ''
+      ].filter(Boolean).join('，');
+      settleOperation(`Git 操作已中止${kept ? `；${kept}` : ''}。请检查资料库后手动同步。`);
+    }
+  } catch (error) {
+    failOperation(error);
+  }
+});
+
+document.getElementById('conflict-all-remote')?.addEventListener('click', () => chooseAllConflicts('remote'));
+document.getElementById('conflict-all-local')?.addEventListener('click', () => chooseAllConflicts('local'));
+resolveButton?.addEventListener('click', async () => {
+  if (activeOperation || !conflictsReady()) return;
+  const choices = Object.fromEntries(conflictChoices);
+  beginOperation('resolve', '正在按选择解决冲突…');
+  try {
+    const result = await api.resolveGitConflicts(choices);
+    if (result.ok === false) throw new Error(result.error || '冲突没有解决。');
+    const kept = Array.isArray(result.preserved) ? result.preserved.length : 0;
+    const tail = kept ? `没采用的 ${kept} 个文件版本已存进「历史与草稿」。` : '';
+    settleOperation(result.more
+      ? `这一处已经解决；后面的本机提交还有冲突，请继续选。${tail}`
+      : `冲突已解决，正在把结果同步上去。${tail}`);
   } catch (error) {
     failOperation(error);
   }

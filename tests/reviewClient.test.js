@@ -341,3 +341,69 @@ test('服务端持续出错时不会无限重试：几次之后如实报告原�
   assert.equal(attempts, 5);
   assert.match(ui.elements.get('review-failures').textContent, /磁盘已满/);
 });
+
+test('撤销请求尚未完成时不能给下一张评分或暂停，完成后回到原卡', async () => {
+  const undo = deferred();
+  const calls = [];
+  const ui = await loadReview(async (url, options) => {
+    calls.push({ url, payload: options?.body });
+    if (url === '/review/undo') return undo.promise;
+    return { ok: true, json: async () => ({ ok: true }) };
+  }, [CARD, { ...CARD, id: 'second', front: '第二张' }]);
+  ui.reveal();
+  await ui.rate(3);
+  ui.keydown({ key: 'z' });
+  await flush();
+  ui.reveal();
+  await ui.rate(3);
+  await ui.suspend();
+  assert.deepEqual(calls.map(call => call.url), ['/review/answer', '/review/undo']);
+  undo.resolve({ ok: true, json: async () => ({ ok: true }) });
+  await flush();
+  assert.equal(ui.elements.get('review-front').innerHTML, CARD.front);
+  assert.equal(ui.elements.get('review-remaining').textContent, '2');
+});
+
+test('首次评分仍在保存时快速重学，撤销第二次不丢掉首次成功评分的卡片统计', async () => {
+  const first = deferred();
+  let answers = 0;
+  const ui = await loadReview(async url => {
+    if (url === '/review/answer') {
+      answers += 1;
+      if (answers === 1) return first.promise;
+      if (answers === 3) return { ok: false, status: 400, json: async () => ({ message: '评分失败' }) };
+    }
+    return { ok: true, json: async () => ({ ok: true }) };
+  }, [CARD]);
+  ui.reveal();
+  const initial = ui.rate(1);
+  ui.reveal();
+  await ui.rate(3);
+  first.resolve({ ok: true });
+  await initial;
+  ui.keydown({ key: 'z' });
+  await flush();
+  ui.reveal();
+  await ui.rate(3);
+  assert.match(ui.elements.get('review-summary').textContent, /复习了 1 张，其中 1 张本轮重学过/);
+});
+
+test('撤销响应连接中断时保留事件 ID，可重试后回到原卡', async () => {
+  const ids = [];
+  const ui = await loadReview(async (url, options) => {
+    if (url === '/review/undo') {
+      ids.push(JSON.parse(options.body).eventId);
+      if (ids.length === 1) throw new Error('连接中断');
+    }
+    return { ok: true, json: async () => ({ ok: true }) };
+  }, [CARD]);
+  ui.reveal();
+  await ui.rate(3);
+  ui.keydown({ key: 'z' });
+  await flush();
+  ui.keydown({ key: 'z' });
+  await flush();
+  assert.deepEqual(ids, ['event-1', 'event-1']);
+  assert.equal(ui.elements.get('review-front').innerHTML, CARD.front);
+  assert.equal(ui.elements.get('review-remaining').textContent, '1');
+});

@@ -2,6 +2,12 @@ const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { promisify } = require('node:util');
+const { compareText } = require('./lineDiff');
+const { randomUUID } = require('node:crypto');
+const { ensureSafeFilePath } = require('./vault/paths');
+const { replaceFile } = require('./vault/atomic');
+
+const { isRegularFile } = require('./review');
 
 const run = promisify(execFile);
 
@@ -90,15 +96,29 @@ const ATTRIBUTE_RULES = [
 ];
 const VAULT_GITATTRIBUTES = `# 应用管理：文本统一用 LF 换行，Windows 和 macOS 检出的内容一致。\n${ATTRIBUTE_RULES.join('\n')}\n`;
 
+const NETWORK_COMMANDS = new Set(['fetch', 'push', 'ls-remote']);
+// 中止前保全的单个文件大小上限：笔记和复习日志远小于这个数。
+const PRESERVE_MAX_BYTES = 16 * 1024 * 1024;
+// 冲突列表里给人看的两边差异：只比文本，文件太大或差得太多就不比。
+const CONFLICT_DIFF_MAX_BYTES = 512 * 1024;
+const CONFLICT_DIFF_MAX_ROWS = 300;
+const CONFLICT_MARKER = /^(?:<{7} |={7}$|>{7} )/m;
+const CONFLICT_TEXT_FILE = /\.(md|markdown|txt|jsonl|json|ya?ml|csv|tex|bib)$/i;
+
 function createSync({
   vaultDir,
   logger = console,
   timeoutMs = 60_000,
+  // fetch、push、ls-remote 的总时长上限；平时靠 http.lowSpeedLimit 提前放弃。
+  networkTimeoutMs = 30 * 60_000,
   enabled = true,
   reviewSyncEnabled = false,
   beforeReviewPush = async () => {},
   // 会改工作区文件的本地 Git 操作（变基、冲突处理）在这里面跑，期间暂停笔记写入。
-  pauseWrites = operation => operation()
+  pauseWrites = operation => operation(),
+  // 中止 Git 操作会丢弃工作区里未提交的修改。中止前读到的内容交给这里另存一份
+  // （运行时把它写进本机历史）；返回 true 表示已经存好。
+  preserveDiscarded = async () => false
 }) {
   const cancellation = new AbortController();
   let queue = Promise.resolve();
@@ -133,20 +153,39 @@ function createSync({
 
   async function git(args, options = {}) {
     // 后台同步没有终端可以回答提示：账号密码提示会一直挂到超时。HTTP 连接卡住
-    // （代理坏了、网络时断时续）时用低速限制尽早放弃，而不是每条命令都等满 60 秒。
-    return run('git', [
-      '-C', vaultDir,
-      '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=20',
-      ...args
-    ], {
-      encoding: 'utf8',
-      timeout: timeoutMs,
-      windowsHide: true,
-      maxBuffer: 64 * 1024 * 1024,
-      ...options,
-      signal: cancellation.signal,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(options.env || {}) }
-    });
+    // （代理坏了、网络时断时续）时用低速限制尽早放弃。
+    //
+    // 联网命令不能和本地命令共用 60 秒：附件和录音也走 Git，一次推送超过一分钟很平常，
+    // 到点就杀的话每一轮都从头再来，永远推不上去。它们只受低速限制和一个很宽的总上限
+    // 约束（SSH 远端没有低速限制，上限是最后的保险）；调用方显式给了 timeout 的
+    // （退出前那次提交）仍按调用方的来。
+    const network = NETWORK_COMMANDS.has(args[0]);
+    const timeout = options.timeout ?? (network ? networkTimeoutMs : timeoutMs);
+    try {
+      return await run('git', [
+        '-C', vaultDir,
+        '-c', 'http.lowSpeedLimit=1000', '-c', 'http.lowSpeedTime=20',
+        ...args
+      ], {
+        encoding: 'utf8',
+        windowsHide: true,
+        maxBuffer: 64 * 1024 * 1024,
+        ...options,
+        timeout,
+        signal: cancellation.signal,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(options.env || {}) }
+      });
+    } catch (error) {
+      // execFile 到点杀进程时只给一句「Command failed: git -C …」，看不出是超时。
+      if (error && error.killed && !cancellation.signal.aborted && error.name !== 'AbortError') {
+        const seconds = Math.round(timeout / 1000);
+        const detail = String(error.stderr || '').trim();
+        error.timedOut = true;
+        error.message = `Git ${args[0]} 超过 ${seconds} 秒没有完成，已停止；下一轮同步会重试。${detail ? `\n${detail}` : ''}`;
+        error.stderr = '';
+      }
+      throw error;
+    }
   }
 
   async function isRepo(options) {
@@ -184,10 +223,12 @@ function createSync({
     }
   }
 
-  async function gitPath(name, options) {
-    const { stdout } = await git(['rev-parse', '--git-path', name], options);
-    const value = stdout.trim();
-    return path.isAbsolute(value) ? value : path.resolve(vaultDir, value);
+  /** 一次 rev-parse 解析多个 .git 内部路径：逐个问要多起好几个子进程，启动时尤其明显。 */
+  async function gitPaths(names, options) {
+    const { stdout } = await git(['rev-parse', ...names.flatMap(name => ['--git-path', name])], options);
+    const values = stdout.split(/\r?\n/).filter(Boolean);
+    if (values.length !== names.length) throw new Error('无法解析 Git 内部路径。');
+    return values.map(value => path.isAbsolute(value) ? value : path.resolve(vaultDir, value));
   }
 
   async function pathExists(target) {
@@ -209,8 +250,9 @@ function createSync({
       ['revert', 'REVERT_HEAD']
     ];
     let kind = '';
-    for (const [candidate, marker] of markers) {
-      if (await pathExists(await gitPath(marker, options))) {
+    const markerPaths = await gitPaths(markers.map(([, marker]) => marker), options);
+    for (const [index, [candidate]] of markers.entries()) {
+      if (await pathExists(markerPaths[index])) {
         kind = candidate;
         break;
       }
@@ -377,6 +419,9 @@ function createSync({
       }
       // 拉取拆成两步：联网的 fetch 不挡笔记保存；改工作区的变基期间暂停写入。
       await git(['fetch', '--quiet'], options);
+      // 远端的提交本机已经都有了（包括在外面手工 merge 过的情形）就不用变基：
+      // 变基会把合并提交拆开重放，同一处冲突要再解决一遍。
+      if (await isAncestor('@{u}', 'HEAD', options)) return finish({ ok: true });
       await pauseWrites(() => git(['rebase', '--no-autostash', '@{u}'], options));
       return finish({ ok: true });
     } catch (error) {
@@ -394,6 +439,19 @@ function createSync({
     } catch {
       return false;
     }
+  }
+
+  async function isAncestor(ancestor, descendant, options) {
+    return git(['merge-base', '--is-ancestor', ancestor, descendant], options).then(() => true, error => {
+      if (error.code === 1) return false;
+      throw error;
+    });
+  }
+
+  /** 已跟踪文件有没有未提交的修改；未跟踪的新文件不妨碍变基，不算。 */
+  async function hasTrackedChanges(options) {
+    const { stdout } = await git(['status', '--porcelain', '--untracked-files=no'], options);
+    return stdout.trim().length > 0;
   }
 
   function reviewResult(fields = {}) {
@@ -482,7 +540,7 @@ function createSync({
         remote,
         destination,
         trackingRef,
-        pullArgs: ['rebase', '--autostash', trackingRef],
+        pullArgs: ['rebase', '--no-autostash', trackingRef],
         setUpstream: false
       };
     }
@@ -503,7 +561,7 @@ function createSync({
       remote,
       destination,
       trackingRef: exists ? trackingRef : '',
-      pullArgs: exists ? ['rebase', '--autostash', trackingRef] : null,
+      pullArgs: exists ? ['rebase', '--no-autostash', trackingRef] : null,
       setUpstream: true
     };
   }
@@ -539,10 +597,12 @@ function createSync({
     }
     const escapedDevice = device.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`^\\d{4}-\\d{2}-${escapedDevice}\\.jsonl$`);
-    return entries
-      .filter(entry => entry.isFile() && pattern.test(entry.name))
-      .map(entry => `reviews/${entry.name}`)
-      .sort();
+    const files = [];
+    for (const entry of entries) {
+      if (!pattern.test(entry.name)) continue;
+      if (await isRegularFile(entry, path.join(reviewsDir, entry.name))) files.push(`reviews/${entry.name}`);
+    }
+    return files.sort();
   }
 
   async function syncReviewLogsOnce(device, message, options) {
@@ -551,6 +611,9 @@ function createSync({
     const denied = await beginMutation('review-sync', options);
     if (denied) return finish(reviewResult(denied));
 
+    let committed = false;
+    let changed = false;
+    let headBefore = '';
     try {
       const currentPattern = currentDeviceReviewPattern(device);
 
@@ -578,16 +641,12 @@ function createSync({
         }
       }
 
-      const before = await headSha(options);
-      if (target?.pullArgs) await pauseWrites(() => git(target.pullArgs, options));
-      const after = await headSha(options);
-      const changed = before !== after;
-      const recovery = await detectRecovery(options);
-      if (recovery) return finish(reviewResult({ ok: false, changed, blocked: 'recovery-required', recovery }));
-
-      const unsafeAfterPull = await assertSafeStaging();
-      if (unsafeAfterPull) return finish({ ...unsafeAfterPull, changed });
-
+      // 先把这台设备的复习日志提交掉，再决定要不要变基。
+      //
+      // 以前是带着未提交的修改直接 `rebase --autostash`：远端和本机改了同一篇笔记时，
+      // 自动暂存弹回来会把冲突标记写进正文，留下一个只有未合并文件、应用里中止不了的
+      // 现场。现在和周期同步一个规矩：不用 autostash；工作区还有别的未提交修改时，
+      // 这一次只提交不推送，等下一轮完整同步先提交全部再变基。
       const reviewPaths = await currentDeviceReviewPaths(device);
       if (reviewPaths.length > 0) await git(['add', '--', ...reviewPaths], options);
       const selectedChanged = reviewPaths.length > 0 && (await git([
@@ -597,11 +656,29 @@ function createSync({
         throw error;
       }));
 
-      let committed = false;
       if (selectedChanged) {
         await git(['commit', '--only', '-m', message, '--', ...reviewPaths], options);
         committed = true;
       }
+
+      if (target?.pullArgs && await hasHead(options)
+          && !(await isAncestor(target.trackingRef, 'HEAD', options))) {
+        if (await hasTrackedChanges(options)) {
+          return finish(reviewResult({
+            committed,
+            deferred: 'local-changes',
+            skipped: '本机还有未提交的修改，复习记录已在本机提交，下一轮完整同步时一起推送'
+          }));
+        }
+        headBefore = await headSha(options);
+        await pauseWrites(() => git(target.pullArgs, options));
+        changed = headBefore !== await headSha(options);
+      }
+      const recovery = await detectRecovery(options);
+      if (recovery) return finish(reviewResult({ ok: false, committed, changed, blocked: 'recovery-required', recovery }));
+
+      const unsafeAfterPull = await assertSafeStaging();
+      if (unsafeAfterPull) return finish({ ...unsafeAfterPull, committed, changed });
 
       if (!target || !(await hasHead(options))) {
         return finish(reviewResult({ committed, changed }));
@@ -616,12 +693,7 @@ function createSync({
       }
 
       if (validated.base) {
-        const fastForward = await git([
-          'merge-base', '--is-ancestor', validated.base, validated.tip
-        ], options).then(() => true, error => {
-          if (error.code === 1) return false;
-          throw error;
-        });
+        const fastForward = await isAncestor(validated.base, validated.tip, options);
         if (!fastForward) {
           return finish(reviewResult({
             ok: false,
@@ -652,8 +724,10 @@ function createSync({
     } catch (error) {
       const errorMessage = String(error.stderr || error.message).trim();
       const recovery = await detectRecovery(options);
+      // 变基停在半路时 HEAD 已经动了，调用方要据此重扫索引。
+      if (headBefore) changed = headBefore !== await headSha(options);
       logger.warn(`[sync] 复习记录同步失败：${errorMessage}`);
-      return finish(reviewResult({ ok: false, error: errorMessage, ...(recovery ? { recovery } : {}) }));
+      return finish(reviewResult({ ok: false, committed, changed, error: errorMessage, ...(recovery ? { recovery } : {}) }));
     }
   }
 
@@ -742,6 +816,95 @@ function createSync({
     return enqueue(() => cycleOnce(message, options));
   }
 
+  /**
+   * 工作区里相对暂存区有改动、或处于未合并状态的已跟踪文本文件，连同当前内容。
+   * 只管 .md 和 .jsonl：笔记、卡组、复习日志。二进制附件不在应用里编辑。
+   */
+  async function snapshotWorktreeEdits(options) {
+    const { stdout } = await git(['status', '--porcelain=v1', '-z', '--untracked-files=no'], options);
+    const fields = stdout.split('\0');
+    const files = [];
+    for (let index = 0; index < fields.length; index += 1) {
+      const entry = fields[index];
+      if (entry.length < 4) continue;
+      const staged = entry[0];
+      const worktree = entry[1];
+      // 改名和复制后面多带一个原路径字段。
+      if (staged === 'R' || staged === 'C') index += 1;
+      const unmerged = staged === 'U' || worktree === 'U'
+        || (staged === 'A' && worktree === 'A') || (staged === 'D' && worktree === 'D');
+      if (!unmerged && staged === ' ' && worktree !== 'M' && worktree !== 'T') continue;
+      const file = entry.slice(3);
+      if (file.includes('\\')) throw userError('「' + file + '」路径包含反斜杠，无法安全自动处理；请用 Git 工具处理。');
+      if (!/\.(md|jsonl)$/i.test(file)) continue;
+      try {
+        const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
+        const stat = await fs.lstat(absolute);
+        if (!stat.isFile()) throw userError('无法安全备份「' + file + '」，未中止 Git 操作。');
+        if (stat.size > PRESERVE_MAX_BYTES) throw userError('「' + file + '」超过备份大小上限，未中止 Git 操作。');
+        files.push({ path: file, content: await fs.readFile(absolute, 'utf8') });
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
+    return files;
+  }
+
+  function isJsonLine(line) {
+    try {
+      const value = JSON.parse(line);
+      return Boolean(value) && typeof value === 'object';
+    } catch {
+      return false;
+    }
+  }
+
+  async function writeReviewLog(file, content) {
+    const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true, createParents: true });
+    // 全部内容先落到独占临时文件；磁盘满或写入中断时保留原日志。
+    const temporary = absolute + '.tmp-' + randomUUID();
+    try {
+      const handle = await fs.open(temporary, 'wx', 0o600);
+      try {
+        await handle.writeFile(content, 'utf8');
+        await handle.sync();
+      } finally { await handle.close(); }
+      // 替换前再次校验，现有链接和不安全父路径一律拒绝。
+      await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
+      await replaceFile(temporary, absolute);
+    } finally { await fs.rm(temporary, { force: true }).catch(() => {}); }
+  }
+
+  async function restoreDiscardedEdits(snapshot, history) {
+    const preserved = [];
+    for (const item of snapshot) {
+      try {
+        const absolute = await ensureSafeFilePath(vaultDir, item.path, { allowMissing: true });
+        let current = '';
+        try {
+          current = await fs.readFile(absolute, 'utf8');
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+        if (current === item.content) continue;
+        if (isReviewPath(item.path)) {
+          // 复习日志只追加、每台设备一个文件：把中止后少掉的行补回去就是完整的。
+          const known = new Set(current.split(/\r?\n/));
+          const missing = item.content.split(/\r?\n/).filter(line => line && !known.has(line) && isJsonLine(line));
+          if (missing.length === 0) continue;
+          const lead = current && !current.endsWith('\n') ? '\n' : '';
+          await writeReviewLog(item.path, `${current}${lead}${missing.join('\n')}\n`);
+          preserved.push({ path: item.path, kind: 'review', count: missing.length });
+        } else if (history.has(item.path)) {
+          preserved.push({ path: item.path, kind: 'history' });
+        }
+      } catch (error) {
+        throw new Error('中止后恢复「' + item.path + '」失败；内容已保存在本机 Git 中止备份中：' + error.message);
+      }
+    }
+    return preserved;
+  }
+
   async function abortOperationOnce(options) {
     const recovery = await detectRecovery(options);
     if (!recovery) return finish({ ok: true, skipped: '没有需要恢复的 Git 操作' });
@@ -753,21 +916,323 @@ function createSync({
       'cherry-pick': ['cherry-pick', '--abort'],
       revert: ['revert', '--abort']
     };
+    let aborted = false;
+    let backupPath = '';
     try {
-      await pauseWrites(() => git(commands[recovery.kind], options));
+      // 中止等于硬重置：冲突期间保存过的笔记、评过的卡，只要还没提交就会被丢掉。
+      // 所以先把这些文件读出来，中止后把复习记录补回去、笔记和卡组另存进本机历史。
+      // 读、中止、补回都在写入闸门里，期间没有别的写入插进来。
+      const preserved = await pauseWrites(async () => {
+        const snapshot = await snapshotWorktreeEdits(options);
+        // Git 撤掉工作区之前先落盘，备份失败就保留现场。
+        // 整份快照也保留复习日志，以便恢复写入失败或进程中断后手工找回。
+        if (snapshot.length) {
+          const ignore = await ensureSafeFilePath(vaultDir, '.workstation-local/.gitignore', { allowMissing: true, createParents: true });
+          try { await fs.writeFile(ignore, '*\n', { flag: 'wx', mode: 0o600 }); }
+          catch (error) { if (error.code !== 'EEXIST') throw error; }
+          backupPath = '.workstation-local/git-abort/' + randomUUID() + '.json';
+          const backup = await ensureSafeFilePath(vaultDir, backupPath, { allowMissing: true, createParents: true });
+          const handle = await fs.open(backup, 'wx', 0o600);
+          try {
+            await handle.writeFile(JSON.stringify({ at: new Date().toISOString(), files: snapshot }));
+            await handle.sync();
+          } finally { await handle.close(); }
+        }
+        const history = new Set();
+        for (const item of snapshot) {
+          if (!isReviewPath(item.path) && await preserveDiscarded({ path: item.path, content: item.content })) {
+            history.add(item.path);
+          }
+        }
+        await git(commands[recovery.kind], options);
+        aborted = true;
+        return restoreDiscardedEdits(snapshot, history);
+      });
       const remaining = await detectRecovery(options);
       if (remaining) return blocked(remaining);
-      return finish({ ok: true, aborted: recovery.kind });
+      return finish({ ok: true, aborted: recovery.kind, preserved });
     } catch (error) {
       const message = String(error.stderr || error.message).trim();
-      const remaining = await detectRecovery(options) || recovery;
-      logger.warn(`[sync] 中止 ${recovery.kind} 失败：${message}`);
-      return finish({ ok: false, error: message, recovery: remaining });
+      const remaining = await detectRecovery(options);
+      logger.warn('[sync] 中止操作未能完整完成：' + message);
+      return finish({ ok: false, error: message, ...(remaining ? { recovery: remaining } : {}),
+        ...(aborted ? { aborted: recovery.kind } : {}), ...(backupPath ? { backupPath } : {}) });
     }
   }
 
   function abortOperation(options) {
     return enqueue(() => abortOperationOnce(options));
+  }
+
+  /**
+   * 冲突时索引里一个文件有两到三份：1 是共同祖先，2 是「ours」，3 是「theirs」。
+   * 变基是把本机提交挪到远端之上重放，所以 ours 是远端、theirs 是本机；合并正好反过来。
+   * 应用自己只会变基；合并是在外面用 Git 手工拉取留下的，一样能选。其他状态
+   * （cherry-pick、revert、只剩未合并条目）分不清哪边是哪边，不在应用里选。
+   */
+  function conflictSides(kind) {
+    if (kind === 'rebase') return { remote: 2, local: 3 };
+    if (kind === 'merge') return { local: 2, remote: 3 };
+    return null;
+  }
+
+  async function unmergedEntries(options) {
+    const { stdout } = await git(['ls-files', '-u', '-z'], options);
+    const entries = new Map();
+    for (const line of stdout.split('\0')) {
+      const match = /^(\d+) ([0-9a-f]+) (\d)\t([\s\S]+)$/.exec(line);
+      if (!match) continue;
+      const file = match[4];
+      if (file.includes('\\')) throw userError('「' + file + '」路径包含反斜杠，无法安全自动处理；请用 Git 工具处理。');
+      if (!entries.has(file)) entries.set(file, { modes: {} });
+      entries.get(file)[Number(match[3])] = match[2];
+      entries.get(file).modes[Number(match[3])] = match[1];
+    }
+    return entries;
+  }
+
+  async function blobText(sha, limit, options) {
+    if (!sha) return null;
+    const size = Number((await git(['cat-file', '-s', sha], options)).stdout.trim());
+    if (!Number.isFinite(size) || size > limit) return null;
+    return (await git(['cat-file', 'blob', sha], options)).stdout;
+  }
+
+  async function worktreeText(file, limit) {
+    try {
+      const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
+      const stat = await fs.lstat(absolute);
+      if (!stat.isFile() || stat.size > limit) return null;
+      return await fs.readFile(absolute, 'utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  function trimHunks(result) {
+    let rows = 0;
+    const hunks = [];
+    for (const hunk of result.hunks) {
+      if (hunk.type === 'skip') { hunks.push(hunk); continue; }
+      const room = CONFLICT_DIFF_MAX_ROWS - rows;
+      if (room <= 0) break;
+      hunks.push(hunk.rows.length > room ? { type: 'lines', rows: hunk.rows.slice(0, room) } : hunk);
+      rows += Math.min(hunk.rows.length, room);
+    }
+    const total = result.hunks.reduce((sum, hunk) => sum + (hunk.type === 'lines' ? hunk.rows.length : 0), 0);
+    return { added: result.added, removed: result.removed, hunks, truncated: total > rows };
+  }
+
+  /** 现在卡在冲突里的文件，连同两边各自有没有这个文件、差在哪里。只读，不改任何东西。 */
+  async function listConflictsOnce(options) {
+    const recovery = await detectRecovery(options);
+    if (!recovery) return { ok: true, recovery: null, resolvable: false, files: [] };
+    const sides = conflictSides(recovery.kind);
+    const entries = await unmergedEntries(options);
+    const files = [];
+    for (const [file, stages] of entries) {
+      const item = {
+        path: file,
+        // 复习日志只追加：两边的记录都要，不用选。
+        auto: isReviewPath(file) ? 'union' : '',
+        remote: Boolean(sides && stages[sides.remote]),
+        local: Boolean(sides && stages[sides.local]),
+        current: false,
+        diff: null
+      };
+      if (sides && !item.auto && CONFLICT_TEXT_FILE.test(file)) {
+        // 已经在编辑器里手工合并好（文件里没有冲突标记了）的，可以直接保留现在的内容。
+        if (item.remote && item.local) {
+          const current = await worktreeText(file, PRESERVE_MAX_BYTES);
+          item.current = current !== null && !CONFLICT_MARKER.test(current);
+          try {
+            const [remote, local] = await Promise.all([
+              blobText(stages[sides.remote], CONFLICT_DIFF_MAX_BYTES, options),
+              blobText(stages[sides.local], CONFLICT_DIFF_MAX_BYTES, options)
+            ]);
+            if (remote !== null && local !== null) {
+              const result = compareText(remote, local);
+              if (!result.tooLarge) item.diff = trimHunks(result);
+            }
+          } catch { /* 差异只是帮人判断用的，读不出来不挡选择。 */ }
+        }
+      }
+      files.push(item);
+    }
+    files.sort((left, right) => left.path.localeCompare(right.path));
+    return { ok: true, recovery, resolvable: Boolean(sides) && files.length > 0, files };
+  }
+
+  function listConflicts(options) {
+    return enqueue(() => listConflictsOnce(options));
+  }
+
+  function userError(message) {
+    return Object.assign(new Error(message), { userFacing: true });
+  }
+
+  async function resolveReviewLog(file, stages, options) {
+    // 不能把超限/读失败当成空日志，也不能把 Git 中的符号链接当 JSONL 合并。
+    if (Object.values(stages.modes).some(mode => mode !== '100644' && mode !== '100755')) {
+      throw userError('「' + file + '」包含非普通文件，未合并；请用 Git 工具处理。');
+    }
+    const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
+    let current = null;
+    try {
+      const stat = await fs.lstat(absolute);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > PRESERVE_MAX_BYTES) {
+        throw userError('「' + file + '」无法完整安全读取，未合并；请用 Git 工具处理。');
+      }
+      current = await fs.readFile(absolute, 'utf8');
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const sources = [];
+    for (const stage of [2, 3]) {
+      if (!stages[stage]) continue; // 这一边确实删除了文件。
+      const content = await blobText(stages[stage], PRESERVE_MAX_BYTES, options);
+      if (content === null) throw userError('「' + file + '」超过自动合并大小上限，未合并；请用 Git 工具处理。');
+      sources.push(content);
+    }
+    if (current !== null) sources.push(current);
+    const seen = new Set();
+    const lines = [];
+    for (const source of sources) {
+      for (const line of source.split(/\r?\n/)) {
+        if (!line || seen.has(line) || !isJsonLine(line)) continue;
+        seen.add(line);
+        lines.push(line);
+      }
+    }
+    await writeReviewLog(file, lines.length ? lines.join('\n') + '\n' : '');
+  }
+
+  async function resolveConflictsOnce(choices, options = {}) {
+    const recovery = await detectRecovery(options);
+    if (!recovery) return finish({ ok: true, skipped: '没有需要处理的冲突' });
+    const sides = conflictSides(recovery.kind);
+    if (!sides) {
+      const result = { ok: false, error: '这种 Git 状态分不清哪边是远端、哪边是本机，不能在应用里选；请用 Git 工具处理，或者中止当前操作。', recovery };
+      emitStatus({ phase: 'recovery-required', operation: '', recovery, lastResult: result });
+      return result;
+    }
+    const wanted = choices && typeof choices === 'object' ? choices : {};
+    emitStatus({ phase: 'running', operation: 'resolve', recovery });
+    // 路径原样交给 Git：文件名里的 * ? [ 不当通配符。
+    const literal = { ...options, env: { ...(options.env || {}), GIT_LITERAL_PATHSPECS: '1', GIT_EDITOR: 'true' } };
+    let resolved = 0;
+    const preserved = [];
+    try {
+      await pauseWrites(async () => {
+        const entries = await unmergedEntries(options);
+        for (const file of entries.keys()) {
+          if (isReviewPath(file)) continue;
+          if (!['remote', 'local', 'current'].includes(wanted[file])) throw userError(`还没有选「${file}」保留哪一边。`);
+        }
+        for (const [file, stages] of entries) {
+          if (isReviewPath(file)) {
+            await resolveReviewLog(file, stages, options);
+            await git(['add', '--', file], literal);
+            resolved += 1;
+            continue;
+          }
+          const choice = wanted[file];
+          const current = await worktreeText(file, PRESERVE_MAX_BYTES);
+          if (choice === 'current') {
+            if (current === null) throw userError(`「${file}」现在不在资料库里，不能按现在的内容保留。`);
+            if (CONFLICT_MARKER.test(current)) throw userError(`「${file}」里还有冲突标记（<<<<<<<），请先改好，或者选远端、本机其中一边。`);
+          }
+          const keep = choice === 'current' ? null : stages[sides[choice]];
+          const drop = stages[sides[choice === 'remote' ? 'local' : 'remote']];
+          // 没采用的那一边、以及手工改到一半的现有内容，先存进本机历史再覆盖。
+          if (/\.md$/i.test(file)) {
+            if (Object.values(stages.modes).some(mode => mode !== '100644' && mode !== '100755')) {
+              throw userError('「' + file + '」包含非普通文件，未覆盖；请用 Git 工具处理。');
+            }
+            if (current === null) {
+              try {
+                const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
+                await fs.lstat(absolute);
+                throw userError('「' + file + '」无法完整安全备份，未覆盖；请用 Git 工具处理。');
+              } catch (error) { if (error.code !== 'ENOENT') throw error; }
+            }
+            const requiredBlob = async sha => {
+              if (!sha) return null;
+              const content = await blobText(sha, PRESERVE_MAX_BYTES, options);
+              if (content === null) throw userError('「' + file + '」超过自动备份大小上限，未覆盖；请用 Git 工具处理。');
+              return content;
+            };
+            const kept = choice === 'current' ? current : await requiredBlob(keep);
+            const discarded = choice === 'current'
+              ? [await requiredBlob(stages[2]), await requiredBlob(stages[3])]
+              : [await requiredBlob(drop)];
+            if (choice !== 'current' && current !== null && !CONFLICT_MARKER.test(current)) discarded.push(current);
+            const saved = new Set();
+            for (const content of discarded) {
+              if (content === null || content === kept || saved.has(content)) continue;
+              saved.add(content);
+              if (await preserveDiscarded({ path: file, content, reason: 'conflict' })) {
+                if (!preserved.some(item => item.path === file)) preserved.push({ path: file, kind: 'history' });
+              }
+            }
+          }
+          if (choice === 'current') {
+            await git(['add', '--', file], literal);
+            resolved += 1;
+            continue;
+          }
+          if (keep) {
+            await git(['checkout', sides[choice] === 2 ? '--ours' : '--theirs', '--', file], literal);
+            await git(['add', '--', file], literal);
+          } else {
+            // 保留的那一边已经删了这个文件。
+            await git(['rm', '-f', '-q', '--', file], literal);
+          }
+          resolved += 1;
+        }
+        // 冲突期间保存过的别的笔记还没暂存，Git 会因此拒绝继续；它们本来就要进下一次提交。
+        await git(['add', '-A'], options);
+        if (recovery.kind === 'rebase') {
+          try {
+            await git(['rebase', '--continue'], literal);
+          } catch (error) {
+            const after = await detectRecovery(options);
+            // 重放下一个本机提交时又遇到冲突：停在那里，由调用方报告「还有」。
+            if (!after || after.unmergedCount > 0) return;
+            // 全部采用远端后，这一个本机提交就没有内容了；有的 Git 版本要显式跳过。
+            if (after.kind !== 'rebase' || await hasStagedChanges(options)) throw error;
+            try {
+              await git(['rebase', '--skip'], literal);
+            } catch (skipError) {
+              const later = await detectRecovery(options);
+              if (later && later.unmergedCount === 0) throw skipError;
+            }
+          }
+        } else {
+          await git(['commit', '--no-edit', '--allow-empty'], literal);
+        }
+      });
+      const remaining = await detectRecovery(options);
+      // 本机有好几个提交没推时，重放下一个提交可能又遇到冲突：停在那里，再选一次。
+      if (remaining) return finish({ ok: true, resolved, preserved, more: true, recovery: remaining });
+      return finish({ ok: true, resolved, preserved, continued: recovery.kind });
+    } catch (error) {
+      const message = error.userFacing ? error.message : String(error.stderr || error.message).trim();
+      const remaining = await detectRecovery(options);
+      if (!error.userFacing) logger.warn(`[sync] 解决冲突失败：${message}`);
+      return finish({ ok: false, error: message, resolved, preserved, ...(remaining ? { recovery: remaining } : {}) });
+    }
+  }
+
+  async function hasStagedChanges(options) {
+    try {
+      await git(['diff', '--cached', '--quiet'], options);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  function resolveConflicts(choices, options) {
+    return enqueue(() => resolveConflictsOnce(choices, options));
   }
 
   function idle() {
@@ -784,6 +1249,8 @@ function createSync({
     commitAndPush,
     syncReviewLogs,
     abortOperation,
+    listConflicts,
+    resolveConflicts,
     ensureGitignore,
     ensureGitattributes,
     idle,

@@ -58,12 +58,20 @@
       <section id="sync" class="settings-section">
         <div class="section-heading"><div><h2>Git 同步</h2><p>资料库必须是 Git 工作树的根目录；否则自动跳过，不影响本地使用。</p></div></div>
         <div class="field-grid">
-          <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先提交本机修改，再拉取、推送。发生 Git 冲突时会停止同步，保留冲突现场，不自动选边。请手动处理冲突，或中止当前 Git 操作后再同步。</small></span></label>
+          <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>每轮先提交本机修改，再拉取、推送。发生 Git 冲突时会停止同步，保留冲突现场，不自动选边。可以在下面逐个文件选保留远端还是本机的版本，也可以中止当前 Git 操作。</small></span></label>
           <label class="field"><span>同步间隔（分钟）</span><input name="syncIntervalMinutes" type="number" min="1" max="1440" step="1" required></label>
         </div>
         <div class="sync-status" id="sync-status" data-phase="disabled">
           <div><strong id="sync-status-title">自动同步已关闭</strong><p id="sync-status-detail">本地编辑和索引不受影响。</p></div>
           <button type="button" class="secondary" id="abort-git-operation" hidden>中止当前 Git 操作…</button>
+        </div>
+        <div class="conflict-panel" id="conflict-panel" hidden>
+          <div class="conflict-head">
+            <div><strong>两台设备改了同一个文件</strong><p id="conflict-note">逐个选保留哪一边。未采用的笔记和卡组版本会存进「历史与草稿」。附件等其他文件会被所选版本覆盖。</p></div>
+            <div class="conflict-bulk"><button type="button" class="secondary small" id="conflict-all-remote">全部用远端</button><button type="button" class="secondary small" id="conflict-all-local">全部用本机</button></div>
+          </div>
+          <ul class="conflict-list" id="conflict-list"></ul>
+          <div class="conflict-actions"><button type="button" class="primary" id="resolve-conflicts" disabled>按选择解决并继续同步</button><span id="conflict-progress"></span></div>
         </div>
         <button type="button" class="secondary" id="sync-now">立即同步</button>
       </section>

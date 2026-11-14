@@ -21,6 +21,8 @@
   const relearnEl = document.getElementById('review-relearn');
   const editEl = document.getElementById('review-edit');
   const suspendEl = document.getElementById('review-suspend');
+  const undoEl = document.getElementById('review-undo');
+  const undoLastEl = document.getElementById('review-undo-last');
   const returnTo = root.dataset?.returnTo || '/review';
 
   let queue;
@@ -37,17 +39,32 @@
   let pendingAnswers = 0;
   let anySynced = false;
   // 评过分的卡（按卡计，不按次数）和本轮选过「忘了」的卡。
-  const reviewedCards = new Set();
+  const reviewedCards = new Map();
   const relearnedCards = new Set();
   const failedAnswers = new Set();
   const retryingAnswers = new Set();
+  // 最近一次评分，供「撤销上一张」用；只留一步。
+  let lastAnswer = null;
+  let undoing = false;
+
+  function updateUndo() {
+    const available = Boolean(lastAnswer) && !undoing;
+    if (undoEl) {
+      undoEl.hidden = !lastAnswer;
+      undoEl.disabled = !available;
+    }
+    if (undoLastEl) {
+      undoLastEl.hidden = !lastAnswer;
+      undoLastEl.disabled = !available;
+    }
+  }
 
   function current() {
     return queue[index];
   }
 
   function updateBusyState() {
-    if (pendingAnswers > 0) root.setAttribute('aria-busy', 'true');
+    if (pendingAnswers > 0 || undoing) root.setAttribute('aria-busy', 'true');
     else root.removeAttribute('aria-busy');
   }
 
@@ -76,7 +93,8 @@
     frontEl.innerHTML = card.question
       ? `${card.front}<div class="cloze-question">${card.question}</div>`
       : card.front;
-    backEl.innerHTML = card.back;
+    // 挖空卡翻面时在题面原位填空（见 reveal），不用单独的答案区。
+    backEl.innerHTML = card.question ? '' : card.back;
     backEl.hidden = true;
     ratingsEl.hidden = true;
     revealBtn.hidden = false;
@@ -99,12 +117,22 @@
   function reveal() {
     if (revealed || !current()) return;
     revealed = true;
-    backEl.hidden = false;
+    const card = current();
+    let answerEl = backEl;
+    const clozeEl = card.question ? frontEl.querySelector('.cloze-question') : null;
+    if (clozeEl) {
+      // 挖空卡：把填好的句子换到题面的位置，答案高亮。题目和答案在同一处，眼睛不用挪。
+      clozeEl.innerHTML = card.back;
+      clozeEl.classList.add('is-revealed');
+      answerEl = clozeEl;
+    } else {
+      backEl.hidden = false;
+    }
     revealBtn.hidden = true;
     ratingsEl.hidden = false;
     // 焦点交给复习区（保住数字快捷键），读屏软件不会因此念出答案；用一个播报区念一遍。
     const announcer = document.getElementById('review-announcer');
-    if (announcer) announcer.textContent = '答案：' + String(backEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (announcer) announcer.textContent = '答案：' + String(answerEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     // Windows 隐藏按钮后可能仍保留焦点，显式交还给复习区域以恢复数字快捷键。
     root.focus({ preventScroll: true });
   }
@@ -189,7 +217,7 @@
   async function answer(rating) {
     const card = current();
     // 正在暂停这张卡时不评分：否则它会被记一次分，还被算成「本轮重学」。
-    if (!card || !revealed || suspending) return;
+    if (!card || !revealed || suspending || undoing) return;
 
     const payload = {
       eventId: createEventId(),
@@ -200,17 +228,30 @@
     pendingAnswers += 1;
     updateBusyState();
     // 「忘了」的卡在这一轮末尾再出现一次，直到想起来为止；随时可以离开，评分都已记录。
+    const entry = {
+      card,
+      index,
+      payload,
+      relearnAdded: rating === 1,
+      firstRelearn: rating === 1 && !relearnedCards.has(card.id),
+      saved: null
+    };
     if (rating === 1) {
       queue.push({ ...card, relearn: true });
       relearnedCards.add(card.id);
     }
     index += 1;
+    lastAnswer = entry;
+    updateUndo();
     render();
 
+    entry.saved = submitAnswer(payload);
     try {
-      if (await submitAnswer(payload)) {
+      if (await entry.saved) {
         answered += 1;
-        reviewedCards.add(card.id);
+        reviewedCards.set(card.id, (reviewedCards.get(card.id) || 0) + 1);
+      } else {
+        entry.failed = true;
       }
     } finally {
       pendingAnswers -= 1;
@@ -218,6 +259,65 @@
       if (!current()) render();
     }
   }
+
+  /**
+   * 撤销上一张：记录这次评分已作废，回到那张卡的正面重新作答。
+   * 评分还在保存就等它落盘；没保存上的那种不用找服务端，直接退回去。
+   */
+  async function undoLast() {
+    const entry = lastAnswer;
+    if (!entry || undoing || suspending) return;
+    undoing = true;
+    updateBusyState();
+    updateUndo();
+    for (const button of ratingsEl.querySelectorAll('[data-rating]')) button.disabled = true;
+    if (suspendEl) suspendEl.disabled = true;
+    try {
+      const saved = await entry.saved;
+      if (saved) {
+        const response = await fetch('/review/undo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ eventId: entry.payload.eventId })
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message || `撤销失败（${response.status}）`);
+        answered = Math.max(0, answered - 1);
+        const count = (reviewedCards.get(entry.card.id) || 0) - 1;
+        if (count > 0) reviewedCards.set(entry.card.id, count);
+        else reviewedCards.delete(entry.card.id);
+      } else {
+        failedAnswers.delete(entry.payload.eventId);
+        updateSaveNotice();
+      }
+      if (entry.relearnAdded) {
+        // 「忘了」时排到队尾的那一份重学也一并拿掉。
+        for (let position = queue.length - 1; position >= index; position -= 1) {
+          if (queue[position].id === entry.card.id && queue[position].relearn) {
+            queue.splice(position, 1);
+            break;
+          }
+        }
+        if (entry.firstRelearn) relearnedCards.delete(entry.card.id);
+      }
+      index = entry.index;
+      lastAnswer = null;
+      // 撤销后还会再评一次，结束时要重新同步。
+      anySynced = false;
+      render();
+      root.focus({ preventScroll: true });
+    } catch (error) {
+      window.workstationUI?.notify?.(error.message, { type: 'error' });
+    } finally {
+      undoing = false;
+      updateBusyState();
+      for (const button of ratingsEl.querySelectorAll('[data-rating]')) button.disabled = false;
+      if (suspendEl) suspendEl.disabled = false;
+      updateUndo();
+    }
+  }
+  undoEl?.addEventListener('click', undoLast);
+  undoLastEl?.addEventListener('click', undoLast);
 
   async function finish() {
     root.hidden = true;
@@ -263,7 +363,7 @@
 
   // 导航或退出会终止内存中的评分重试，待落盘时沿用编辑器的离开保护。
   window.addEventListener('beforeunload', event => {
-    if (pendingAnswers === 0) return;
+    if (pendingAnswers === 0 && !undoing) return;
     event.preventDefault();
     event.returnValue = '';
   });
@@ -272,7 +372,7 @@
   let suspending = false;
   async function suspendCurrent() {
     const card = current();
-    if (!card || !suspendEl || suspending) return;
+    if (!card || !suspendEl || suspending || undoing) return;
     suspending = true;
     suspendEl.disabled = true;
     try {
@@ -284,6 +384,9 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.message || `暂停失败（${response.status}）`);
       queue = queue.filter((item, position) => position < index || item.id !== card.id);
+      // 暂停改了队列，上一张的撤销不再对得上位置。
+      lastAnswer = null;
+      updateUndo();
       window.workstationUI?.notify?.('已暂停这张卡，可以在卡组的卡片列表里恢复。', { type: 'success' });
       render();
     } catch (error) {
@@ -318,6 +421,10 @@
     } else if (['1', '2', '3', '4'].includes(event.key)) {
       event.preventDefault();
       answer(Number(event.key));
+    } else if (event.key === 'z' || event.key === 'Z') {
+      if (!lastAnswer) return;
+      event.preventDefault();
+      undoLast();
     }
   });
 

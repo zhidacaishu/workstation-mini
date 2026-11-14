@@ -4,8 +4,21 @@
   // 数字用大字号；「状态未知」「干净」这类文字值换小一档（见 styles.css 的 .is-text）。
   const valueClass = value => typeof value === 'number' ? 'health-value' : 'health-value is-text';
   const needsGitRecovery = report.git.recoveryRequired || report.recovery.syncRecovery;
-  const gitLabel = needsGitRecovery ? '需要恢复' : report.git.error ? '状态未知' : report.git.isRepository ? (report.git.dirty ? '有未提交改动' : '干净') : '不是仓库';
-  const gitWarn = Boolean(needsGitRecovery || report.git.error);
+  // 没开同步时，Git 不在、资料库不是仓库、探测不到，都不影响使用，不算需要留意的事。
+  const syncOn = report.sync.enabled;
+  const gitUnknown = Boolean(report.git.error || report.git.gitMissing);
+  const gitLabel = needsGitRecovery ? '需要恢复'
+    : !syncOn && (gitUnknown || !report.git.isRepository) ? '未启用'
+    : report.git.gitMissing ? '没有安装'
+    : report.git.error ? '状态未知'
+    : report.git.isRepository ? (report.git.dirty ? '有未提交改动' : '干净') : '不是仓库';
+  const gitWarn = Boolean(needsGitRecovery || (syncOn && (gitUnknown || !report.git.isRepository)));
+  const gitHint = needsGitRecovery ? ''
+    : !syncOn ? (report.git.isRepository ? '同步已关闭' : '同步已关闭，不影响本机使用')
+    : report.git.gitMissing ? '同步需要先安装 Git'
+    : report.git.error ? '这次没有读到 Git 状态，稍后刷新再看'
+    : !report.git.isRepository ? '同步已开启，但资料库还不是 Git 仓库'
+    : report.git.upstream ? (report.git.ahead || report.git.behind ? `本机领先 ${report.git.ahead}，落后 ${report.git.behind}` : '和远端一致') : '还没有关联远端分支';
   const indexWarn = Boolean(report.index.fatal || report.index.failureTotal || report.index.statErrors.length || (report.vault.indexLag && report.vault.indexLag !== 0));
   const linkWarn = Boolean(report.links.brokenCount);
   const reviewWarn = Boolean(report.reviews.malformedLines || report.reviews.duplicateEventIds);
@@ -41,11 +54,12 @@
   <section class="health-tile<%= gitWarn ? ' is-warn' : '' %>">
     <h2>版本控制</h2>
     <p class="health-value is-text">Git <strong><%= gitLabel %></strong></p>
-    <p class="health-detail">本地历史与草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条</p>
+    <p class="health-detail"><% if (gitHint) { %><%= gitHint %> · <% } %>本地历史与草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条</p>
   </section>
   <section class="health-tile<%= linkWarn ? ' is-warn' : '' %>">
     <h2>双链</h2>
     <p class="<%= valueClass(report.links.brokenCount) %>"><strong><%= count(report.links.brokenCount) %></strong> 个断链</p>
+    <% if (report.links.broken.length) { %><p class="health-detail"><a href="#broken-links">看是哪些 ↓</a></p><% } %>
   </section>
   <section class="health-tile<%= reviewWarn ? ' is-warn' : '' %>">
     <h2>复习日志</h2>
@@ -57,7 +71,7 @@
 <% if (needsGitRecovery) { %>
 <section class="notice is-warn" role="alert">
   <strong>Git 操作需要恢复</strong>
-  <p>存在未完成的 Git 操作或未合并条目，请先处理冲突或恢复操作，再继续同步。</p>
+  <p>同步停在了一处冲突上：两台设备改了同一个文件。打开「设置 → Git 同步」，可以逐个文件选保留远端还是本机的版本，也可以中止这次操作；处理完同步会自己继续。</p>
   <% if (report.git.recoveryRequired) { %>
     <p>恢复标记：<%= report.git.recoveryRequired.markers.join('、') || '未合并索引' %>；未合并索引条目：<%= report.git.recoveryRequired.unmerged %>。</p>
   <% } %>
@@ -65,6 +79,21 @@
     <p>同步恢复状态：<%= report.recovery.syncRecovery.kind %>；冲突文件：<%= count(report.recovery.syncRecovery.unmergedCount) %>。</p>
   <% } %>
 </section>
+<% } %>
+<% if (report.links.broken.length) { %>
+  <section class="panel health-links" id="broken-links" aria-labelledby="broken-links-title">
+    <h2 id="broken-links-title">断链</h2>
+    <p class="health-detail">这些 <code>[[链接]]</code> 指向的笔记还不存在。写错了就去改，本来就打算以后再写的可以不管。</p>
+    <ul>
+      <% report.links.broken.forEach(item => { %>
+        <li>
+          <a href="/note/<%= encodePath(item.path) %>" title="<%= item.path %>"><%= item.title || item.path %></a>
+          <span class="health-link-target"><span aria-hidden="true">→</span> <code>[[<%= item.target %>]]</code></span>
+        </li>
+      <% }) %>
+    </ul>
+    <% if (report.links.brokenTruncated) { %><p class="health-detail">只列出前 <%= report.links.broken.length %> 条，共 <%= report.links.brokenCount %> 条。</p><% } %>
+  </section>
 <% } %>
 <% if (report.index.failures.length) { %>
   <section class="panel health-failures"><h2>索引失败项</h2><ul><% report.index.failures.forEach(item => { %><li><code><%= item.path %></code><span><%= item.reason %></span></li><% }) %></ul></section>

@@ -31,6 +31,16 @@
   <nav class="plan-filters" aria-label="筛选计划">
     <% filters.forEach(([key, label]) => { %><a href="/plan?view=list&filter=<%= key %>"<% if (filter === key) { %> aria-current="page"<% } %>><%= label %></a><% }) %>
   </nav>
+  <% if (!readOnly && filter !== 'done') { %>
+    <%# 随手加一条：写进今天的月历备注，不用先打开哪篇笔记。日期默认今天，清空就是「未安排」。 %>
+    <form class="plan-quick-add" action="/plan/tasks" method="post" data-quick-add>
+      <input type="hidden" name="returnTo" value="/plan?view=list&filter=<%= filter %>">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <input type="text" name="text" maxlength="500" placeholder="添加待办，回车保存" aria-label="添加待办" autocomplete="off" required<% if (typeof added !== 'undefined' && added) { %> autofocus<% } %>>
+      <input class="plan-quick-date" type="date" name="due" value="<%= today %>" aria-label="到期日期" title="到期日期，清空则不安排">
+      <button class="button small" type="submit">添加</button>
+    </form>
+  <% } %>
   <div class="plan-list">
     <% if (!groups.some(group => group.tasks.length || group.projects.length)) { %>
       <section class="plan-empty empty empty-state"><h2><%= filter === 'done' ? '还没有已完成的待办' : filter === 'all' ? '没有未完成的待办' : '暂无事项' %></h2><% if (filter === 'all') { %><p>在任意笔记里写 <code>- [ ] 待办 @<%= today %></code> 就会出现在这里。</p><% } %></section>
@@ -40,7 +50,7 @@
         <h2 id="plan-group-<%= group.key %>" class="<%= group.key === 'overdue' ? 'is-overdue' : '' %>"><%= group.label %><span><%= group.tasks.length + group.projects.length %></span></h2>
         <ul class="plan-task-list">
           <% group.tasks.forEach(task => { %><%- include('partials/plan-task', { task }) %><% }) %>
-          <% group.projects.forEach(project => { %><li class="plan-project"><span class="plan-project-mark" aria-hidden="true"></span><div class="plan-task-content"><a href="/note/<%= encodePath(project.path) %>"><%= project.label %></a><span>项目期限</span></div><time datetime="<%= project.date %>" class="<%= project.overdue ? 'is-overdue' : '' %>"><%= ui.shortDate(project.date, today) %></time></li><% }) %>
+          <% group.projects.forEach(project => { %><li class="plan-project"><span class="plan-project-mark" aria-hidden="true"></span><div class="plan-task-content"><a href="/note/<%= encodePath(project.path) %>"><%= project.label %></a><span>项目期限</span></div><time datetime="<%= project.date %>" title="<%= project.date %>" class="plan-task-when<%= project.overdue ? ' is-overdue' : '' %>"><%= ui.dueLabel(project.date, today) %></time></li><% }) %>
         </ul>
       </section>
     <% }) %>
@@ -59,7 +69,7 @@
             <a class="calday<%= date.startsWith(month) ? '' : ' is-outside' %><%= dayIndex >= 5 ? ' is-weekend' : '' %><%= date === today ? ' is-today' : '' %><%= date === selected ? ' is-selected' : '' %>" href="/plan?view=calendar&month=<%= date.slice(0, 7) %>&date=<%= date %>" data-calendar-day="<%= date %>" aria-label="<%= date %><%= text.trim() ? '，有备注' : '' %><%= entries.length ? '，' + entries.length + ' 个截止事项' : '' %>"<% if (date === selected) { %> aria-current="date"<% } %>>
               <span class="calday-num"><%= Number(date.slice(8)) %></span>
               <span class="calendar-note-preview" data-calendar-preview><%= text.trim() %></span>
-              <span class="calday-items"><% entries.slice(0, 2).forEach(entry => { %><span class="calpill<%= entry.kind === 'project' ? ' is-project' : '' %><%= entry.overdue ? ' is-overdue' : '' %>" title="<%= entry.source %>：<%= entry.label %>"><%= entry.label %></span><% }) %><% if (entries.length > 2) { %><span class="calpill is-more">+<%= entries.length - 2 %></span><% } %></span>
+              <span class="calday-items"><% entries.slice(0, 2).forEach(entry => { %><span class="calpill<%= entry.kind === 'project' ? ' is-project' : '' %><%= entry.overdue ? ' is-overdue' : '' %>" title="<%= entry.source %>：<%= entry.label %>"><%- ui.inlineTitle(entry.label) %></span><% }) %><% if (entries.length > 2) { %><span class="calpill is-more">+<%= entries.length - 2 %></span><% } %></span>
             </a>
           <% })) %>
         </div>

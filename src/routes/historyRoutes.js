@@ -3,11 +3,15 @@ const crypto = require('node:crypto');
 const { listRecords, getRecord, saveDraft, removeDraft } = require('../vault/history');
 const { readNote, writeNote, parseFrontmatter, resolveTitle } = require('../vault/note');
 const { enqueueFile } = require('../vault/note-queue');
-const { isSafeRelativePath, isNotePath, basename } = require('../vault/paths');
+const fs = require('node:fs/promises');
+const { isSafeRelativePath, isNotePath, basename, ensureSafeFilePath } = require('../vault/paths');
+const { compareText } = require('../lineDiff');
 const { blockWhenReadOnly, httpError } = require('./http');
 
 const DECK_PREFIX = 'deck:';
 const HISTORY_PAGE = 100;
+// 超过这个大小的文件不做逐行对比，直接给全文。
+const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 
 function createHistoryRoutes({ config, db }) {
   const router = express.Router();
@@ -68,6 +72,32 @@ function createHistoryRoutes({ config, db }) {
     return { ...record, id, source: 'deck' };
   }
 
+  // 这条记录对应的文件现在的内容；文件已经不在了返回 null，读不了（路径不安全、太大）返回 undefined。
+  async function currentRaw(record) {
+    const deck = record.source === 'deck';
+    if (deck ? !record.path.startsWith('cards/') || !isSafeRelativePath(record.path) : !isNotePath(record.path)) return undefined;
+    try {
+      const absolute = await ensureSafeFilePath(deck ? config.vaultDir : config.notesDir, record.path);
+      const stats = await fs.stat(absolute);
+      if (!stats.isFile() || stats.size > DIFF_MAX_BYTES) return undefined;
+      return await fs.readFile(absolute, 'utf8');
+    } catch (error) {
+      return error.code === 'ENOENT' ? null : undefined;
+    }
+  }
+  // 逐行对比的方向跟着「时间先后」走：旧版本是「从它到现在改了什么」，
+  // 没保存的草稿比文件新，是「草稿相对现在的文件改了什么」。
+  async function compareWithCurrent(record) {
+    const current = await currentRaw(record);
+    if (current === null) return { state: 'missing' };
+    if (current === undefined || Buffer.byteLength(record.raw) > DIFF_MAX_BYTES) return { state: 'unavailable' };
+    const draft = record.kind === 'draft';
+    const result = draft ? compareText(current, record.raw) : compareText(record.raw, current);
+    if (result.tooLarge) return { state: 'unavailable' };
+    if (!result.changed) return { state: 'same' };
+    return { state: 'diff', draft, ...result };
+  }
+
   router.get('/history', async (req, res, next) => {
     try {
       const notePath = String(req.query.path || '');
@@ -84,8 +114,10 @@ function createHistoryRoutes({ config, db }) {
       const found = req.query.id ? await findRecord(String(req.query.id)) : null;
       // 预览的是这一条记录本身，标题也取它自己的内容：旧版本可能还是改名前的标题。
       const selected = found ? { ...found, title: titleFromRaw(found) || basename(found.path) } : null;
+      const comparison = selected ? await compareWithCurrent(found) : null;
+      const showFull = req.query.view === 'full' || !comparison || comparison.state !== 'diff';
       res.render('history', {
-        title: '版本历史与草稿', records, selected, notePath, deckPath,
+        title: '版本历史与草稿', records, selected, notePath, deckPath, comparison, showFull,
         page, hasMore: all.length > page * HISTORY_PAGE, total: all.length
       });
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }

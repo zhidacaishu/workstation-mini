@@ -30,6 +30,7 @@
       <% } else { %>
         <a class="button quiet" href="/">取消</a>
       <% } %>
+      <button class="button quiet editor-preview-toggle" type="button" data-preview-toggle aria-pressed="false" title="显示或隐藏右侧的实时预览" hidden>预览</button>
       <button class="button primary" type="submit" data-editor-save>保存 <kbd><%= typeof isMac !== 'undefined' && isMac ? '⌘S' : 'Ctrl+S' %></kbd></button>
     </div>
   </header>
@@ -43,10 +44,14 @@
     </label>
   <% } %>
 
-  <label class="editor-body">
-    <span class="visually-hidden">正文</span>
-    <textarea name="body" rows="12" spellcheck="false" placeholder="正文。用 [[双链]] 连到其它笔记。"><%= body %></textarea>
-  </label>
+  <%# 宽窗口下左边写、右边实时预览（editor.js）；窄窗口只有写作区。 %>
+  <div class="editor-panes" data-preview-host>
+    <label class="editor-body">
+      <span class="visually-hidden">正文</span>
+      <textarea name="body" rows="12" spellcheck="false" placeholder="正文。输入 [[ 可以补全笔记名；图片可以直接粘贴。" data-md-editor data-upload="1" data-preview="#editor-preview" aria-controls="link-suggest"><%= body %></textarea>
+    </label>
+    <section id="editor-preview" class="editor-preview prose" aria-label="预览" hidden></section>
+  </div>
 
   <footer class="editor-footer">
     <%# 草稿每次自动保存都会改这行字；不让读屏软件在每次打字停顿时都念一遍。出错时另有提示。 %>

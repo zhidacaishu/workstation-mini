@@ -129,9 +129,11 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
             assert.equal(await page.locator('[data-editor-status]').textContent(), '新笔记尚未保存');
           }
           if (route === '/review') {
-            for (const showRelearn of [false, true]) {
+            // 「撤销上一张」评过分才出现：有它没它两种情况都量一遍。
+            for (const [showRelearn, showUndo] of [[false, false], [true, false], [false, true], [true, true]]) {
               await page.locator('#review-relearn').evaluate((element, show) => { element.hidden = !show; }, showRelearn);
-              const controls = await page.locator('.review-tools .review-tool').evaluateAll(elements => elements.map(element => {
+              await page.locator('#review-undo').evaluate((element, show) => { element.hidden = !show; }, showUndo);
+              const controls = await page.locator('.review-tools .review-tool:not([hidden])').evaluateAll(elements => elements.map(element => {
                 const rect = element.getBoundingClientRect();
                 const range = document.createRange();
                 range.selectNodeContents(element);
@@ -141,11 +143,13 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
                 };
               }));
               assert.ok(controls.every(control => control.inside), '长卡组不能挤压操作文字或让文字溢出按钮');
-              assert.ok(controls[0].right <= controls[1].left, '复习操作互不覆盖');
+              assert.equal(controls.length, showUndo ? 3 : 2);
+              assert.ok(controls.every((control, index) => index === 0 || controls[index - 1].right <= control.left), '复习操作互不覆盖');
               const card = await page.locator('.reviewcard').boundingBox();
               assert.ok(controls.every(control => control.left >= card.x && control.right <= card.x + card.width), '操作完整落在卡片内');
             }
             await page.locator('#review-relearn').evaluate(element => { element.hidden = true; });
+            await page.locator('#review-undo').evaluate(element => { element.hidden = true; });
             await page.locator('#review-reveal').click();
             const block = await page.locator('.review-back pre').evaluate(element => ({
               overflow: getComputedStyle(element).overflowX, width: element.clientWidth, scrollWidth: element.scrollWidth,

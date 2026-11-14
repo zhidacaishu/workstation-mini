@@ -32,6 +32,12 @@ async function updateTask(notesDir, { path, line, expectedHash, done, due }) {
       const match = task.due ? dueTagOf(target, task.due) : null;
       if (match) target = target.slice(0, match.index) + (due ? '@' + due : '') + target.slice(match.index + match[0].length);
       else if (due) target = target.replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)/, '$1@' + due + ' ');
+      // 取消排期要把这一行里的日期标记都去掉：只去第一个的话，后面那个会顶上来当截止日。
+      if (!due) {
+        for (let extra = dueTagOf(target); extra; extra = dueTagOf(target)) {
+          target = target.slice(0, extra.index) + target.slice(extra.index + extra[0].length);
+        }
+      }
     }
     parts[(line - 1) * 2] = target;
     const raw = note.raw.slice(0, note.raw.length - note.body.length) + parts.join('');

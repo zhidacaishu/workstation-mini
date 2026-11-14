@@ -48,12 +48,23 @@
   --ok-ring: rgba(15, 122, 82, 0.14);
   --danger: #b42318;
   --danger-soft: #fdecea;
+  --diff-add: #e6f4ec;
+  --diff-add-text: #0b5c3e;
+  --diff-del: #fdecea;
+  --diff-del-text: #8f1d14;
 
   --badge: #dce5f8;
   --badge-text: #1f46a6;
   --button: #f0f2f5;
   --button-hover: #e7eaee;
   --code-bg: #f3f5f8;
+  /* 代码高亮：克制的四五种颜色，在 --code-bg 上都过 4.5:1。 */
+  --hl-keyword: #8250df;
+  --hl-string: #0a6b3d;
+  --hl-number: #a04a00;
+  --hl-title: #1f5fd0;
+  --hl-comment: #6b7480;
+  --hl-meta: #8a5a00;
   /* 行内代码的底色：半透明的正文色，放在卡片、引用、表格里都一样看得出。 */
   --code-inline: rgba(20, 23, 28, 0.06);
   --selection: rgba(47, 98, 214, 0.18);
@@ -144,12 +155,22 @@
     --ok-ring: rgba(107, 212, 166, 0.15);
     --danger: #ff8a80;
     --danger-soft: rgba(255, 138, 128, 0.12);
+    --diff-add: rgba(107, 212, 166, 0.13);
+    --diff-add-text: #9be3c2;
+    --diff-del: rgba(255, 138, 128, 0.13);
+    --diff-del-text: #ffb1a9;
 
     --badge: #26324a;
     --badge-text: #cfe0ff;
     --button: #1d2228;
     --button-hover: #242a31;
     --code-bg: #0f1215;
+    --hl-keyword: #c4a5ff;
+    --hl-string: #7fd3a2;
+    --hl-number: #f0a868;
+    --hl-title: #8db4ff;
+    --hl-comment: #7d8793;
+    --hl-meta: #e0b86a;
     --code-inline: rgba(232, 234, 237, 0.08);
     --selection: rgba(141, 180, 255, 0.28);
     --outside: #0f1114;

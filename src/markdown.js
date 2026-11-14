@@ -1,5 +1,6 @@
 const posixPath = require('node:path').posix;
 const MarkdownIt = require('markdown-it');
+const hljs = require('highlight.js/lib/core');
 const katex = require('katex');
 const { installMathSyntax, maskMath } = require('./mathSyntax');
 
@@ -66,10 +67,30 @@ function resolveResourceHref(src, notePath) {
 
 // html: false —— 笔记正文里的原始 HTML 不渲染：资料库会经 Git 从别的设备同步过来，
 // 正文不该有机会在应用里执行脚本。
+// 代码高亮在服务端做完，页面上只是带 class 的 span，不需要再跑脚本。
+// 只登记科研笔记里常见的语言；没写语言或写了不认识的语言就不着色，不去猜。
+const HIGHLIGHT_LANGUAGES = [
+  'python', 'bash', 'shell', 'r', 'latex', 'json', 'yaml', 'ini', 'javascript', 'typescript',
+  'c', 'cpp', 'java', 'matlab', 'julia', 'sql', 'rust', 'go', 'xml', 'markdown', 'diff'
+];
+for (const name of HIGHLIGHT_LANGUAGES) hljs.registerLanguage(name, require(`highlight.js/lib/languages/${name}`));
+hljs.registerAliases(['toml'], { languageName: 'ini' });
+
+function highlightCode(source, language) {
+  const name = String(language || '').trim().toLowerCase();
+  if (!name || !hljs.getLanguage(name)) return '';
+  try {
+    return hljs.highlight(source, { language: name, ignoreIllegals: true }).value;
+  } catch {
+    return '';
+  }
+}
+
 const md = new MarkdownIt({
   html: false,
   linkify: true,
-  breaks: false
+  breaks: false,
+  highlight: highlightCode
 });
 
 installMathSyntax(md, (content, displayMode, env) => {

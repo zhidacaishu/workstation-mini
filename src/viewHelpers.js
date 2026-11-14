@@ -2,7 +2,7 @@ const path = require('node:path');
 const katex = require('katex');
 
 const { toLocalDate } = require('./templates');
-const { addDays } = require('./dates');
+const { addDays, weekdayOf } = require('./dates');
 const { createReviewService } = require('./reviewService');
 
 // 界面字体随应用打包，不依赖在线字体服务。中文用思源黑体（Noto Sans SC）的
@@ -98,6 +98,22 @@ function dueRelative(value, today = toLocalDate()) {
   return `逾期 ${-diff} 天`;
 }
 
+/**
+ * 计划列表的日期列：离今天近的用说法（逾期 3 天、今天、明天、后天、周二），
+ * 一周以外才写日期。完整日期放在 title 里。
+ */
+function dueLabel(value, today = toLocalDate()) {
+  const date = toDateString(value);
+  const diff = dayDiff(today, date);
+  if (diff === null) return '';
+  if (diff < 0) return `逾期 ${-diff} 天`;
+  if (diff === 0) return '今天';
+  if (diff === 1) return '明天';
+  if (diff === 2) return '后天';
+  if (diff <= 6) return weekdayOf(date);
+  return shortDate(date, today);
+}
+
 /** 修改时间：今天、昨天，其余用短日期。 */
 function modifiedLabel(ms, today = toLocalDate()) {
   const time = Number(ms);
@@ -115,8 +131,13 @@ function modifiedLabel(ms, today = toLocalDate()) {
  */
 function plainSnippet(value) {
   return String(value || '')
+    // 嵌入的图片、音频在摘要里没有可读的内容。
+    .replace(/!\[\[[^\]]*\]\]/g, '')
     .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')
-    .replace(/\[\[([^\]]+)\]\]/g, '$1')
+    // [[inbox/笔记名#小节]] 只留笔记名：路径和锚点是给解析器看的。
+    .replace(/\[\[([^\]]+)\]\]/g, (match, target) => target.split('#')[0].split('/').pop().trim() || target)
+    // 待办的日期标记（@2026-11-14）。
+    .replace(/(^|\s)@\d{4}-\d{2}-\d{2}(?=\s|$)/g, '$1')
     .replace(/(^|\s)(?:[-*+]\s+)?\[(?: |x|X)\]\s+/g, '$1')
     .replace(/(^|\s)(?:#{1,6}|>|[-*+])\s+/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -180,6 +201,11 @@ function cardPreview(value, limit = 240) {
   return escapeHtml(plainSnippet(text)).replace(/\u0000(\d+)\u0000/g, (match, index) => formulas[index] === undefined ? '' : katex.renderToString(formulas[index], {
     output: 'html', throwOnError: false, strict: 'ignore', trust: false, maxExpand: 1000, maxSize: 20
   }));
+}
+
+/** 待办标题等单行文字：公式排出来，Markdown 记号去掉。 */
+function inlineTitle(value) {
+  return cardPreview(value, 400);
 }
 
 /** 本地时间的「2026-10-25 14:20」。 */
@@ -265,9 +291,11 @@ module.exports = {
   fieldText,
   shortDate,
   dueRelative,
+  dueLabel,
   modifiedLabel,
   dateTimeLabel,
   plainSnippet,
+  inlineTitle,
   excerptHtml,
   cardPreview,
   dayDiff,

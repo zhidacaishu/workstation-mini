@@ -60,7 +60,11 @@ const miniCoreTests = [
   'settingsClient.test.js',
   'server.test.js',
   'sync.test.js',
+  'syncConflictSafety.test.js',
+  'syncConflictResolve.test.js',
+  'vaultRobustness.test.js',
   'uiRedesign.test.js',
+  'uiRound5.test.js',
   'vault.test.js',
   'watcher.test.js',
   // 以前不在清单里，CI 从没跑过（单独跑都能通过）。
@@ -77,7 +81,8 @@ const desktopTests = [
   'desktop-local-history-smoke.test.js',
   'desktop-ui-layout.test.js',
   'desktop-ui-details.test.js',
-  'desktop-ui-actions.test.js'
+  'desktop-ui-actions.test.js',
+  'desktop-ui-editing.test.js'
 ];
 const testFiles = (desktopOnly ? desktopTests : miniCoreTests)
   .map(name => path.join('tests', name));

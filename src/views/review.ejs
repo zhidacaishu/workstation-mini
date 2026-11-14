@@ -21,12 +21,14 @@
       <div class="review-card-meta">
         <span id="review-deck" class="review-deck"></span>
         <span id="review-relearn" class="review-state" hidden>本轮重学</span>
-        <% if (!readOnly) { %>
-          <span class="review-tools">
+        <span class="review-tools">
+          <%# 评错了可以退回上一张：只能退一步，评分记录随之撤掉。 %>
+          <button id="review-undo" class="review-tool" type="button" aria-keyshortcuts="Z" title="撤销上一张的评分（快捷键 Z）" hidden>撤销上一张</button>
+          <% if (!readOnly) { %>
             <a id="review-edit" class="review-tool" href="/decks">编辑</a>
             <button id="review-suspend" class="review-tool" type="button">暂停这张</button>
-          </span>
-        <% } %>
+          <% } %>
+        </span>
       </div>
       <div class="review-front" id="review-front"></div>
       <div class="review-back" id="review-back" hidden></div>
@@ -50,6 +52,7 @@
     <p id="review-summary" role="status" aria-live="polite" aria-atomic="true"></p>
     <p id="review-failures" class="review-retry" role="alert" hidden></p>
     <div class="actions">
+      <button id="review-undo-last" class="button" type="button" hidden>撤销最后一张</button>
       <a class="button" href="/decks">卡组</a>
       <a class="button primary" href="/review">再来一轮</a>
     </div>

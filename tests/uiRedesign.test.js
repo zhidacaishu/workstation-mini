@@ -110,7 +110,7 @@ test('日期辅助函数兼容 YAML 解析出的 Date 与字符串', () => {
   assert.equal(viewHelpers.fieldText([1, 2]), '1, 2');
   assert.equal(
     viewHelpers.plainSnippet('主线见 [[research/rag|分块笔记]]。 - [ ] 整理表格 @2026-10-25 ## 设置 **重点** `bge-m3`'),
-    '主线见 分块笔记。 整理表格 @2026-10-25 设置 重点 bge-m3'
+    '主线见 分块笔记。 整理表格 设置 重点 bge-m3'
   );
 });
 

@@ -75,6 +75,14 @@
         <span class="desk-review-go" aria-hidden="true">开始 →</span>
       </a>
     <% } %>
+    <% if (!readOnly) { %>
+      <form class="plan-quick-add is-compact" action="/plan/tasks" method="post" data-quick-add>
+        <input type="hidden" name="returnTo" value="/">
+        <input type="hidden" name="due" value="<%= date %>">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <input type="text" name="text" maxlength="500" placeholder="添加今天的待办，回车保存" aria-label="添加今天的待办" autocomplete="off" required<% if (typeof added !== 'undefined' && added) { %> autofocus<% } %>>
+      </form>
+    <% } %>
     <% const taskRow = task => { const overdue = task.due && task.due < date; const dueToday = task.due === date; %>
           <li class="desk-task">
             <% if (!readOnly) { %>
@@ -88,7 +96,7 @@
             <% } else { %>
               <span class="task-check is-static" aria-hidden="true"></span>
             <% } %>
-            <a class="desk-task-title" href="/note/<%= encodePath(task.path) %>#L<%= task.line %>" title="<%= task.noteTitle %>"><%= task.title %></a>
+            <a class="desk-task-title" href="/note/<%= encodePath(task.path) %>#L<%= task.line %>" title="<%= task.noteTitle %>"><%- ui.inlineTitle(task.title) %></a>
             <% if (task.due) { %><time class="due-tag<%= overdue ? ' is-overdue' : dueToday ? ' is-today' : '' %>" datetime="<%= task.due %>"><%= overdue ? `逾期 ${ui.shortDate(task.due, date)}` : dueToday ? '今天' : ui.shortDate(task.due, date) %></time><% } %>
           </li>
     <% } %>

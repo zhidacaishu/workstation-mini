@@ -353,8 +353,30 @@ function createIndexer({
     )];
   }
 
+  /**
+   * 文件名不合规（带冒号、以点结尾……）的失败记录进不了增量扫描的候选：路径本身就
+   * 不安全，不能拿去读。但用户把文件改了名以后，旧名字的失败项得能消掉，否则横幅要
+   * 挂到下一次全量对账。这里只问一句「还在不在」，不读内容。
+   */
+  async function dropVanishedFailures(paths, candidates) {
+    const safe = new Set(candidates);
+    for (const value of paths) {
+      const relativePath = toPosix(value);
+      if (safe.has(relativePath) || !failureMap.has(relativePath)) continue;
+      const segments = relativePath.split('/');
+      if (path.isAbsolute(relativePath) || segments.some(segment => !segment || segment === '.' || segment === '..')) continue;
+      try {
+        await fsOps.lstat(path.join(vaultDir, ...segments));
+      } catch (error) {
+        if (error.code === 'ENOENT' || error.code === 'ENOTDIR') failureMap.delete(relativePath);
+      }
+    }
+  }
+
   async function needsCaseReconciliation(candidates) {
-    if (platform !== 'win32' || candidates.length === 0) return false;
+    // Windows 和 macOS 的默认磁盘都不区分大小写。少数区分大小写的卷上多做一次对账
+    // 只是多扫一遍，结果不变。
+    if ((platform !== 'win32' && platform !== 'darwin') || candidates.length === 0) return false;
     const indexed = new Map();
     // 从未成功入库的文件也可能留下失败记录，删除别名时必须一并对账。
     const knownPaths = new Set([...db.listIndexed().map(row => row.path), ...failureMap.keys()]);
@@ -392,6 +414,7 @@ function createIndexer({
     let done = 0;
 
     try {
+      await dropVanishedFailures(paths, candidates);
       if (await needsCaseReconciliation(candidates)) {
         // 核对目录拼写，但只强制读取本批路径；其他笔记保留 mtime / size 快路径。
         return await scanOnce({ kind, forcePaths: new Set([...candidates, ...failureMap.keys()].map(value => value.toLowerCase())) });

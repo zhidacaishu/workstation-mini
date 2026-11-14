@@ -25,7 +25,7 @@ const {
 const { createConfigStore } = require('./config-store');
 const { createGuideStore } = require('./guide-store');
 const { createRuntimeConfig, pruneStaleIndexes, removeLegacyVaultIndex } = require('./runtime-config');
-const { validateSettingsUpdate } = require('./settings-validation');
+const { validateSettingsUpdate, validateConflictChoices } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
 const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
 const { createLeaveGuard } = require('./leave-guard');
@@ -50,6 +50,7 @@ const RECOVERY_FILE = path.join(__dirname, 'recovery', 'index.html');
 const RECOVERY_URL = pathToFileURL(RECOVERY_FILE).href;
 const RECOVERY_PRELOAD_FILE = path.join(__dirname, 'recovery-preload.js');
 const DIRECTORY_FIELDS = new Set(['vaultDir']);
+const SYSTEM_CLUTTER = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini', '.localized']);
 const RECOVERY_SWITCHABLE_PHASES = new Set(['idle', 'cancelled', 'completed', 'failed']);
 const platformPolicy = createPlatformPolicy();
 const { capabilities } = platformPolicy;
@@ -562,7 +563,7 @@ async function confirmAndAbortGitOperation() {
     type: 'warning',
     title: `中止 Git ${syncRecoveryLabel(recovery)}`,
     message: `确认中止当前 ${syncRecoveryLabel(recovery)} 操作？`,
-    detail: 'Git 将尝试恢复到该操作开始前的状态。本地工作台不会自动重新同步；请检查资料库后手动同步。',
+    detail: 'Git 会回到该操作开始前的状态，这之后保存过、还没提交的修改会从笔记里撤掉。\n\n撤掉的笔记和卡组内容会先存进「历史与草稿」，复习记录会自动补回。\n\n中止后不会自动重新同步；同一处冲突没解决的话，下次同步还会停在这里。',
     buttons: ['取消', '确认中止'],
     defaultId: 0,
     cancelId: 0,
@@ -1041,6 +1042,16 @@ function registerIpc() {
     assertSettingsSender(event);
     return confirmAndAbortGitOperation();
   });
+  ipcMain.handle('settings:list-git-conflicts', async event => {
+    assertSettingsSender(event);
+    if (!runtime) throw new Error('工作台尚未启动。');
+    return runtime.listGitConflicts();
+  });
+  ipcMain.handle('settings:resolve-git-conflicts', async (event, choices) => {
+    assertSettingsSender(event);
+    if (!runtime) throw new Error('工作台尚未启动。');
+    return runtime.resolveGitConflicts(validateConflictChoices(choices));
+  });
   ipcMain.handle('settings:open-vault', async event => {
     assertSettingsSender(event);
     if (!settings.vaultDir) return '';
@@ -1188,7 +1199,8 @@ function registerIpc() {
     if (recoveryMode !== 'first-run') throw new Error('只有首次启动可以从这里创建资料库。');
     const vaultDir = await promptForVaultDir('initial');
     if (!vaultDir) return publicRecoveryState();
-    const entries = fs.readdirSync(vaultDir);
+    // 文件管理器自己放进去的东西不算内容：访达打开过的空文件夹里就有 .DS_Store。
+    const entries = fs.readdirSync(vaultDir).filter(name => !SYSTEM_CLUTTER.has(name));
     if (entries.length > 0) throw new Error('创建新资料库需要选择一个空目录。');
     const previous = settings;
     const replacement = await enqueueRestart(() => replaceRuntime({ ...settings, vaultDir, syncEnabled: false }, previous));

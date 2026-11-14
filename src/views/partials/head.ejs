@@ -42,12 +42,14 @@
   <link rel="stylesheet" href="/static/styles.css">
   <%# 新建笔记的标题与路径要在草稿和编辑器记下初始状态之前就位，所以排在最前面。 %>
   <% if (typeof isNew !== 'undefined' && isNew) { %><script src="/static/new-note.js" defer></script><% } %>
+  <script src="/static/transition-guard.js"></script>
   <script src="/static/drafts.js" defer></script>
   <script src="/static/task-actions.js" defer></script>
   <script src="/static/app.js" defer></script>
   <script src="/static/palette.js" defer></script>
   <script src="/static/guide.js" defer></script>
   <script src="/static/review.js" defer></script>
+  <% if (!readOnly) { %><script src="/static/editor.js" defer></script><% } %>
   <% if (!readOnly) { %><script src="/static/selection-card.js" defer></script><% } %>
 </head>
 <body class="<%= pageMode %><%= readOnly ? ' is-readonly' : '' %>" data-page-path="<%= routePath %>" data-primary-modifier="<%= primaryModifier %>"<% if (typeof note !== 'undefined' && note) { %> data-note-path="<%= note.path %>"<% } %>>

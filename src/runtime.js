@@ -8,6 +8,8 @@ const { createWatcher } = require('./vault/watcher');
 const { createSearch } = require('./search');
 const { createSync } = require('./sync');
 const { withWritesPaused } = require('./vault/note-queue');
+const { saveVersion, pruneDrafts } = require('./vault/history');
+const { isSafeRelativePath } = require('./vault/paths');
 
 const EXIT_GIT_TIMEOUT_MS = 15_000;
 // 退出同步共享一个截止时间；到期取消 Git 子进程，等待队列释放再关闭数据库。
@@ -21,6 +23,28 @@ async function finishSync(sync, operation, milliseconds, logger) {
   catch (error) { if (!expired) throw error; }
   finally { clearTimeout(timer); }
   if (expired) logger.warn?.('[sync] 退出同步已超时并取消，未完成的操作将在下次启动显示。');
+}
+
+/**
+ * 中止 Git 操作前工作区里没提交的笔记和卡组、解决冲突时没采用的那一边，存进本机历史
+ * （历史与草稿页能找回）。
+ * 笔记的历史挂在 notes/ 下，卡组的挂在资料库根下，和平时保存时一致。
+ */
+function createDiscardPreserver(config) {
+  return async ({ path: file, content, reason = 'abort' }) => {
+    if (!file.toLowerCase().endsWith('.md')) return false;
+    if (file.startsWith('notes/')) {
+      const relative = file.slice('notes/'.length);
+      if (!isSafeRelativePath(relative)) return false;
+      await saveVersion(config.notesDir, relative, content, reason);
+      return true;
+    }
+    if (file.startsWith('cards/') && isSafeRelativePath(file)) {
+      await saveVersion(config.vaultDir, file, content, reason);
+      return true;
+    }
+    return false;
+  };
 }
 
 function listen(server, port, host) {
@@ -93,7 +117,8 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
       logger,
       enabled: gitWritesEnabled,
       reviewSyncEnabled: config.syncEnabled,
-      pauseWrites: withWritesPaused
+      pauseWrites: withWritesPaused,
+      preserveDiscarded: createDiscardPreserver(config)
     });
     await sync.probe();
     if (gitWritesEnabled) {
@@ -138,6 +163,13 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
       throw error;
     });
     indexReady.catch(() => {});
+
+    // 顺手清掉 30 天没动过的草稿；只读模式不产生草稿，也不该动磁盘。
+    if (!config.readOnly) {
+      pruneDrafts(config.notesDir).then(removed => {
+        if (removed) logger.log?.(`[history] 清理了 ${removed} 份超过 30 天的草稿`);
+      }).catch(error => logger.warn?.(`[history] 清理旧草稿失败：${error.message}`));
+    }
 
     watcher = createWatcher({
       ...watcherOptions,
@@ -224,12 +256,25 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
       return result;
     }
 
+    // 冲突文件逐个选了保留哪一边之后：文件内容变了要重扫索引；Git 回到正常状态的话
+    // 紧接着在后台同步一轮，把结果推上去，不用再去点一次「立即同步」。
+    async function resolveGitConflicts(choices) {
+      if (config.readOnly) return { ok: false, error: '只读模式下不能处理冲突；请先在设置里关掉只读。', recovery: sync.getStatus().recovery };
+      const result = await sync.resolveConflicts(choices);
+      if (result.resolved) await indexer.scan();
+      if (result.ok && result.resolved && !result.recovery) {
+        syncNow().catch(error => logger.warn?.(`[sync] ${error.message}`));
+      }
+      return result;
+    }
+
     return {
       app, server, db, config, sync, indexer, origin, syncNow, syncReviewNow, stop, indexReady,
       getIndexStatus: () => ({ ...indexer.getStatus(), notes: db.countNotes() }),
       rescan: () => indexer.scan({ kind: 'background' }),
       isWatchDegraded: () => Boolean(watcher?.isDegraded()),
-      getSyncStatus: sync.getStatus, onSyncStatus: sync.onStatus, abortGitOperation
+      getSyncStatus: sync.getStatus, onSyncStatus: sync.onStatus, abortGitOperation,
+      listGitConflicts: () => sync.listConflicts(), resolveGitConflicts
     };
   } catch (error) {
     if (syncTimer) clearInterval(syncTimer);
@@ -242,4 +287,4 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
   }
 }
 
-module.exports = { startRuntime, closeServer, finishSync };
+module.exports = { startRuntime, closeServer, finishSync, createDiscardPreserver };

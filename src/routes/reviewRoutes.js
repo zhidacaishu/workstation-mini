@@ -5,7 +5,7 @@ const { RATING_LABELS, State } = require('../review');
 const { renderMarkdown } = require('../markdown');
 const { buildIndexResolver } = require('../vault/wikilink');
 const { isSafeRelativePath } = require('../vault/paths');
-const { CARD_TYPES, DEFAULT_TYPE, appendCard, updateCard, deleteCard, listDeckFiles } = require('../cards');
+const { CARD_TYPES, DEFAULT_TYPE, appendCard, updateCard, deleteCard, listDeckFiles, renderClozeAnswer } = require('../cards');
 const { readNote } = require('../vault/note');
 const { toLocalDate } = require('../templates');
 const { httpError, blockWhenReadOnly } = require('./http');
@@ -46,7 +46,10 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         deckFile: card.deckFile,
         type: card.type,
         front: renderMarkdown(card.front, resolve, options),
-        back: renderMarkdown(card.type === 'cloze' ? card.answer : card.back, resolve, options),
+        // 挖空卡的答案面带高亮标记：翻面时在原位把空填上，不在卡片底部再重复一遍整句。
+        back: card.type === 'cloze'
+          ? renderClozeAnswer(card.back, text => renderMarkdown(text, resolve, options))
+          : renderMarkdown(card.back, resolve, options),
         question: card.type === 'cloze' ? renderMarkdown(card.question, resolve, options) : '',
         state: card.state.state,
         due: card.state.due
@@ -79,6 +82,15 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         next(httpError(400, '评分不合法。'));
         return;
       }
+      next(error);
+    }
+  });
+
+  /** 撤销刚才那一次评分（只限本机日志的最后一条）。 */
+  router.post('/review/undo', async (req, res, next) => {
+    try {
+      res.json(await service.undo(String(req.body.eventId || '')));
+    } catch (error) {
       next(error);
     }
   });

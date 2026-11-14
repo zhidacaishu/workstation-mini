@@ -20,4 +20,18 @@ function validateSettingsUpdate(update) {
   // 复习记录被拆进好几个文件。
   if (Object.hasOwn(update.settings, 'device') && !update.settings.device.trim()) throw new Error('设备名不能为空。');
 }
-module.exports = { validateSettingsUpdate };
+// 冲突文件逐个选边：{ 仓库内相对路径: 'remote' | 'local' | 'current' }。返回一份干净的副本。
+const CONFLICT_CHOICES = new Set(['remote', 'local', 'current']);
+function validateConflictChoices(choices) {
+  if (!isRecord(choices)) throw new Error('冲突选择无效。');
+  const entries = Object.entries(choices);
+  if (entries.length > 5000) throw new Error('冲突文件太多，请用 Git 工具处理。');
+  const clean = {};
+  for (const [file, choice] of entries) {
+    if (!file || file.length > 4096 || file.includes('\0') || file.startsWith('/') || file.split('/').includes('..')) throw new Error('冲突选择里有无效的路径。');
+    if (!CONFLICT_CHOICES.has(choice)) throw new Error(`「${file}」的选择无效。`);
+    clean[file] = choice;
+  }
+  return clean;
+}
+module.exports = { validateSettingsUpdate, validateConflictChoices };

@@ -90,8 +90,10 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     await page.goto(origin + '/review?deck=math');
     assert.equal(await page.locator('#review-front .katex').count(), 0);
     await page.locator('#review-reveal').click();
-    assert.equal(await page.locator('#review-back .katex').count(), 1);
-    assert.equal(await page.locator('#review-back [data-math-source]').getAttribute('data-math-source'), math);
+    // 挖空卡的答案在题面原位亮出来，不在卡片底部再重复一遍。
+    assert.equal(await page.locator('#review-front .cloze-answer .katex').count(), 1);
+    assert.equal(await page.locator('#review-front .cloze-answer [data-math-source]').getAttribute('data-math-source'), math);
+    assert.equal(await page.locator('#review-back').isVisible(), false);
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);
     assert.deepEqual(failed, []);

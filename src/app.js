@@ -11,6 +11,7 @@ const { createItemRoutes } = require('./routes/itemRoutes');
 const { createTodayRoutes } = require('./routes/todayRoutes');
 const { createCalendarRoutes } = require('./routes/calendarRoutes');
 const { createGuideRoutes } = require('./routes/guideRoutes');
+const { createEditorRoutes } = require('./routes/editorRoutes');
 const { encodePath } = require('./vault/paths');
 const { toLocalDate } = require('./templates');
 const viewHelpers = require('./viewHelpers');
@@ -150,6 +151,7 @@ function createApp(config, deps) {
   app.use(createHistoryRoutes({ config, ...resolved }));
   app.use(createHealthRoutes({ config, ...resolved }));
   app.use(createGuideRoutes({ config, ...resolved }));
+  app.use(createEditorRoutes({ config, ...resolved }));
 
   app.use((req, res) => {
     const message = `没有这个地址：${req.path}`;

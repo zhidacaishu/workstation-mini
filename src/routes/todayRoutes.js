@@ -30,7 +30,8 @@ function createTodayRoutes({ config, db, search, guide, now, review }) {
         snapshot,
         total: db.countNotes(),
         recent,
-        onboarding: await onboarding(recent)
+        onboarding: await onboarding(recent),
+        added: req.query.added === '1'
       });
     } catch (error) { next(error); }
   });
