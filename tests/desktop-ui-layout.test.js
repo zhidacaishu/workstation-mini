@@ -307,9 +307,18 @@ test('正文目录切换、键盘导航、章节跳转与滚动高亮在真实�
         const sticky = await page.locator('.note-links').boundingBox();
         assert.ok(Math.abs(sticky.y - 32) <= 1, '长文阅读时右侧切换按钮保持可见');
         const secondId = await page.locator('.note-outline-link').nth(1).getAttribute('data-outline-target');
+        // Mac点击章节后可能仍把焦点留在标签上；未消费的PageUp也要释放章节锁。
+        await toc.focus();
+        await page.evaluate(() => {
+          window.outlinePageUpEnded = false;
+          window.addEventListener('scrollend', () => { window.outlinePageUpEnded = true; }, { once: true });
+        });
         await page.keyboard.press('PageUp');
+        await page.waitForFunction(() => window.outlinePageUpEnded, null, { timeout: 5000 });
+        // 等键盘滚动结束后再做独立的程序滚动，避免两个滚动动作互相覆盖。
         await page.evaluate(id => document.getElementById(id).scrollIntoView({ block: 'start', behavior: 'instant' }), secondId);
-        await page.waitForFunction(id => document.querySelector('.note-outline-link[aria-current="location"]')?.dataset.outlineTarget === id, secondId);
+        await page.waitForFunction(id => Math.abs(document.getElementById(id).getBoundingClientRect().top - 24) <= 1
+          && document.querySelector('.note-outline-link[aria-current="location"]')?.dataset.outlineTarget === id, secondId);
       }
     }
     // 矮窗口中的长目录独立滚动，不撑长页面或遮住切换控件。

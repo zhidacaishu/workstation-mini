@@ -92,7 +92,10 @@
   window.addEventListener('pointerdown', releaseNavigation, { passive: true });
   window.addEventListener('keydown', event => {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.target.closest?.('input, textarea, select, button, [contenteditable="true"], [role="tab"]')) return;
+    if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    // 标签自己消费的方向/Home/End已由defaultPrevented保护；未消费的翻页键仍会滚正文。
+    // Space在按钮/标签上用于激活控件，不算正文滚动。
+    if (event.key === ' ' && event.target.closest?.('button, [role="tab"]')) return;
     if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) navigationTarget = undefined;
   });
   window.addEventListener('scroll', scheduleUpdate, { passive: true });
