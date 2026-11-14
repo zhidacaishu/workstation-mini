@@ -286,9 +286,35 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.waitForSelector('#review-done', { state: 'visible', timeout: 2000 });
       assert.match(await page.locator('#review-summary').textContent(), /复习了 1 张/);
       await page.unroute('**/review/answer');
-      await page.getByRole('link', { name: '卡组', exact: true }).click();
-      await page.getByRole('link', { name: '开始复习' }).click();
-      await page.locator('#review-reveal').click();
+      await Promise.all([
+        page.waitForURL(url => url.pathname === '/decks'),
+        page.getByRole('link', { name: '卡组', exact: true }).click()
+      ]);
+      // 等页面切换及有限动画结束，再进行下一次点击。
+      await page.evaluate(async () => {
+        await document.activeViewTransition?.finished.catch(() => {});
+        await Promise.allSettled(document.getAnimations()
+          .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+          .map(animation => animation.finished));
+      });
+      const start = page.locator('.page-head a[href="/review"]');
+      assert.match(await start.textContent(), /开始复习/);
+      const expectedQueue = await page.evaluate(async () => {
+        const html = await fetch('/review').then(response => response.text());
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        return JSON.parse(decodeURIComponent(doc.getElementById('reviewer')?.dataset.queue || '%5B%5D'));
+      });
+      assert.ok(expectedQueue.some(card => card.front.includes('新增卡片')), '新增卡片仍在待复习队列');
+      try {
+        await Promise.all([
+          page.waitForURL(url => url.pathname === '/review' && !url.searchParams.has('deck')),
+          start.click()
+        ]);
+        await page.locator('#review-reveal').click();
+      } catch (error) {
+        console.error('[review-navigation]', JSON.stringify({ url: page.url(), body: await page.locator('body').innerText(), expectedQueue }));
+        throw error;
+      }
       await page.locator('[data-rating="4"]').click();
       await page.waitForSelector('#review-done', { state: 'visible' });
     });

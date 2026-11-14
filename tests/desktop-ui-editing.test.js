@@ -308,7 +308,11 @@ test('同步冲突：在设置窗口里逐个选边，解决后自动推送', { 
     const { page, origin } = launched;
 
     // 启动时的后台拉取就会撞上冲突。
-    await page.waitForFunction(async () => /需要恢复/.test(await fetch('/health').then(response => response.text())), null, { timeout: 20000 });
+    // rebase 标记先于冲突索引出现；等同步操作已停在实际冲突上再检查。
+    await page.waitForFunction(async () => {
+      const report = await fetch('/api/health').then(response => response.json());
+      return report.recovery.syncRecovery?.kind === 'rebase' && report.recovery.syncRecovery.unmergedCount >= 2;
+    }, null, { timeout: 30000 });
     assert.match(git(vault, 'status', '--porcelain'), /^UU /m);
 
     await app.evaluate(({ Menu }) => {
