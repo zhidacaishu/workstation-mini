@@ -39,7 +39,7 @@ function twoDevices(files = BASE) {
   git(A, 'commit', '-m', 'init');
   git(A, 'push', '-u', 'origin', 'main');
   clone(B);
-  return { root, A, B, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, A, B, cleanup: () => fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 function write(dir, files) {
@@ -107,7 +107,7 @@ test('冲突列表：标出两边各自有没有这个文件、差在哪里，�
     // 只是看，不动现场。
     assert.match(read(env.B, 'notes/x.md'), /^<<<<<<< /m);
     assert.equal(sync.getStatus().phase, 'recovery-required');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('全部用远端：正文是远端的，本机那份进历史，复习记录两边都在，之后能正常推送', async () => {
@@ -138,7 +138,7 @@ test('全部用远端：正文是远端的，本机那份进历史，复习记�
     const next = await sync.cycle('再同步');
     assert.equal(next.ok, true, next.error);
     assert.equal(git(env.B, 'rev-list', '--left-right', '--count', 'HEAD...@{u}').trim(), '0\t0');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('全部用本机：正文是本机的，远端那份进历史，被远端删掉的笔记留下', async () => {
@@ -159,7 +159,7 @@ test('全部用本机：正文是本机的，远端那份进历史，被远端�
     // 另一台设备拉下来就是本机选的结果。
     git(env.A, 'pull', '--rebase');
     assert.equal(read(env.A, 'notes/x.md'), LOCAL_X);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('只有笔记冲突、全部用远端：本机提交变空也能继续，不会卡在变基里', async () => {
@@ -176,7 +176,7 @@ test('只有笔记冲突、全部用远端：本机提交变空也能继续，�
     assert.equal(read(env.B, 'notes/x.md'), REMOTE_X);
     assert.equal(git(env.B, 'status', '--porcelain'), '');
     assert.equal(git(env.B, 'rev-list', '--left-right', '--count', 'HEAD...@{u}').trim(), '0\t0');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('已经在编辑器里手工合并好的文件，可以按现在的内容保留', async () => {
@@ -202,7 +202,7 @@ test('已经在编辑器里手工合并好的文件，可以按现在的内容�
     assert.ok(versions.some(record => record.raw === REMOTE_X));
     assert.ok(versions.some(record => record.raw === LOCAL_X));
     assert.equal(git(env.B, 'show', 'HEAD:notes/x.md'), merged);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('手工改到一半又选了远端：改到一半的内容也存进历史', async () => {
@@ -218,7 +218,7 @@ test('手工改到一半又选了远端：改到一半的内容也存进历史',
     assert.equal(result.ok, true, result.error);
     assert.equal(read(env.B, 'notes/x.md'), REMOTE_X);
     assert.deepEqual((await historyOf(env, 'x.md')).map(record => record.raw).sort(), [half, LOCAL_X].sort());
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('冲突期间保存过别的笔记：不挡继续，改动一起提交', async () => {
@@ -234,7 +234,7 @@ test('冲突期间保存过别的笔记：不挡继续，改动一起提交', as
     assert.equal(read(env.B, 'notes/new.md'), '# 新笔记\n');
     assert.equal(read(env.B, 'notes/gone.md'), '# 要删的\n\n本机改过\n');
     assert.equal(git(env.B, 'status', '--porcelain'), '');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('没选全不动现场；选了不认识的值也不动', async () => {
@@ -253,7 +253,7 @@ test('没选全不动现场；选了不认识的值也不动', async () => {
     }
     assert.equal(git(env.B, 'status', '--porcelain'), before);
     assert.equal((await historyOf(env, 'x.md')).length, 0);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('本机有两个提交都冲突：解决第一处后停在第二处，再选一次才结束', async () => {
@@ -277,7 +277,7 @@ test('本机有两个提交都冲突：解决第一处后停在第二处，再�
     assert.equal(read(env.B, 'notes/x.md'), LOCAL_X);
     assert.equal(read(env.B, 'notes/y.md'), '# Y\n\n远端改的\n');
     assert.equal((await sync.cycle('再同步')).ok, true);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('在外面手工 merge 留下的冲突：远端、本机不会认反', async () => {
@@ -298,7 +298,7 @@ test('在外面手工 merge 留下的冲突：远端、本机不会认反', asyn
     assert.equal(read(env.B, 'notes/x.md'), REMOTE_X);
     assert.deepEqual((await historyOf(env, 'x.md')).map(record => record.raw), [LOCAL_X]);
     assert.equal((await sync.cycle('再同步')).ok, true);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('cherry-pick 这类分不清两边的状态不给选，现场原样留着', async () => {
@@ -317,7 +317,7 @@ test('cherry-pick 这类分不清两边的状态不给选，现场原样留着',
     assert.match(result.error, /不能在应用里选/);
     assert.match(read(env.B, 'notes/x.md'), /^<<<<<<< /m);
     assert.equal(sync.getStatus().phase, 'recovery-required');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('文件名里有通配符和空格也只动这一个文件', async () => {
@@ -333,7 +333,7 @@ test('文件名里有通配符和空格也只动这一个文件', async () => {
     assert.equal(result.ok, true, result.error);
     assert.equal(read(env.B, name), '# 甲\n\n远端\n');
     assert.equal(read(env.B, 'notes/a 1.md'), '# 乙\n\n别动我\n');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('没有冲突时两个接口都安静返回', async () => {
@@ -344,7 +344,7 @@ test('没有冲突时两个接口都安静返回', async () => {
     const result = await sync.resolveConflicts({});
     assert.equal(result.ok, true);
     assert.match(result.skipped, /没有需要处理的冲突/);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('复习日志冲突取并集后，另一边旧评分不会覆盖本机撤销', async () => {
@@ -363,7 +363,7 @@ test('复习日志冲突取并集后，另一边旧评分不会覆盖本机撤�
     assert.equal((await sync.resolveConflicts({})).ok, true);
     assert.deepEqual((await store.readEvents()).map(event => event.eventId), ['e2']);
     assert.equal((await store.states(['card'])).get('card').reviewCount, 1);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('超出上限的复习冲突日志拒绝自动合并，不清空任何一边', async () => {
@@ -382,7 +382,7 @@ test('超出上限的复习冲突日志拒绝自动合并，不清空任何一�
     assert.equal(result.recovery.kind, 'rebase');
     assert.deepEqual(fs.readFileSync(path.join(env.B, file)), before);
     assert.ok(git(env.B, 'ls-files', '-u').trim());
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('复习冲突中的符号链接拒绝合并，库外文件不被修改', { skip: process.platform === 'win32' }, async () => {
@@ -406,7 +406,7 @@ test('复习冲突中的符号链接拒绝合并，库外文件不被修改', { 
     assert.equal(fs.readFileSync(outsideA, 'utf8'), 'keep a');
     assert.equal(fs.readFileSync(outsideB, 'utf8'), 'keep b');
     assert.ok(git(env.B, 'ls-files', '-u').trim());
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('合并复习日志写入失败时保留完整原文件及未合并现场', async () => {
@@ -435,7 +435,7 @@ test('合并复习日志写入失败时保留完整原文件及未合并现场',
     assert.equal(fs.readdirSync(path.dirname(file)).some(name => name.includes('.tmp-')), false);
   } finally {
     fsp.open = originalOpen;
-    env.cleanup();
+    await env.cleanup();
   }
 });
 
@@ -453,7 +453,7 @@ test('未采用的 Markdown 超出备份上限时拒绝选边并保留工作区'
     assert.match(result.error, /超过自动备份大小上限/);
     assert.equal(fs.readFileSync(file, 'utf8'), '# 手工编辑中的内容\n');
     assert.match(git(env.B, 'diff', '--name-only', '--diff-filter=U'), /notes\/x.md/);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('Git 路径里的字面反斜杠不映射成其他文件，不覆盖无关日志', { skip: process.platform === 'win32' }, async () => {
@@ -476,5 +476,5 @@ test('Git 路径里的字面反斜杠不映射成其他文件，不覆盖无关�
     assert.equal(abort.ok, false);
     assert.match(abort.error, /反斜杠/);
     assert.equal(read(env.B, literal), before);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });

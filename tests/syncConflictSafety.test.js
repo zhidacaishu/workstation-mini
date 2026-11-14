@@ -37,7 +37,7 @@ function twoDevices(files) {
   git(A, 'commit', '-m', 'init');
   git(A, 'push', '-u', 'origin', 'main');
   clone(B);
-  return { root, remote, A, B, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, remote, A, B, cleanup: () => fs.promises.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
 }
 
 function pushFromA(env, name, content) {
@@ -77,7 +77,7 @@ test('复习同步遇到未提交的笔记修改时不变基，不把冲突标�
     assert.equal(sync.getStatus().recovery, null, '没有留下需要恢复的现场');
     assert.equal(git(env.B, 'stash', 'list').trim(), '', '没有用过 stash');
     assert.equal(git(env.B, 'status', '--porcelain').trim(), 'M notes/inbox/n.md');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('复习同步在工作区干净时照常变基并推送', async () => {
@@ -94,7 +94,7 @@ test('复习同步在工作区干净时照常变基并推送', async () => {
     assert.equal(result.changed, true, '拉到了别的设备的修改，调用方要重扫索引');
     assert.match(fs.readFileSync(path.join(env.B, 'notes/inbox/n.md'), 'utf8'), /别的设备的新内容/);
     assert.equal(git(env.B, 'rev-list', '--count', 'origin/main..HEAD').trim(), '0');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('远端没有新提交时，即使有未提交的笔记修改也直接推送复习记录', async () => {
@@ -109,7 +109,7 @@ test('远端没有新提交时，即使有未提交的笔记修改也直接推�
     assert.equal(result.pushed, true);
     assert.equal(result.deferred, undefined);
     assert.equal(git(env.B, 'status', '--porcelain').trim(), 'M notes/inbox/n.md');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('中止变基前，把冲突期间保存的笔记存进本机历史', async () => {
@@ -143,7 +143,7 @@ test('中止变基前，把冲突期间保存的笔记存进本机历史', async
       assert.ok(abortRecord, `${notePath} 应有一条中止前的历史`);
       assert.equal((await getRecord(notes, abortRecord.id)).raw, expected);
     }
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('中止变基后，冲突期间的复习记录自动补回', async () => {
@@ -163,7 +163,7 @@ test('中止变基后，冲突期间的复习记录自动补回', async () => {
     assert.equal(aborted.ok, true);
     assert.deepEqual(aborted.preserved.filter(item => item.kind === 'review').map(item => item.count), [2]);
     assert.deepEqual((await store.readEvents()).map(event => event.eventId).sort(), ['e1', 'e2', 'e3']);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('复习评分经过写入闸门：暂停写入期间不落盘，放开后才写', async () => {
@@ -200,7 +200,7 @@ test('联网命令不受本地命令的超时限制，慢推送能推完', HOOK_
 
     assert.equal(result.ok, true, result.error);
     assert.equal(git(env.B, 'rev-list', '--count', 'origin/main..HEAD').trim(), '0');
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('联网命令真的超时时，错误信息写明是超时', HOOK_SLEEP, async () => {
@@ -215,7 +215,7 @@ test('联网命令真的超时时，错误信息写明是超时', HOOK_SLEEP, as
     assert.equal(result.ok, false);
     assert.match(result.error, /Git push 超过 \d+ 秒没有完成/);
     assert.doesNotMatch(result.error, /Command failed/);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('中止保全已暂存的修改和新文件，并在撤销工作区前写入持久快照', async () => {
@@ -237,7 +237,7 @@ test('中止保全已暂存的修改和新文件，并在撤销工作区前写�
     const backups = fs.readdirSync(path.join(env.B, '.workstation-local/git-abort'));
     const snapshot = JSON.parse(fs.readFileSync(path.join(env.B, '.workstation-local/git-abort', backups[0])));
     assert.ok(snapshot.files.some(file => file.path === 'notes/new.md' && file.content === 'staged new\n'));
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('中止前备份失败时保留 Git 冲突和未提交内容，报告失败', async () => {
@@ -254,7 +254,7 @@ test('中止前备份失败时保留 Git 冲突和未提交内容，报告失败
     assert.equal(result.recovery.kind, 'rebase');
     assert.equal(fs.readFileSync(path.join(env.B, 'notes/y.md'), 'utf8'), 'precious edit\n');
     assert.match(fs.readFileSync(path.join(env.B, 'notes/x.md'), 'utf8'), /<<<<<<< /);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('冲突期间撤销评分，中止变基后撤销仍然有效', async () => {
@@ -271,7 +271,7 @@ test('冲突期间撤销评分，中止变基后撤销仍然有效', async () =>
     assert.equal((await sync.abortOperation()).ok, true);
     assert.equal((await store.readEvents()).length, 0);
     assert.equal((await store.states(['card'])).size, 0);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('持久快照目录不可写时，在 Git 中止之前失败，不撤掉用户修改', async () => {
@@ -288,7 +288,7 @@ test('持久快照目录不可写时，在 Git 中止之前失败，不撤掉用
     assert.equal(result.ok, false);
     assert.equal(result.recovery.kind, 'rebase');
     assert.equal(fs.readFileSync(path.join(env.B, 'notes/x.md'), 'utf8'), conflict);
-  } finally { env.cleanup(); }
+  } finally { await env.cleanup(); }
 });
 
 test('中止后恢复日志拒绝 Git 还原的符号链接，类型变更也先保全', { skip: process.platform === 'win32' }, async t => {
@@ -319,7 +319,7 @@ test('中止后恢复日志拒绝 Git 还原的符号链接，类型变更也先
         assert.equal(fs.readFileSync(outside, 'utf8'), '库外内容\n');
         const backup = JSON.parse(fs.readFileSync(path.join(env.B, result.backupPath), 'utf8'));
         assert.ok(backup.files.some(file => file.path === 'reviews/2026-11-dev.jsonl' && file.content.includes('precious')));
-      } finally { env.cleanup(); }
+      } finally { await env.cleanup(); }
     });
   }
 });
