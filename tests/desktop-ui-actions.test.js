@@ -128,9 +128,11 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.getByRole('link', { name: '清除', exact: true }).click();
       await page.locator('[name="tag"]').selectOption('交互标签');
       await page.waitForFunction(() => new URL(location.href).searchParams.get('tag') === '交互标签');
+      await page.waitForLoadState('load');
       assert.equal(await page.locator('.library-document').count(), 1);
       await page.locator('[name="section"]').selectOption('experiments');
       await page.waitForFunction(() => new URL(location.href).searchParams.get('section') === 'experiments');
+      await page.waitForLoadState('load');
       assert.equal(await page.locator('.library-document').count(), 0);
       await page.getByRole('link', { name: '清除', exact: true }).click();
       assert.equal(await page.locator('.library-document').count(), 3);
@@ -144,6 +146,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.match(await card.innerText(), /逾期/);
       await card.locator('select').selectOption('done');
       await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'done');
+      await page.waitForLoadState('load');
       assert.doesNotMatch(await card.innerText(), /逾期|下一步测试/);
       assert.match(await card.innerText(), /结果测试/);
       const before = await card.innerText();
@@ -151,11 +154,13 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await card.innerText(), before);
       await card.locator('select').selectOption('running');
       await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'running');
+      await page.waitForLoadState('load');
       assert.match(await card.innerText(), /逾期/);
       assert.match(await card.innerText(), /下一步测试/);
       assert.doesNotMatch(await card.innerText(), /结果测试/);
       await card.locator('select').selectOption('abandoned');
       await page.waitForFunction(() => document.querySelector('[data-board-card]')?.dataset.status === 'abandoned');
+      await page.waitForLoadState('load');
       assert.doesNotMatch(await card.innerText(), /逾期/);
     });
     await check('计划改期、完成和重新打开写回 Markdown', async () => {
@@ -164,11 +169,14 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await form.locator('[name="due"]').fill('2030-02-03');
       await form.locator('[data-task-save]').click();
       await page.waitForFunction(() => document.querySelector('[data-plan-task] [name="due"]')?.value === '2030-02-03' && !document.querySelector('[data-plan-task]')?.hasAttribute('aria-busy'));
+      await page.waitForLoadState('load');
       await form.locator('[name="done"]').check();
       await page.waitForSelector('.plan-empty');
+      await page.waitForLoadState('load');
       await page.getByRole('link', { name: '已完成', exact: true }).click();
       await form.locator('[name="done"]').uncheck();
       await page.waitForSelector('.plan-empty');
+      await page.waitForLoadState('load');
       assert.match(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), /- \[ \] 整理资料 @2030-02-03/);
     });
     await check('未保存改期不会被其他任务完成或页面跳转丢弃', async () => {
@@ -189,16 +197,21 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await first.locator('[name="due"]').inputValue(), '2031-05-06');
       await first.locator('[data-task-save]').click();
       await page.waitForFunction(() => document.querySelector('[name="due"][value="2031-05-06"]') && !document.querySelector('[aria-busy="true"][data-task-form]'));
+      // 新DOM已出现时defer脚本未必执行完，下一次编辑要等本次重载完成。
+      await page.waitForLoadState('load');
       await page.route('**/tasks/update', route => route.fulfill({
         status: 409, contentType: 'application/json', body: JSON.stringify({ message: '模拟版本冲突' })
       }));
-      await first.locator('[name="due"]').fill('2032-06-07');
-      await first.locator('[data-task-save]').click();
-      await page.waitForFunction(() => document.querySelector('.toast.is-error')?.textContent.includes('模拟版本冲突'));
-      assert.equal(await first.locator('[name="due"]').isDisabled(), false);
-      assert.equal(await second.locator('[name="due"]').isDisabled(), false);
-      assert.equal(await first.locator('[name="due"]').inputValue(), '2032-06-07');
-      await page.unroute('**/tasks/update');
+      try {
+        await first.locator('[name="due"]').fill('2032-06-07');
+        await first.locator('[data-task-save]').click();
+        await page.waitForFunction(() => document.querySelector('.toast.is-error')?.textContent.includes('模拟版本冲突'));
+        assert.equal(await first.locator('[name="due"]').isDisabled(), false);
+        assert.equal(await second.locator('[name="due"]').isDisabled(), false);
+        assert.equal(await first.locator('[name="due"]').inputValue(), '2032-06-07');
+      } finally {
+        await page.unroute('**/tasks/update');
+      }
       let release;
       let intercepted;
       const arrived = new Promise(resolve => { intercepted = resolve; });
@@ -207,16 +220,22 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.route('**/tasks/update', async route => {
         requests += 1; intercepted(); await gate; await route.continue();
       });
-      await first.locator('[data-task-save]').click();
-      await arrived;
-      assert.equal(await second.locator('[name="done"]').isDisabled(), true);
-      assert.equal(await second.locator('[name="due"]').isDisabled(), true, '请求期间禁止产生另一项改期输入');
-      assert.equal(requests, 1, '另一任务保存期间不并发提交');
-      release();
-      await page.waitForFunction(() => document.querySelector('[name="due"][value="2032-06-07"]') && !document.querySelector('[aria-busy="true"][data-task-form]'));
-      await page.unroute('**/tasks/update');
+      try {
+        await first.locator('[data-task-save]').click();
+        await arrived;
+        assert.equal(await second.locator('[name="done"]').isDisabled(), true);
+        assert.equal(await second.locator('[name="due"]').isDisabled(), true, '请求期间禁止产生另一项改期输入');
+        assert.equal(requests, 1, '另一任务保存期间不并发提交');
+        release();
+        await page.waitForFunction(() => document.querySelector('[name="due"][value="2032-06-07"]') && !document.querySelector('[aria-busy="true"][data-task-form]'));
+        await page.waitForLoadState('load');
+      } finally {
+        release();
+        await page.unroute('**/tasks/update');
+      }
       await second.locator('[name="done"]').check();
       await page.waitForFunction(() => document.querySelectorAll('[data-plan-task]').length === 1);
+      await page.waitForLoadState('load');
       assert.equal(await first.locator('[name="due"]').inputValue(), '2032-06-07');
     });
     await check('月历备注保存、清空、未保存保护和月份切换', async () => {
@@ -438,9 +457,11 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.match(changed, /改过的答案/);
       await row.getByRole('button', { name: /暂停复习/ }).click();
       await page.waitForFunction(() => document.querySelector('.card-row.is-suspended'));
+      await page.waitForLoadState('load');
       assert.match(await fs.readFile(deckFile, 'utf8'), /"suspended":true/);
       await page.locator('.card-row').filter({ hasText: '题目（改）' }).getByRole('button', { name: /恢复复习/ }).click();
       await page.waitForFunction(() => !document.querySelector('.card-row.is-suspended'));
+      await page.waitForLoadState('load');
       await fs.writeFile(path.join(vault, 'cards', 'trash.md'), '---\ndeck: 待删卡组\n---\n\n## 要删的卡\n\n内容\n');
       await visit('/cards?deck=' + encodeURIComponent('待删卡组'));
       await page.locator('.card-row-front').filter({ hasText: '要删的卡' }).click();

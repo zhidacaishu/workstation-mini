@@ -26,7 +26,7 @@
   for (const form of tasks) {
     form.classList.add('is-enhanced');
     const date = form.querySelector('[name="due"]');
-    const baseline = date.value;
+    const baseline = date.defaultValue;
     const reschedule = form.querySelector('.plan-task-reschedule');
     const summary = reschedule?.querySelector('summary');
     if (summary) {
@@ -39,10 +39,14 @@
       });
     }
     dates.set(form, baseline);
-    date.addEventListener('input', () => {
-      form.classList.toggle('is-edited', date.value !== baseline);
-      if (summary) summary.textContent = date.value !== baseline ? '待保存' : '改期';
-    });
+    const refreshDate = () => {
+      form.classList.toggle('is-edited', date.value !== dates.get(form));
+      if (summary) summary.textContent = date.value !== dates.get(form) ? '待保存' : '改期';
+    };
+    date.addEventListener('input', refreshDate);
+    date.addEventListener('change', refreshDate);
+    // 用户可能在defer脚本就绪前已编辑日期，服务端value属性才是已保存的基线。
+    refreshDate();
     form.querySelector('[data-task-toggle]').addEventListener('change', () => form.requestSubmit());
   }
 })();

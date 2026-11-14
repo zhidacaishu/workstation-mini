@@ -6,9 +6,9 @@ const vm = require('node:vm');
 
 const script = fs.readFileSync(path.join(__dirname, '..', 'src/public/plan.js'), 'utf8');
 
-function load({ href = 'http://localhost/plan', saved = null, blocked = false } = {}) {
+function load({ href = 'http://localhost/plan', saved = null, blocked = false, serverDue = '', currentDue = serverDue } = {}) {
   const state = { redirected: '', saved: '', submitted: 0 };
-  const date = { value: '', addEventListener: (name, callback) => { date[name] = callback; } };
+  const date = { value: currentDue, defaultValue: serverDue, addEventListener: (name, callback) => { date[name] = callback; } };
   const checkbox = { addEventListener: (name, callback) => { checkbox[name] = callback; } };
   const classes = new Set();
   const form = {
@@ -111,4 +111,18 @@ test('计划日期未保存时离开有保护，还原后解除', () => {
   assert.equal(attempt(), true);
   ui.date.value = '';
   assert.equal(attempt(), false);
+});
+
+test('脚本初始化前已经输入的日期仍算未保存，显示保存入口并保护离开', () => {
+  const ui = load({ serverDue: '2031-05-06', currentDue: '2032-06-07' });
+  assert.equal(ui.classes.has('is-edited'), true);
+  const event = { prevented: false, preventDefault() { this.prevented = true; } };
+  ui.beforeUnload(event);
+  assert.equal(event.prevented, true);
+  ui.date.value = '2031-05-06';
+  ui.date.change();
+  assert.equal(ui.classes.has('is-edited'), false);
+  const restored = { prevented: false, preventDefault() { this.prevented = true; } };
+  ui.beforeUnload(restored);
+  assert.equal(restored.prevented, false);
 });
