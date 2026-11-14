@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { waitForApi } = require('./desktop-test-utils');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -25,7 +26,7 @@ test('笔记阅读宽度随窗口增长，保持边距与右侧操作对齐', { 
       : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
     page = await app.firstWindow();
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(r => r.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const origin = new URL(page.url()).origin;
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme });
@@ -113,7 +114,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
     page = await app.firstWindow();
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(response => response.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const origin = new URL(page.url()).origin;
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme });
@@ -265,7 +266,7 @@ test('正文目录切换、键盘导航、章节跳转与滚动高亮在真实�
       : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
     page = await app.firstWindow();
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(r => r.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const origin = new URL(page.url()).origin;
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
@@ -389,7 +390,7 @@ test('密集月历的末周事项可滚动及键盘到达，星期列保持对�
       : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
     page = await app.firstWindow();
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(r => r.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const origin = new URL(page.url()).origin;
     for (const colorScheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });

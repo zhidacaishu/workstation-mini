@@ -33,6 +33,7 @@ const miniCoreTests = [
   'config.test.js',
   'dates.test.js',
   'desktop-config.test.js',
+  'desktop-test-utils.test.js',
   'desktop-build-config.test.js',
   'desktop-trusted-sender.test.js',
   'desktop-platform-policy.test.js',

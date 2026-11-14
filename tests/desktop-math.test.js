@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { waitForApi } = require('./desktop-test-utils');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -41,7 +42,7 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     page.on('pageerror', e => errors.push(e.message));
     page.on('requestfailed', r => failed.push(r.url()));
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(r => r.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const origin = new URL(page.url()).origin;
     await page.route('**/*', route => {
       if (new URL(route.request().url()).origin !== origin) { external.push(route.request().url()); return route.abort(); }

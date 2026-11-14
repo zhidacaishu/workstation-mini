@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { waitForApi } = require('./desktop-test-utils');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -43,7 +44,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     page.setDefaultTimeout(5000);
     page.on('pageerror', error => errors.push(error.message));
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(response => response.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const icon = await app.evaluate(({ app, nativeImage }) => {
       const root = app.isPackaged ? process.resourcesPath : app.getAppPath() + '/build';
       const file = root + '/' + (process.platform === 'win32' ? 'icon.ico' : 'icon.png');

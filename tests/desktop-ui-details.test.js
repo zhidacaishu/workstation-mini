@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { waitForApi } = require('./desktop-test-utils');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -92,7 +93,7 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
     page = await app.firstWindow();
     page.setDefaultTimeout(6000);
     await page.waitForSelector('.workspace-sidebar');
-    await page.waitForFunction(async () => (await fetch('/api/index-status').then(r => r.json())).phase === 'ready');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
     const origin = new URL(page.url()).origin;
     await page.goto(origin + '/cards');
     const cardEditPath = await page.locator('.card-row-front').first().getAttribute('href');

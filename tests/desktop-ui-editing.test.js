@@ -1,6 +1,7 @@
 // 真实桌面窗口里走一遍第五轮新增的交互：编辑器的续列表、缩进、[[ 补全、贴图、分栏预览，
 // 计划页快速添加，复习的挖空就地显示和撤销，代码块复制按钮，以及设置窗口里的冲突选边。
 const test = require('node:test');
+const { waitForApi } = require('./desktop-test-utils');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -19,7 +20,7 @@ async function launch(userData) {
   const page = await app.firstWindow();
   page.setDefaultTimeout(5000);
   await page.waitForSelector('.workspace-sidebar');
-  await page.waitForFunction(async () => (await fetch('/api/index-status').then(response => response.json())).phase === 'ready');
+  await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
   return { app, page, origin: new URL(page.url()).origin };
 }
 
@@ -309,10 +310,8 @@ test('同步冲突：在设置窗口里逐个选边，解决后自动推送', { 
 
     // 启动时的后台拉取就会撞上冲突。
     // rebase 标记先于冲突索引出现；等同步操作已停在实际冲突上再检查。
-    await page.waitForFunction(async () => {
-      const report = await fetch('/api/health').then(response => response.json());
-      return report.recovery.syncRecovery?.kind === 'rebase' && report.recovery.syncRecovery.unmergedCount >= 2;
-    }, null, { timeout: 30000 });
+    await waitForApi(page, '/api/health', report =>
+      report.recovery.syncRecovery?.kind === 'rebase' && report.recovery.syncRecovery.unmergedCount >= 2);
     assert.match(git(vault, 'status', '--porcelain'), /^UU /m);
 
     await app.evaluate(({ Menu }) => {
