@@ -1058,11 +1058,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
   flex-direction: column;
 }
 .page > [data-plan-view="calendar"] { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* 给桌面月历明确的可分配高度，避免多事项日期把六行的固有高度一起撑大。
-   矮窗口允许页面滚动，保留完整日期格与改期控件。 */
-@media (min-width: 1041px) {
-  .page.page-canvas:has(> [data-plan-view="calendar"]) { flex: none; height: 100dvh; min-height: 700px; }
-}
+/* 月历与当天详情始终并排，分别滚动；小窗口选中日期后也能直接看到备注。
+   明确可分配高度，避免多事项日期把整个页面撑出窗口。 */
+.page.page-canvas:has(> [data-plan-view="calendar"]) { flex: none; height: 100dvh; min-height: 620px; }
 
 
 .plan-header { align-items: center; }
@@ -1207,6 +1205,7 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .calday:nth-child(7n) { border-right: 0; }
 .calday:nth-last-child(-n + 7) { border-bottom: 0; }
 .calday:hover { background: var(--hover); text-decoration: none; }
+.calday:focus-visible { outline-offset: -3px; }
 .calday.is-weekend { background: var(--weekend); }
 .calday.is-outside { background: var(--outside); }
 .calday.is-outside .calday-num { color: var(--subtle); font-weight: 400; }
@@ -1247,8 +1246,9 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .calpill.is-more { align-self: flex-start; background: transparent; color: var(--subtle); }
 .plan-undated-link { display: inline-block; margin-top: 12px; color: var(--muted); font-size: var(--fs-sm); }
 
-.plan-day-detail { align-self: start; position: sticky; top: 28px; display: flex; flex-direction: column; gap: 20px; padding: 20px; }
+.plan-day-detail { min-width: 0; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 20px; padding: 20px; }
 .plan-day-detail > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.plan-day-detail > * { flex-shrink: 0; }
 .plan-day-detail > header h2 { font-size: var(--fs-xl); font-weight: 600; }
 .plan-day-detail > header span { color: var(--subtle); font-size: var(--fs-sm); }
 .plan-day-section { display: flex; flex-direction: column; gap: 6px; }
@@ -1326,16 +1326,15 @@ input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; 
 .board-deadline.is-overdue { background: var(--warn-soft); color: var(--warn-text); }
 .board-next { margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--line-soft); overflow-wrap: anywhere; color: var(--text-2); font-size: var(--fs-md); line-height: 1.65; }
 .board-next > span { display: block; margin-bottom: 4px; color: var(--subtle); font-size: var(--fs-xs); }
-/* 轻量箭头提示状态可改；悬停或聚焦增强，键盘聚焦时显示选中状态。 */
+/* 聚焦前后保持同一尺寸，避免键盘浏览时挤动标题；当前状态由列标题及原生菜单表达。 */
 .board-card > .statusform { grid-column: 2; grid-row: 1; margin: -2px -6px 0 0; opacity: .65; transition: opacity var(--motion); }
 .board-card:hover > .statusform, .board-card > .statusform:focus-within { opacity: 1; }
 .statusform .select-field.small { display: inline-flex; }
 .statusform .select-field.small select { width: 28px; height: var(--control-sm); padding: 0; border-color: var(--line-soft); border-radius: var(--radius-sm); background: var(--inset); color: transparent; font-size: var(--fs-xs); }
 .statusform .select-field.small select:hover, .statusform .select-field.small select:focus { border-color: var(--line-strong); }
-.statusform .select-field.small select:focus-visible { width: auto; padding: 0 24px 0 8px; color: var(--text-2); }
+.statusform .select-field.small select:focus-visible { border-color: var(--accent); }
 .statusform option { background: var(--surface); color: var(--text); }
 .statusform .select-field::after { right: 11px; width: 5px; height: 5px; }
-.statusform .select-field:has(select:focus-visible)::after { right: 9px; }
 
 /* ---------- 卡组 ---------- */
 
@@ -1390,6 +1389,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .card-row-action { flex: none; margin: 0; }
 
 .card-edit { display: flex; flex-direction: column; min-height: calc(100dvh - 80px); }
+.card-edit > .page-head { align-items: center; }
 .card-edit-form { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 22px 24px; }
 .card-edit-form .card-field:has(textarea), .card-edit-form .card-field textarea { flex: 1; }
 .card-field { display: flex; flex-direction: column; gap: 6px; color: var(--faint); font-size: var(--fs-sm); font-weight: 500; }
@@ -1847,10 +1847,19 @@ dialog { color: var(--text); }
 @media (max-width: 1040px) {
   .desk-layout { grid-template-columns: minmax(0, 1fr); }
   .desk-main { grid-column: auto; }
-  .plan-calendar-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
-  .plan-day-detail { position: static; }
+  .plan-calendar-layout { grid-template-columns: minmax(0, 1fr) 264px; gap: 16px; }
+  .plan-day-detail { padding: 16px; gap: 16px; }
+  .calgrid-head span { padding-inline: 8px; }
+  .calday { padding-inline: 6px; }
   .history-layout.has-preview { grid-template-columns: minmax(0, 1fr); }
   .page { padding-inline: 28px; }
+}
+
+/* 矮窗口收紧日期格的空白，保留日期圆标和完整事项；密集月份仍可在月历内滚动。 */
+@media (max-height: 740px) {
+  .calday { min-height: 64px; gap: 2px; padding-block: 5px; }
+  .calday-items { gap: 2px; }
+  .calpill { padding-inline: 5px; font-size: var(--fs-2xs); line-height: 1.5; }
 }
 
 @media (prefers-reduced-motion: reduce) {

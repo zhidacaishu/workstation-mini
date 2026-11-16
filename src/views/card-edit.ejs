@@ -4,9 +4,13 @@
 <header class="page-head">
   <%# 卡组文件就在下面的「卡组文件」里，标题下不再重复一遍路径。 %>
   <h1>编辑卡片</h1>
+  <div class="actions">
+    <a class="button quiet" href="<%= returnTo %>">取消</a>
+    <button class="button primary" type="submit" form="card-edit-form">保存</button>
+  </div>
 </header>
 
-<form class="panel card-edit-form" action="/cards/update" method="post" data-guard-unsaved>
+<form id="card-edit-form" class="panel card-edit-form" action="/cards/update" method="post" data-guard-unsaved>
   <input type="hidden" name="id" value="<%= card.id %>">
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="returnTo" value="<%= returnTo %>">
@@ -41,8 +45,6 @@
   </label>
 
   <div class="card-edit-actions">
-    <button class="button primary" type="submit">保存</button>
-    <a class="button quiet" href="<%= returnTo %>">取消</a>
     <button class="button danger card-delete" type="submit" form="card-delete-form">删除这张卡</button>
   </div>
 </form>
