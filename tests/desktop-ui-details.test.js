@@ -7,7 +7,9 @@ const os = require('node:os');
 const { _electron: electron } = require('playwright-core');
 const { saveVersion } = require('../src/vault/history');
 
-test('长卡组、历史路径、独立窗口底栏和错误信息的真实布局', { timeout: 90000 }, async t => {
+// 包含启动、索引及多页面/尺寸/主题矩阵，慢速 Windows runner 上整组可能超过 90 秒。
+// 单项操作仍受 Playwright 的 6 秒时限约束，每个子用例也有独立上限。
+test('长卡组、历史路径、独立窗口底栏和错误信息的真实布局', { timeout: 180000 }, async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-ui-details-'));
   const vault = path.join(root, 'vault');
   const userData = path.join(root, 'user');
@@ -17,7 +19,7 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
   const today = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'), String(now.getDate()).padStart(2, '0')].join('-');
   let app, page, failed = false;
   async function check(name, fn) {
-    await t.test(name, async () => {
+    await t.test(name, { timeout: 60000 }, async () => {
       try { await fn(); }
       catch (error) {
         failed = true;

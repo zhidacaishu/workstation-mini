@@ -96,9 +96,13 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
           .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true, metaKey: true }));
       });
       const opened = () => mainOutput.join('');
-      for (let attempt = 0; attempt < 40 && !/打不开/.test(opened()); attempt += 1) await page.waitForTimeout(50);
-      assert.match(opened(), /用系统默认应用打开：attachments\/example\.svg/);
-      assert.match(opened(), /打不开：资料库里没有 attachments\/gone\.png/);
+      const expected = [/用系统默认应用打开：attachments\/example\.svg/, /打不开：资料库里没有 attachments\/gone\.png/];
+      // 两次路径校验并行完成，缺失文件可能先返回；必须等两条结果，不能假定日志顺序。
+      const deadline = Date.now() + 5000;
+      while (!expected.every(pattern => pattern.test(opened())) && Date.now() < deadline) {
+        await page.waitForTimeout(50);
+      }
+      for (const pattern of expected) assert.match(opened(), pattern);
       assert.ok(page.url().endsWith('/note/other.md'), page.url());
       assert.equal(await visible('.workspace-sidebar'), true);
     });
