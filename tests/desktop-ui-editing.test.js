@@ -40,11 +40,28 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-editing-desktop-'));
   const vault = path.join(root, 'vault');
   const userData = path.join(root, 'user');
-  let app;
+  let app, page;
   const errors = [];
   let failed = false;
   async function check(name, fn) {
-    await t.test(name, async () => { try { await fn(); } catch (error) { failed = true; throw error; } });
+    await t.test(name, async () => {
+      try {
+        await fn();
+      } catch (error) {
+        failed = true;
+        const state = await page?.evaluate(() => ({
+          url: location.href,
+          ready: document.readyState,
+          focused: document.hasFocus(),
+          active: document.activeElement?.outerHTML.slice(0, 400),
+          dialog: document.querySelector('dialog[open]')?.id,
+          review: document.getElementById('review-front')?.innerHTML,
+          revealHidden: document.getElementById('review-reveal')?.hidden
+        })).catch(() => null);
+        console.error('桌面交互失败：' + name, JSON.stringify(state), errors);
+        throw error;
+      }
+    });
   }
   try {
     await fs.mkdir(path.join(vault, 'notes', 'inbox'), { recursive: true });
@@ -55,7 +72,8 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
     await writeSettings(userData, { vaultDir: vault, device: 'editing-smoke', syncEnabled: false });
     const launched = await launch(userData);
     app = launched.app;
-    const { page, origin } = launched;
+    page = launched.page;
+    const { origin } = launched;
     page.on('pageerror', error => errors.push(error.message));
     await page.setViewportSize({ width: 1440, height: 900 });
     const visit = route => page.goto(origin + route);
@@ -231,8 +249,12 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
         ? fsSync.readdirSync(path.join(vault, 'reviews')).flatMap(file => fsSync.readFileSync(path.join(vault, 'reviews', file), 'utf8').split('\n').filter(Boolean))
         : [];
       await visit('/review');
+      await page.waitForSelector('#review-front .cloze-question');
+      assert.match(await page.locator('#review-front').textContent(), /稳定条件/);
       assert.doesNotMatch(await page.locator('#review-front').textContent(), /ρ < 1/);
-      await page.keyboard.press('Space');
+      // 导航完成不保证原生窗口的键盘焦点已进入复习区。首个按键明确指定目标；
+      // 后续评分和撤销仍用全局按键，验证应用自身的焦点交接。
+      await page.locator('#reviewer').press('Space');
       await page.waitForSelector('#review-front .cloze-answer');
       assert.equal(await page.locator('#review-front .cloze-answer').textContent(), 'ρ < 1');
       await page.keyboard.press('3');
@@ -247,6 +269,15 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
       assert.equal(events[1].type, 'undo');
       assert.equal(events[1].undo_event_id, events[0].event_id);
       assert.equal(await page.locator('#review-remaining').textContent(), '1');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#review-front .cloze-answer');
+      await page.locator('[data-rating="1"]').click();
+      await page.waitForSelector('#review-relearn:not([hidden])');
+      assert.equal(await page.locator('#reviewer').evaluate(element => document.activeElement === element), true,
+        '鼠标评分后焦点交回题面，下一张仍可用空格显示答案');
+      await page.keyboard.press('Space');
+      await page.waitForSelector('#review-front .cloze-answer');
+      await page.waitForFunction(() => !document.getElementById('reviewer').hasAttribute('aria-busy'));
     });
 
     await check('卡片正面预览渲染 Markdown 和公式，宽窄窗口均不溢出', async () => {

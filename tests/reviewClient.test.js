@@ -59,6 +59,7 @@ async function loadReview(fetch, queue) {
 
   const buttons = [1, 2, 3, 4].map(rating => {
     const button = createElement();
+    button.tagName = 'BUTTON';
     button.dataset.rating = String(rating);
     return button;
   });
@@ -71,7 +72,7 @@ async function loadReview(fetch, queue) {
     addEventListener(type, handler) { this.listeners = { ...(this.listeners || {}), [type]: handler }; },
     querySelector() { return null; }
   };
-  for (const element of elements.values()) {
+  for (const element of [...elements.values(), ...buttons]) {
     element.focus = () => { element.focused = true; document.activeElement = element; };
   }
   const windowListeners = new Map();
@@ -92,6 +93,7 @@ async function loadReview(fetch, queue) {
 
   return {
     elements,
+    buttons,
     document,
     beforeUnload(event) { windowListeners.get('beforeunload')?.(event); },
     reveal: () => elements.get('review-reveal').listeners.get('click')(),
@@ -141,6 +143,69 @@ test('显示答案按钮持有焦点时，隐藏后交还焦点并允许数字�
   answer.resolve({ ok: true });
   await flush();
   assert.equal(ui.elements.get('review-done').hidden, false);
+});
+
+test('鼠标评分后即使隐藏按钮仍持有焦点，下一张也能用空格翻面并按数字评分', async () => {
+  const answer = deferred();
+  const payloads = [];
+  const ui = await loadReview((url, options) => {
+    if (url === '/review/answer') {
+      payloads.push(JSON.parse(options.body));
+      return answer.promise;
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+  }, [CARD, { ...CARD, id: 'deck/next', front: '下一张' }]);
+  ui.reveal();
+  ui.buttons[2].focus();
+  ui.rate(3);
+  assert.equal(ui.elements.get('review-front').innerHTML, '下一张');
+  ui.keydown({ key: ' ' });
+  assert.equal(ui.elements.get('review-back').hidden, false, '下一张答案应能通过空格显示');
+  ui.keydown({ key: '2' });
+  assert.deepEqual(payloads.map(({ cardId, rating }) => [cardId, rating]), [[CARD.id, 3], ['deck/next', 2]]);
+  answer.resolve({ ok: true });
+  await flush();
+  assert.equal(ui.elements.get('review-done').hidden, false);
+});
+
+test('鼠标提交最后一次评分仍在保存时，Z 可以立即排队撤销', async () => {
+  const answer = deferred();
+  const calls = [];
+  const ui = await loadReview(url => {
+    calls.push(url);
+    if (url === '/review/answer') return answer.promise;
+    return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+  }, [CARD]);
+  ui.reveal();
+  ui.buttons[2].focus();
+  ui.rate(3);
+  ui.keydown({ key: 'z' });
+  answer.resolve({ ok: true });
+  await flush();
+  assert.ok(calls.includes('/review/undo'), '等待评分保存后应提交撤销');
+  assert.equal(ui.elements.get('review-front').innerHTML, CARD.front);
+  assert.equal(ui.elements.get('reviewer').hidden, false);
+});
+
+test('暂停当前卡后交回翻面焦点，但异步等待中移到其他控件的焦点不被抢回', async () => {
+  for (const moveFocus of [false, true]) {
+    const suspended = deferred();
+    const ui = await loadReview(() => suspended.promise, [CARD, { ...CARD, id: 'deck/next', front: '下一张' }]);
+    const button = ui.elements.get('review-suspend');
+    button.tagName = 'BUTTON';
+    button.focus();
+    const pending = ui.suspend();
+    const input = { tagName: 'INPUT' };
+    if (moveFocus) ui.document.activeElement = input;
+    suspended.resolve({ ok: true, json: async () => ({ ok: true }) });
+    await pending;
+    assert.equal(ui.elements.get('review-front').innerHTML, '下一张');
+    if (moveFocus) assert.equal(ui.document.activeElement, input);
+    else {
+      ui.keydown({ key: ' ' });
+      assert.equal(ui.elements.get('review-back').hidden, false, '暂停后下一张仍可用空格显示答案');
+    }
+  }
 });
 
 test('最后一次评分落盘前不结束也不同步', async () => {

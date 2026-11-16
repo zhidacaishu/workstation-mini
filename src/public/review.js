@@ -244,6 +244,9 @@
     lastAnswer = entry;
     updateUndo();
     render();
+    // 鼠标评分后隐藏的评分按钮可能仍持有焦点，令空格、数字键和 Z 被当成
+    // 按钮输入而跳过。下一张以及最后一张的保存期间，都交回仍可见的复习区。
+    root.focus({ preventScroll: true });
 
     entry.saved = submitAnswer(payload);
     try {
@@ -389,6 +392,10 @@
       updateUndo();
       window.workstationUI?.notify?.('已暂停这张卡，可以在卡组的卡片列表里恢复。', { type: 'success' });
       render();
+      // 禁用按钮可能保留焦点，也可能退回 body；用户已移到其他控件时则不抢焦点。
+      if (!root.hidden && (document.activeElement === suspendEl || document.activeElement === document.body)) {
+        root.focus({ preventScroll: true });
+      }
     } catch (error) {
       suspendEl.disabled = false;
       window.workstationUI?.notify?.(error.message, { type: 'error' });

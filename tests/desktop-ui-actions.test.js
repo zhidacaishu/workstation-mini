@@ -488,7 +488,10 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.waitForFunction(() => document.querySelector('#review-front').textContent.trim() === 'Q3');
       assert.match(await fs.readFile(path.join(vault, 'cards', 'relearn.md'), 'utf8'), /## Q2\n<!-- workstation:card:v1 \{[^}]*"suspended":true/);
       assert.match(await page.locator('#review-edit').getAttribute('href'), /^\/cards\/edit\?id=/);
-      await rate(3);
+      // 暂停按钮异步完成后也要交回题面，连续快捷键不能再次触发暂停。
+      await page.keyboard.press('Space');
+      await page.waitForSelector('#review-back:not([hidden])');
+      await page.keyboard.press('3');
       assert.equal(await front(), 'Q1');
       assert.equal(await visible('#review-relearn'), true);
       await rate(3);
