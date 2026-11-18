@@ -17,11 +17,17 @@ async function launch(userData) {
   const app = await electron.launch(process.env.WORKSTATION_EXECUTABLE
     ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env }
     : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
-  const page = await app.firstWindow();
-  page.setDefaultTimeout(5000);
-  await page.waitForSelector('.workspace-sidebar');
-  await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
-  return { app, page, origin: new URL(page.url()).origin };
+  try {
+    const page = await app.firstWindow();
+    page.setDefaultTimeout(5000);
+    await page.waitForSelector('.workspace-sidebar');
+    await waitForApi(page, '/api/index-status', status => status.phase === 'ready');
+    return { app, page, origin: new URL(page.url()).origin };
+  } catch (error) {
+    // 调用方要等 launch 返回才拿得到 app；启动途中出错时在这里关闭测试进程。
+    await close(app);
+    throw error;
+  }
 }
 
 async function writeSettings(userData, settings) {
