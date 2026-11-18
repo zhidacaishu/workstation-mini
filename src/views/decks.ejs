@@ -9,6 +9,7 @@
   </div>
   <div class="actions">
     <% if (total > 0) { %><a class="button quiet" href="/cards">全部卡片</a><% } %>
+    <%- include('partials/card-create-button', { buttonClass: due + fresh ? 'button' : 'button primary', file: '' }) %>
     <% if (due + fresh > 0) { %>
       <a class="button primary" href="/review">开始复习 <span class="button-count"><%= sessionCount %></span></a>
     <% } %>
@@ -26,7 +27,7 @@
 <% if (decks.length === 0) { %>
   <section class="panel empty-state">
     <h2>还没有卡片</h2>
-    <p>在笔记里选中一段文字，点「建卡片」。</p>
+    <% if (!readOnly) { %><p>写下第一个问题和答案，或在笔记里选中文字建卡。</p><% } %>
     <details class="format-help"><summary>手动编写卡组</summary>
     <p><code>cards/</code> 下的 Markdown 文件以 <code>##</code> 标题作为正面，正文作为背面；正文写 <code>{{挖空}}</code> 会变成挖空卡。</p>
     <pre><code>---

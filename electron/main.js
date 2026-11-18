@@ -29,6 +29,7 @@ const { validateSettingsUpdate, validateConflictChoices } = require('./settings-
 const { resolveVaultDir } = require('./vault-resolution');
 const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
 const { createLeaveGuard } = require('./leave-guard');
+const { showAppMessage, focusMessage } = require('./message-window');
 const { createPlatformPolicy, INSET_CHROME_ARGUMENT } = require('./platform-policy');
 const {
   validateRecoveryMode,
@@ -126,7 +127,7 @@ const isTestRun = Boolean(
   || (testUserDataDir && !app.isPackaged)
 );
 // 「有未保存的更改，仍要离开吗」。自动化测试里不弹框（见 leave-guard.js）。
-const confirmLeave = createLeaveGuard({ dialog, isTestRun });
+const confirmLeave = createLeaveGuard({ showMessage: showAppMessage, isTestRun });
 if (testUserDataDir && (!app.isPackaged || isSmokeTest)) {
   app.setPath('userData', path.resolve(testUserDataDir));
 }
@@ -235,16 +236,14 @@ async function promptForVaultDir(purpose) {
 }
 
 async function askMissingVault(missingPath) {
-  const { response } = await dialog.showMessageBox({
-    type: 'warning',
+  const response = await showAppMessage(null, {
     title: '找不到资料库',
     message: `找不到资料库目录：\n${missingPath}`,
     detail: '移动硬盘、网络位置或云盘可能还没准备好。'
       + '已保存的路径不会被自动更改，除非你在这里另选一个目录。',
     buttons: ['重试', '选择其它目录', '从备份恢复', '退出'],
     defaultId: 0,
-    cancelId: 3,
-    noLink: true
+    cancelId: 3
   });
   return ['retry', 'choose', 'restore', 'quit'][response] || 'retry';
 }
@@ -321,8 +320,7 @@ async function openResource(window, target) {
     const detail = error.code === 'ENOENT' ? `资料库里没有 ${target.relative}。` : String(error.message || error);
     if (isTestRun) { console.log(`[resource] 打不开：${detail}`); return; }
     const parent = window && !window.isDestroyed() ? window : undefined;
-    const options = { type: 'info', buttons: ['好'], noLink: true, message: '打不开这个附件', detail };
-    (parent ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options)).catch(() => {});
+    await showAppMessage(parent, { buttons: ['好'], message: '打不开这个附件', detail }).catch(showFatalError);
   }
 }
 
@@ -345,9 +343,9 @@ function secureMainWindow(window, origin) {
     return { action: 'deny' };
   });
 
-  // 页面有未保存的更改时问一声，而不是静默拦下（见 leave-guard.js）。
+  // 页面已在 beforeunload 中询问；选择留下时让 Chromium 取消这次导航。
   window.webContents.on('will-prevent-unload', event => {
-    if (quitCoordinator?.isAccepted() || confirmLeave(window, 'main')) event.preventDefault();
+    if (quitCoordinator?.isAccepted()) event.preventDefault();
   });
 
   window.webContents.on('will-navigate', (event, url) => {
@@ -373,7 +371,7 @@ function secureSettingsWindow(window) {
   window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-prevent-unload', event => {
-    if (quitCoordinator?.isAccepted() || confirmLeave(window, 'settings')) event.preventDefault();
+    if (quitCoordinator?.isAccepted()) event.preventDefault();
   });
   window.webContents.on('will-navigate', (event, url) => {
     if (!isSettingsDocumentUrl(url)) event.preventDefault();
@@ -443,17 +441,15 @@ async function createMainWindow({ hidden = false } = {}) {
       window.webContents.reload();
     });
     // 页面卡死：问一下要等还是重新载入。
-    window.on('unresponsive', () => {
-      if (quitting || isTestRun || window.isDestroyed()) return;
-      const choice = dialog.showMessageBoxSync(window, {
-        type: 'warning',
+    window.on('unresponsive', async () => {
+      if (quitting || isTestRun || window.isDestroyed() || focusMessage(window)) return;
+      const choice = await showAppMessage(window, {
         buttons: ['继续等待', '重新载入'],
         defaultId: 0,
         cancelId: 0,
-        noLink: true,
         message: '页面没有响应',
         detail: '可以再等一会儿，或者重新载入页面（还没保存的内容会丢失，笔记编辑器里写的内容已存成本机草稿）。'
-      });
+      }).catch(error => { showFatalError(error); return 0; });
       if (choice === 1 && !window.isDestroyed()) {
         window.webContents.forcefullyCrashRenderer();
         window.webContents.reload();
@@ -561,19 +557,15 @@ async function confirmAndAbortGitOperation() {
   if (!recovery) return { ok: true, skipped: '没有需要恢复的 Git 操作' };
   if (!recovery.abortable) throw new Error('当前只有未合并文件，无法安全自动中止；请用 Git 工具手工处理。');
   const options = {
-    type: 'warning',
     title: `中止 Git ${syncRecoveryLabel(recovery)}`,
     message: `确认中止当前 ${syncRecoveryLabel(recovery)} 操作？`,
     detail: 'Git 会回到该操作开始前的状态，这之后保存过、还没提交的修改会从笔记里撤掉。\n\n撤掉的笔记和卡组内容会先存进「历史与草稿」，复习记录会自动补回。\n\n中止后不会自动重新同步；同一处冲突没解决的话，下次同步还会停在这里。',
     buttons: ['取消', '确认中止'],
     defaultId: 0,
-    cancelId: 0,
-    noLink: true
+    cancelId: 0
   };
   const parent = dialogParent();
-  const { response } = parent
-    ? await dialog.showMessageBox(parent, options)
-    : await dialog.showMessageBox(options);
+  const response = await showAppMessage(parent, options);
   if (response !== 1) return { cancelled: true };
   return runtime.abortGitOperation();
 }
@@ -799,6 +791,7 @@ function destroyMainWindow() {
 }
 
 async function canReplaceRuntime() {
+  if (mainWindow && focusMessage(mainWindow)) return false;
   if (mainWindowPromise) await mainWindowPromise.catch(() => {});
   if (!await windowVetoesUnload(mainWindow)) return true;
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -957,15 +950,35 @@ async function finishQuit() {
 }
 
 function quitApplication() {
+  if (focusMessage()) return Promise.resolve({ cancelled: true });
   return quitCoordinator.request();
 }
 
-function showFatalError(error) {
+async function showFatalError(error) {
   console.error(error);
-  if (!isTestRun) dialog.showErrorBox('科研工作台', error.message || String(error));
+  if (isTestRun) return;
+  const detail = error.message || String(error);
+  try {
+    await showAppMessage(dialogParent(), { message: '工作台遇到错误', detail, buttons: ['关闭'] });
+  } catch {
+    // 消息窗口本身无法创建时仍需让用户看见启动错误。
+    dialog.showErrorBox('科研工作台', detail);
+  }
 }
 
 function registerIpc() {
+  // beforeunload 必须同步给 Chromium 答案。只有发起导航的渲染进程等待，
+  // 主进程继续处理独立消息窗口的点击、Esc 和关闭。
+  ipcMain.on('workstation:confirm-leave', async event => {
+    try {
+      if (trustedSettingsSender(event)) event.returnValue = await confirmLeave(settingsWindow, 'settings');
+      else if (isTrustedMainOriginSender(event, mainWindow, runtime?.origin)) event.returnValue = await confirmLeave(mainWindow, 'main');
+      else event.returnValue = false;
+    } catch (error) {
+      console.error(error);
+      event.returnValue = false;
+    }
+  });
   const assertGuideSender = event => {
     if (!isTrustedMainOriginSender(event, mainWindow, runtime?.origin)) throw new Error('拒绝来自未知页面的指引请求。');
   };
@@ -1008,15 +1021,13 @@ function registerIpc() {
         return runtimeState();
       }
       if (!previous.syncEnabled && next.syncEnabled) {
-        const { response } = await dialog.showMessageBox(settingsWindow, {
-          type: 'warning',
+        const response = await showAppMessage(settingsWindow, {
           title: '启用 Git 自动同步',
           message: '启用后，科研工作台会修改并同步整个资料库。',
           detail: '每轮同步会拉取并 rebase，然后执行 git add -A、提交和推送。git add -A 会包含资料库内所有未被 .gitignore 排除的文件，而不只是应用创建的 Markdown。请先确认远端和忽略规则正确。',
           buttons: ['取消', '确认启用'],
           defaultId: 0,
-          cancelId: 0,
-          noLink: true
+          cancelId: 0
         });
         if (response !== 1) return { cancelled: true };
       }
@@ -1254,25 +1265,22 @@ if (!gotLock) {
 
     configStore = createConfigStore({ userDataPath: app.getPath('userData') });
     settings = configStore.load();
+    applyThemeSetting();
     const loadIssue = configStore.lastLoadIssue?.();
     if (loadIssue && !isTestRun) {
       // 设置文件损坏：说清楚用了什么、坏文件留在哪里，而不是悄悄换成上一版甚至直接退出。
       if (loadIssue.kind === 'backup' && settings.vaultDir) {
-        const choice = dialog.showMessageBoxSync({
-          type: 'warning',
+        const choice = await showAppMessage(null, {
           buttons: ['使用这个资料库', '重新选择资料库'],
           defaultId: 0,
           cancelId: 0,
-          noLink: true,
           message: '设置文件损坏，已从上一版备份恢复',
           detail: `备份里的资料库是：\n${settings.vaultDir}\n\n损坏的文件已改名保存在：\n${loadIssue.corruptPath}`
         });
         if (choice === 1) settings = { ...settings, vaultDir: '' };
       } else if (loadIssue.kind === 'reset') {
-        dialog.showMessageBoxSync({
-          type: 'warning',
+        await showAppMessage(null, {
           buttons: ['好'],
-          noLink: true,
           message: '设置文件损坏，已按首次启动处理',
           detail: `接下来请重新选择资料库。损坏的文件已改名保存在：\n${loadIssue.corruptPath}`
         });
@@ -1286,7 +1294,6 @@ if (!gotLock) {
       writeSettings(settings);
     }
     guideStore = createGuideStore(app.getPath('userData'));
-    applyThemeSetting();
     registerIpc();
 
     const startupRecovery = resetRecoveryService('restore');
@@ -1328,16 +1335,16 @@ if (!gotLock) {
       setRuntime(null);
       destroyMainWindow();
       refreshMenus();
-      showFatalError(error);
+      await showFatalError(error);
       showSettingsWindow();
     }
-  }).catch(error => {
+  }).catch(async error => {
     // 启动到这一步还失败（设置文件损坏、托盘图标加载不了……），已经没有
     // 任何界面可用了。**必须退出进程**：没有窗口也没有托盘时，
     // window-all-closed 是空实现，进程会一直挂着并占住单实例锁 ——
     // 用户之后再双击图标，新进程会因为拿不到锁直接退出，
     // 而僵尸进程收到 second-instance 也弹不出任何东西。表现就是「应用打不开了」。
-    showFatalError(error);
+    await showFatalError(error);
     app.exit(1);
   });
 }

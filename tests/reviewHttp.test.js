@@ -77,9 +77,25 @@ test('没有卡片时卡组页给出格式说明', async () => {
   try {
     const response = await request(ctx.app).get('/decks').expect(200);
     assert.match(response.text, /还没有卡片/);
+    assert.match(response.text, /data-card-create=""/);
     assert.match(response.text, /deck: 英语生词/, '应展示卡片文件格式');
   } finally {
     await ctx.cleanup();
+  }
+});
+
+test('空卡组按实际文件名建卡，只读页面隐藏新建入口', async t => {
+  for (const readOnly of [false, true]) {
+    const ctx = await setup({ readOnly, cards: { 'vocabulary.md': '---\ndeck: 英语\n---\n' } });
+    t.after(() => ctx.cleanup());
+    const decks = await request(ctx.app).get('/api/card-decks').expect(200);
+    assert.deepEqual(decks.body, [{ file: 'vocabulary', deck: '英语' }]);
+    for (const route of ['/cards', '/review']) {
+      const page = await request(ctx.app).get(route).query({ deck: '英语' }).expect(200);
+      if (readOnly) assert.doesNotMatch(page.text, /data-card-create=/);
+      else assert.match(page.text, /data-card-create="vocabulary"/);
+    }
+    if (readOnly) assert.doesNotMatch((await request(ctx.app).get('/decks')).text, /data-card-create=/);
   }
 });
 

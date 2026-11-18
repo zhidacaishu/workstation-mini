@@ -1,6 +1,7 @@
 (() => {
   const prose = document.querySelector('.prose');
-  if (!prose) return;
+  const createButton = document.querySelector('[data-card-create]');
+  if (!prose && !createButton) return;
 
   const notePath = document.body.dataset.notePath || '';
   const ui = window.workstationUI || {};
@@ -21,8 +22,28 @@
   let activeDialog = null;
   let restoreFocus = null;
   let saving = false;
+  let hasEdits = () => false;
   let selectionFrame = 0;
   const scheduleFrame = window.requestAnimationFrame || (callback => callback());
+
+  if (createButton) {
+    const saved = window.sessionStorage.getItem('card-created');
+    if (saved) {
+      window.sessionStorage.removeItem('card-created');
+      notify('已存到 ' + saved);
+      createButton.focus({ preventScroll: true });
+    }
+    document.addEventListener('click', event => {
+      const button = event.target.closest('[data-card-create]');
+      if (button) openForm('', button);
+    });
+  }
+  window.addEventListener('beforeunload', event => {
+    if (!activeDialog || (!saving && !hasEdits())) return;
+    if (window.workstationDialog?.mayLeave(event)) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 
   function removeBubble() {
     bubble?.remove();
@@ -34,6 +55,7 @@
     if (activeDialog !== dialog) return;
     dialog.remove();
     activeDialog = null;
+    hasEdits = () => false;
     const target = restoreFocus && restoreFocus !== document.body && restoreFocus.isConnected !== false
       ? restoreFocus
       : document.getElementById('main-content') || prose;
@@ -72,9 +94,9 @@
     bubble.style.left = `${Math.max(8, Math.min(maxLeft, window.scrollX + rect.left))}px`;
   }
 
-  function openForm(selected) {
+  function openForm(selected, trigger) {
     if (saving || activeDialog) return;
-    const focusedBeforeOpen = document.activeElement;
+    const focusedBeforeOpen = trigger || document.activeElement;
     removeBubble();
     restoreFocus = focusedBeforeOpen;
 
@@ -84,15 +106,28 @@
     dialog.innerHTML = `
       <form class="selection-form-inner" data-card-form>
         <h2 id="selection-form-title">新建卡片</h2>
-        <label>正面<input type="text" name="front" value=""></label>
-        <label>背面<textarea name="back" rows="3"></textarea></label>
-        <label>存到 cards/<input type="text" name="deckFile" value="inbox"></label>
-        <p class="muted">背面可以留空，之后再补。写 <code>{{挖空}}</code> 会变成挖空卡。</p>
-        <div class="actions">
-          <button class="button primary" type="submit" data-save>保存</button>
-          <button class="button" type="button" data-cancel>取消</button>
+        <div class="card-compose-faces">
+          <label class="card-compose-face" for="compose-front">正面
+            <input id="compose-front" type="text" name="front" placeholder="写下问题" autocomplete="off" aria-required="true">
+          </label>
+          <div class="card-compose-face">
+            <div class="card-compose-caption"><label for="compose-back">背面</label><small id="compose-format">Markdown · {{挖空}}</small></div>
+            <textarea id="compose-back" name="back" rows="4" aria-describedby="compose-format" placeholder="写下答案（可稍后补充）"></textarea>
+          </div>
         </div>
+        <div class="card-compose-destination">
+          <label for="compose-deck">卡组文件</label>
+          <div class="card-compose-file"><span aria-hidden="true">cards/</span>
+            <input id="compose-deck" type="text" name="deckFile" list="compose-decks" placeholder="inbox" autocomplete="off" spellcheck="false">
+            <span aria-hidden="true">.md</span>
+          </div>
+        </div>
+        <datalist id="compose-decks"></datalist>
         <p class="selection-status" role="status" aria-live="polite" hidden></p>
+        <div class="actions">
+          <button class="button quiet" type="button" data-cancel>取消</button>
+          <button class="button primary" type="submit" data-save>保存</button>
+        </div>
       </form>
     `;
     document.body.append(dialog);
@@ -100,7 +135,18 @@
 
     const form = dialog.querySelector('[data-card-form]');
     const front = form.querySelector('[name=front]');
+    const deckField = form.querySelector('[name=deckFile]');
+    deckField.value = trigger?.dataset.cardCreate || '';
+    if (trigger) {
+      const choices = form.querySelector('datalist');
+      requestJson('/api/card-decks').then(files => {
+        if (dialog.isConnected) choices.replaceChildren(...files.map(({ file, deck }) => new Option(deck, file)));
+      }).catch(() => {}); // 建议不可用时仍可直接输入文件名。
+    }
     const saveButton = form.querySelector('[data-save]');
+    const onMac = document.body.dataset.primaryModifier === 'meta';
+    saveButton.title = onMac ? '保存（⌘ Enter）' : '保存（Ctrl + Enter）';
+    saveButton.setAttribute('aria-keyshortcuts', onMac ? 'Meta+Enter' : 'Control+Enter');
     const status = form.querySelector('.selection-status');
 
     const showStatus = (message, isError = false) => {
@@ -110,18 +156,32 @@
     };
 
     // 按 Esc、点遮罩很容易是误触：改过内容时先确认，不一下子把已填的卡片丢掉。
-    // 点「取消」按钮是明确的选择，直接关。
+    // 笔记划词入口保留原有的一键取消；手写卡片有改动时也确认取消操作。
     const snapshot = () => [...form.querySelectorAll('input, textarea, select')].map(field => field.value).join('\u0000');
     let initial = '';
-    const confirmDiscard = () => snapshot() === initial || window.confirm('放弃这张卡片？已填的内容不会保存。');
+    async function discardIfConfirmed() {
+      if (saving) return;
+      if (snapshot() === initial || await window.workstationDialog.confirm('放弃这张卡片？', '已填的内容不会保存。', '放弃卡片')) closeForm();
+    }
     dialog.addEventListener('close', () => cleanupDialog(dialog), { once: true });
     dialog.addEventListener('cancel', event => {
-      if (saving || !confirmDiscard()) event.preventDefault();
+      event.preventDefault();
+      discardIfConfirmed();
     });
     dialog.addEventListener('click', event => {
-      if (event.target === dialog && confirmDiscard()) closeForm();
+      if (event.target === dialog) discardIfConfirmed();
     });
-    form.querySelector('[data-cancel]').addEventListener('click', closeForm);
+    form.querySelector('[data-cancel]').addEventListener('click', trigger ? discardIfConfirmed : closeForm);
+    form.addEventListener('keydown', event => {
+      if (event.isComposing || event.key !== 'Enter') return;
+      if (ui.isExactPrimaryShortcut(event, 'Enter')) {
+        event.preventDefault();
+        if (!event.repeat && !saving) form.requestSubmit();
+      } else if (trigger && event.target === front && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        form.querySelector('[name=back]').focus();
+      }
+    });
     form.addEventListener('submit', async event => {
       event.preventDefault();
       if (saving) return;
@@ -129,7 +189,7 @@
       const payload = {
         front: front.value.trim(),
         back: form.querySelector('[name=back]').value.trim(),
-        deckFile: form.querySelector('[name=deckFile]').value.trim() || 'inbox',
+        deckFile: deckField.value.trim() || 'inbox',
         source: notePath
       };
       if (!payload.front) {
@@ -138,6 +198,7 @@
         return;
       }
 
+      const focusedField = document.activeElement;
       saving = true;
       const controls = [...form.querySelectorAll('input, textarea, button')];
       const disabledBefore = controls.map(control => control.disabled);
@@ -151,9 +212,15 @@
           json: payload,
           fallbackMessage: '保存失败'
         });
-        notify(`已存到 ${result.path}`);
         saving = false;
         if (activeDialog === dialog) closeForm();
+        if (trigger && !document.getElementById('reviewer')) {
+          window.sessionStorage.setItem('card-created', result.path);
+          window.location.reload();
+        } else {
+          if (trigger) document.querySelector('#reviewer:not([hidden])')?.focus({ preventScroll: true });
+          notify(`已存到 ${result.path}`);
+        }
       } catch (error) {
         showStatus(`保存失败：${error.message}`, true);
       } finally {
@@ -161,6 +228,7 @@
         controls.forEach((control, index) => { control.disabled = disabledBefore[index]; });
         dialog.removeAttribute('aria-busy');
         saveButton.removeAttribute('aria-busy');
+        if (activeDialog === dialog && focusedField?.isConnected) focusedField.focus();
       }
     });
 
@@ -170,6 +238,7 @@
       front.value = '公式与笔记';
     } else front.value = selected;
     initial = snapshot();
+    hasEdits = () => snapshot() !== initial;
     front.focus();
     front.select();
   }
@@ -213,6 +282,7 @@
     showBubble(text, rect);
   }
 
+  if (!prose) return;
   document.addEventListener('selectionchange', () => {
     if (selectionFrame || saving || activeDialog) return;
     selectionFrame = scheduleFrame(refreshSelection);

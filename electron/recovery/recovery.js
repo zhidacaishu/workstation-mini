@@ -318,8 +318,8 @@ retryButton.addEventListener('click', () => run(api.retryStage));
 activateButton.addEventListener('click', () => run(api.activate));
 discardButton.addEventListener('click', () => run(api.discardOwnedStaging));
 openCurrentVaultButton.addEventListener('click', () => run(api.openCurrentVault));
-dismissResidueButton?.addEventListener('click', () => {
-  if (!window.confirm('只清除这条恢复记录，不会删除任何目录。确认已经检查过恢复目录了吗？')) return;
+dismissResidueButton?.addEventListener('click', async () => {
+  if (!await window.workstationDialog.confirm('清除恢复记录？', '请先检查恢复目录。清除记录会保留所有目录。', '清除记录')) return;
   run(api.dismissResidue);
 });
 document.getElementById('create-vault').addEventListener('click', () => run(api.createVault));

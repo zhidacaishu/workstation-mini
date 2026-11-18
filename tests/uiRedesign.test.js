@@ -167,6 +167,7 @@ test('macOS 隐藏标题栏时页面给红绿灯让位，其他情况保持原�
   assert.match(nativePage.text, /<html lang="zh-CN">/);
   // 品牌标记换成了应用图标的简化写法，不再是一个「研」字。
   assert.match(nativePage.text, /<svg class="workspace-mark"[^>]*aria-hidden="true">/);
+  assert.match(nativePage.text, /<div class="workspace-brand" role="img" aria-label="科研工作台">/);
   assert.doesNotMatch(nativePage.text, /workspace-mark"[^>]*>研</);
 
   // 不认识的取值一律按系统标题栏处理。

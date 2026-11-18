@@ -25,6 +25,7 @@ function invoke(channel, ...args) {
 }
 
 contextBridge.exposeInMainWorld('workstationSettings', {
+  confirmLeave: () => ipcRenderer.sendSync('workstation:confirm-leave'),
   get: () => invoke('settings:get'),
   save: update => invoke('settings:save', update),
   chooseDirectory: field => invoke('settings:choose-directory', field),

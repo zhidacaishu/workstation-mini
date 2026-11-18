@@ -555,8 +555,10 @@ document.getElementById('open-vault').addEventListener('click', () => openLocati
 document.getElementById('open-config').addEventListener('click', () => openLocation('已打开配置目录。', api.openConfigDirectory));
 document.getElementById('open-recovery').addEventListener('click', () => openLocation('已打开资料库恢复。', () => api.openRecovery('restore')));
 
-reloadButton.addEventListener('click', () => {
-  if (!externalData || !window.confirm('载入外部设置会放弃本页未保存的更改。继续？')) return;
+reloadButton.addEventListener('click', async () => {
+  if (!externalData) return;
+  const confirmed = await window.workstationDialog.confirm('载入外部设置？', '本页未保存的更改会被放弃。', '载入设置');
+  if (!confirmed || !externalData) return;
   const latest = externalData;
   fill(latest);
   setPhase('clean');
@@ -565,6 +567,7 @@ reloadButton.addEventListener('click', () => {
 
 window.addEventListener('beforeunload', event => {
   if (!isDirty() && activeOperation !== 'save') return;
+  if (window.workstationDialog?.mayLeave(event)) return;
   event.preventDefault();
   event.returnValue = '';
 });

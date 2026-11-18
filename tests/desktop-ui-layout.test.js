@@ -6,6 +6,68 @@ const path = require('node:path');
 const os = require('node:os');
 const { _electron: electron } = require('playwright-core');
 
+test('复习说明在宽窗使用整行，未保存编辑使用应用主题确认离开', { timeout: 45000 }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-dialog-layout-'));
+  const vault = path.join(root, 'vault');
+  const userData = path.join(root, 'user');
+  let app;
+  try {
+    await fs.mkdir(vault);
+    await fs.mkdir(path.join(userData, 'workstation-data'), { recursive: true });
+    await fs.writeFile(path.join(userData, 'workstation-data', 'settings.json'), JSON.stringify({ schemaVersion: 5, vaultDir: vault, theme: 'dark', syncEnabled: false, device: 'dialog-test' }));
+    await fs.writeFile(path.join(userData, 'workstation-data', 'guide.json'), JSON.stringify({ version: 2, status: 'completed', step: 6 }));
+    const env = { ...process.env, WORKSTATION_TEST_LEAVE_ANSWER: 'prompt' };
+    delete env.ELECTRON_RUN_AS_NODE;
+    app = await electron.launch(process.env.WORKSTATION_EXECUTABLE
+      ? { executablePath: process.env.WORKSTATION_EXECUTABLE, args: ['--workstation-smoke-test', '--workstation-user-data=' + userData], env }
+      : { args: [path.resolve(__dirname, '..'), '--workstation-user-data=' + userData], env });
+    const page = await app.firstWindow();
+    page.setDefaultTimeout(8000);
+    await page.waitForSelector('.workspace-sidebar');
+    await page.setViewportSize({ width: 1280, height: 840 });
+    await page.emulateMedia({ colorScheme: null });
+    const output = process.env.WORKSTATION_VISUAL_OUTPUT;
+    if (output) await fs.mkdir(output, { recursive: true });
+    const origin = new URL(page.url()).origin;
+    await page.goto(origin + '/new');
+    // 真正的导航由 Chromium 触发 beforeunload。测试留在编辑器和确认离开两条路径。
+    await page.locator('textarea[name=body]').fill('还没保存的正文');
+    // 留下后 Electron 会取消 Chromium 的 beforeunload。忽略 CDP 对已关闭对话框的竞态。
+    page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
+    for (const leave of [false, true]) {
+      const opened = app.waitForEvent('window', { timeout: 8000 });
+      await page.evaluate(() => { setTimeout(() => document.querySelector('[data-nav=review]').click(), 0); });
+      const prompt = await opened;
+      await prompt.emulateMedia({ colorScheme: null });
+      const question = prompt.getByRole('alertdialog', { name: '有未保存的更改' });
+      await question.waitFor({ timeout: 8000 });
+      assert.equal(await prompt.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches), true);
+      assert.equal(await question.getByRole('button', { name: '留下' }).evaluate(el => el === document.activeElement), true);
+      if (!leave) {
+        // 留给人阅读的时间超过 Chromium 的卸载超时，仍要等到选择之后才能导航。
+        await new Promise(resolve => setTimeout(resolve, 6500));
+        assert.equal(new URL(page.url()).pathname, '/new');
+        if (output) await prompt.screenshot({ path: path.join(output, 'leave-confirmation.png') });
+      }
+      const dismissed = prompt.waitForEvent('close', { timeout: 8000 });
+      const action = leave ? question.getByRole('button', { name: '离开' }).click() : prompt.keyboard.press('Escape');
+      await Promise.all([dismissed, action.catch(error => { if (!prompt.isClosed()) throw error; })]);
+      if (!leave) assert.equal(await page.locator('textarea[name=body]').inputValue(), '还没保存的正文');
+    }
+    await page.waitForURL(origin + '/decks');
+    await page.getByText('手动编写卡组', { exact: true }).click();
+    const help = page.locator('.format-help p');
+    await page.evaluate(() => document.fonts.ready);
+    assert.ok(await help.evaluate(p => p.offsetHeight < parseFloat(getComputedStyle(p).lineHeight) * 1.5), '1280px 宽窗中的说明应放在一行');
+    if (output) await page.screenshot({ path: path.join(output, 'review-help.png') });
+    await page.locator('.format-help').evaluate(el => { el.style.width = '360px'; });
+    assert.ok(await help.evaluate(p => p.offsetHeight > parseFloat(getComputedStyle(p).lineHeight) * 1.5 && p.scrollWidth <= p.clientWidth), '窄栏内自然折行');
+  } finally {
+    if (app) { await app.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app.close().catch(() => {}); }
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('笔记阅读宽度随窗口增长，保持边距与右侧操作对齐', { timeout: 45000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-fluid-reading-'));
   const vault = path.join(root, 'vault');
@@ -449,6 +511,20 @@ test('密集月历的末周事项可滚动及键盘到达，星期列保持对�
           return { visible: hit === marker || marker.contains(hit), top: r.top, headerBottom: header.bottom };
         });
         assert.ok(firstWeek.visible && firstWeek.top >= Math.max(firstWeek.headerBottom, 0), '键盘回到首周时日期圆标不被表头覆盖：' + JSON.stringify(firstWeek));
+        if (width === 1100 && height === 620) {
+          await page.goto(origin + '/plan?view=calendar&month=2026-12&date=2026-12-01');
+          await page.locator('[data-calendar-day="2026-11-30"]').focus();
+          await page.keyboard.press('Enter');
+          await page.waitForSelector('[data-month="2026-11"] [aria-current="date"][data-calendar-day="2026-11-30"]');
+          const visible = await page.evaluate(() => {
+            const cell = document.activeElement, bounds = cell.getBoundingClientRect();
+            const grid = document.querySelector('.calgrid').getBoundingClientRect();
+            return cell.dataset.calendarDay === '2026-11-30' && bounds.bottom <= grid.bottom + 1
+              && cell.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2))
+              && scrollY === 0;
+          });
+          assert.ok(visible, '跨月选中末周日期后焦点在网格可见区域内');
+        }
       }
     }
     passed = true;

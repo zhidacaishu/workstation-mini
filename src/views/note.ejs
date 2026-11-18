@@ -11,12 +11,7 @@
   const hasSidebar = outline.length > 0 || backlinks.length > 0;
   const sidebarView = outline.length ? 'outline' : 'backlinks';
 %>
-<%
-  const comfortWidth = typeof comfort !== 'undefined' && comfort;
-  // 行宽开关放在「⋯」菜单里；只读模式下菜单里只有这一项。
-  const widthToggle = `<form action="/prefs/reading-width" method="post"><input type="hidden" name="value" value="${comfortWidth ? 'full' : 'comfort'}"><input type="hidden" name="returnTo" value="/note/${encodePath(note.path)}"><button type="submit">${comfortWidth ? '正文铺满窗口' : '舒适行宽'}</button></form>`;
-%>
-<div class="note-layout<%= hasSidebar ? '' : ' is-single' %><%= comfortWidth ? ' is-comfort' : '' %>">
+<div class="note-layout<%= hasSidebar ? '' : ' is-single' %>">
   <article class="note">
     <header class="note-header">
       <div class="note-title-row">
@@ -27,7 +22,6 @@
             <details class="note-more">
               <summary class="button icon-button" aria-label="更多操作" title="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></summary>
               <div class="note-more-menu">
-                <%- widthToggle %>
                 <a href="/history?path=<%= encodeURIComponent(note.path) %>">版本历史与草稿</a>
                 <form action="/delete" method="post" data-confirm-delete>
                   <input type="hidden" name="path" value="<%= note.path %>">
@@ -35,13 +29,6 @@
                   <button class="menu-danger" type="submit">删除笔记</button>
                 </form>
               </div>
-            </details>
-          </div>
-        <% } else { %>
-          <div class="note-actions">
-            <details class="note-more">
-              <summary class="button icon-button" aria-label="更多操作" title="更多操作"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></summary>
-              <div class="note-more-menu"><%- widthToggle %></div>
             </details>
           </div>
         <% } %>

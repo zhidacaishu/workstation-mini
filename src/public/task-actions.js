@@ -96,9 +96,7 @@
         : '请先保存或还原其他待办的日期，再更新此待办。', { type: 'info' });
       return;
     }
-    // 成功后会刷新整个计划页：等待期间统一锁定会受刷新影响的输入，
-    // 避免另一行日期或当天备注在请求途中产生新改动。
-    // 成功后会刷新页面：等待期间锁住页面上所有待办，另一条的勾选不会在刷新时被吞掉。
+    // 更新派生的计数、行号和版本之前，锁定会被替换的控件。
     const fields = plan
       ? [...document.querySelectorAll('[data-task-form] input, [data-task-form] button, [data-calendar-form] textarea, [data-calendar-form] button')]
       : [...document.querySelectorAll('[data-task-form] input, [data-task-form] button')];
@@ -111,7 +109,14 @@
     fields.forEach(field => { field.disabled = true; });
     try {
       await window.workstationUI.requestJson(form.action, { method: 'POST', json: data });
-      // Reload all derived counts, date ordering and other tasks in the same note.
+      if (window.workstationCalendar) {
+        try {
+          await window.workstationCalendar.refreshAfterTask();
+          return;
+        } catch {
+          // 写入已经成功；局部读取失败时通过常规导航恢复最新状态。
+        }
+      }
       plan?.saved(form);
       window.location.reload();
     } catch (error) {

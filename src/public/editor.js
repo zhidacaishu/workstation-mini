@@ -252,6 +252,7 @@
   }, true);
   window.addEventListener('beforeunload', event => {
     if (!pendingUploads) return;
+    if (window.workstationDialog?.mayLeave(event)) return;
     event.preventDefault();
     event.returnValue = '';
   });

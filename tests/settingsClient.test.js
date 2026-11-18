@@ -157,7 +157,7 @@ async function loadSettings(initial = makeData()) {
   const window = {
     workstationSettings: api,
     location: { hash: '' },
-    confirm: () => true,
+    workstationDialog: { confirm: async () => true, mayLeave: () => false },
     addEventListener(event, handler) {
       if (!windowListeners.has(event)) windowListeners.set(event, []);
       windowListeners.get(event).push(handler);

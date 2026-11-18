@@ -112,15 +112,7 @@ kbd {
   place-items: center;
   width: 36px;
   height: 36px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: var(--raised);
-  color: var(--text);
-  font-size: var(--fs-lg);
-  font-weight: 600;
-  text-decoration: none;
 }
-.workspace-brand:hover { text-decoration: none; border-color: var(--subtle); }
 
 .nav-icon, .workspace-sidebar svg, .button-icon, .icon-button svg, .search-glyph, .research-next svg, .status-icon, .error-icon {
   fill: none;
@@ -130,11 +122,11 @@ kbd {
   stroke-linejoin: round;
 }
 /* 品牌标记：应用图标「扇开」的小尺寸写法，两张卡加一个勾。 */
-.workspace-sidebar .workspace-mark { width: 20px; height: 20px; stroke: none; }
+.workspace-sidebar .workspace-mark { width: 30px; height: 30px; stroke: none; }
 .workspace-mark-back { fill: var(--accent); }
 .workspace-mark-front { fill: var(--text); }
 .workspace-sidebar .workspace-mark-tick { fill: none; stroke: var(--raised); stroke-width: 66; }
-.workspace-nav { display: flex; flex-direction: column; gap: 4px; }
+.workspace-nav { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .workspace-nav-link {
   position: relative;
   display: flex;
@@ -212,7 +204,7 @@ kbd {
 @media (max-height: 760px) {
   .workspace-sidebar { --sidebar-tool-size: var(--control-sm); --sidebar-tool-gap: 2px; gap: 8px; padding-block: 10px; }
   html.chrome-inset .workspace-sidebar { padding-top: 46px; }
-  .workspace-sidebar .workspace-nav { gap: 2px; }
+  .workspace-sidebar .workspace-nav { gap: 5px; margin-top: 5px; }
   .workspace-sidebar .workspace-nav-link,
   .workspace-sidebar .palette-trigger.workspace-search { padding: 4px 2px; gap: 2px; font-size: var(--fs-2xs); line-height: 13px; }
   .workspace-sidebar .workspace-nav-link .nav-icon,
@@ -221,7 +213,7 @@ kbd {
   /* 紧凑排布下图标和文字挨得近，角标收小并挪到角上，不压在图标上。 */
   .workspace-sidebar .nav-badge { top: 1px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; font-size: 9px; }
 }
-/* 「新建」和顶部的品牌标记用同一种白色方块，图标用强调色：仍然好找，但不再是全屏最重的色块。 */
+/* 新建笔记是操作按钮，使用独立的轮廓和强调色。 */
 .workspace-create {
   display: grid;
   place-items: center;
@@ -477,7 +469,7 @@ kbd {
 
 .empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; color: var(--muted); }
 .empty-state h2 { font-size: var(--fs-lg); font-weight: 600; }
-.empty-state p { max-width: 560px; }
+.empty-state p { max-width: 100%; overflow-wrap: anywhere; }
 .empty-state pre {
   align-self: stretch;
   margin: 4px 0 0;
@@ -734,9 +726,6 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 
 .note-layout { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: clamp(28px, 3vw, 48px); align-items: start; }
 .note-layout.is-single { grid-template-columns: minmax(0, 1fr); }
-/* 舒适行宽（阅读页「⋯」菜单里的开关）：正文一行约 45 个汉字，目录紧跟在右边。 */
-.note-layout.is-comfort { grid-template-columns: minmax(0, 760px) 240px; justify-content: start; }
-.note-layout.is-comfort.is-single { grid-template-columns: minmax(0, 760px); }
 .note { min-width: 0; }
 .note-header { display: flex; flex-direction: column; gap: 12px; padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1px solid var(--line); }
 .note-title-row { display: flex; align-items: flex-start; gap: 16px; }
@@ -1768,7 +1757,7 @@ dialog { color: var(--text); }
   box-shadow: var(--shadow-pop);
   font-size: var(--fs-sm);
 }
-.selection-card .button::before {
+.selection-card .button::before, .card-create::before {
   width: 10px;
   height: 10px;
   margin-right: 1px;
@@ -1777,8 +1766,11 @@ dialog { color: var(--text); }
     linear-gradient(currentColor, currentColor) center / 2px 10px no-repeat;
   content: "";
 }
+.card-create { display: inline-flex; align-items: center; gap: 7px; }
+.review-totals { align-items: center; }
 .selection-form {
-  width: min(520px, calc(100vw - 48px));
+  width: min(540px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
   padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xl);
@@ -1787,13 +1779,32 @@ dialog { color: var(--text); }
 }
 .selection-form[open] { animation: pop-in 160ms ease; }
 .selection-form::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
-.selection-form-inner { display: flex; flex-direction: column; gap: 14px; padding: 22px 24px; }
-.selection-form h2 { font-size: var(--fs-xl); font-weight: 600; }
-.selection-form label { display: flex; flex-direction: column; gap: 6px; color: var(--faint); font-size: var(--fs-sm); font-weight: 500; }
-.selection-form input, .selection-form textarea { width: 100%; color: var(--text); font-size: var(--fs-md); font-weight: 400; }
-.selection-form .muted { color: var(--subtle); font-size: var(--fs-xs); }
-.selection-form code { padding: 0 4px; border-radius: var(--radius-xs); background: var(--code-inline); }
-.selection-form .actions { flex-direction: row-reverse; justify-content: flex-start; }
+.selection-form-inner { display: flex; flex-direction: column; gap: 18px; padding: 24px; }
+.selection-form h2 { font-size: var(--fs-2xl); font-weight: 600; }
+.card-compose-faces { overflow: hidden; border: 1px solid var(--field-line); border-radius: var(--radius-lg); background: var(--field); }
+.card-compose-face { display: flex; flex-direction: column; gap: 5px; padding: 13px 16px; }
+.card-compose-face + .card-compose-face { border-top: 1px solid var(--line); }
+.card-compose-face:focus-within { box-shadow: inset 3px 0 var(--accent); }
+.card-compose-face, .card-compose-destination label { color: var(--muted); font-size: var(--fs-sm); font-weight: 500; }
+.card-compose-caption { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.card-compose-caption small { color: var(--subtle); font-size: var(--fs-xs); font-weight: 400; }
+.card-compose-face input[type="text"], .card-compose-face textarea, .card-compose-file input[type="text"] {
+  min-width: 0; width: 100%; padding: 0; border: none; border-radius: 0; background: transparent;
+  box-shadow: none; outline: none; color: var(--text); font-size: var(--fs-md); font-weight: 400;
+}
+.card-compose-face input[type="text"] { height: 32px; font-size: var(--fs-lg); }
+.card-compose-face textarea { min-height: 72px; resize: vertical; }
+.card-compose-face :is(input, textarea)::placeholder { color: var(--subtle); }
+.card-compose-destination { display: flex; align-items: center; gap: 12px; }
+.card-compose-file {
+  display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; padding: 0 10px;
+  border: 1px solid var(--field-line); border-radius: var(--radius); background: var(--inset);
+  color: var(--subtle); font: var(--fs-sm) var(--font-mono);
+}
+.card-compose-file input[type="text"] { flex: 1; font: inherit; }
+.card-compose-file:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.selection-form .actions { justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.selection-form .actions .primary { min-width: 72px; }
 .selection-status { color: var(--muted); font-size: var(--fs-sm); }
 .selection-status.is-error { color: var(--danger); }
 
@@ -2175,16 +2186,3 @@ inline-math.is-wide { overflow-x: auto; overflow-y: hidden; vertical-align: midd
 .guide-more { color: var(--text-2); font-size: var(--fs-md); }
 .guide-more summary { width: fit-content; color: var(--text); font-weight: 600; cursor: pointer; }
 .guide-more p { margin-top: 8px; }
-
-/* ---------- 页面切换 ---------- */
-
-/* 普通内容淡入不创建原生跨文档快照层，动画期间按钮和链接仍可交互。
-   侧栏保持静止；内容只改透明度，不移动点击区域。 */
-@keyframes workspace-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.workspace-main { animation: workspace-enter 140ms ease-out; }
-@media (prefers-reduced-motion: reduce) {
-  .workspace-main { animation: none; }
-}

@@ -57,7 +57,7 @@
   </div>
 <% } else { %>
   <div class="plan-calendar-layout">
-    <section class="plan-calendar" aria-label="<%= monthLabel %>月历">
+    <section class="plan-calendar" data-month="<%= month %>" aria-label="<%= monthLabel %>月历">
       <div class="calgrid plan-calendar-grid">
         <div class="calgrid-head" aria-hidden="true"><% weekdays.forEach((day, index) => { %><span<% if (index >= 5) { %> class="is-weekend"<% } %>><%= day %></span><% }) %></div>
         <div class="calgrid-body">
@@ -107,5 +107,5 @@
 <% } %>
 </div>
 <script src="/static/plan.js" defer></script>
-<% if (!readOnly && view === 'calendar') { %><script src="/static/calendar.js" defer></script><% } %>
+<% if (view === 'calendar') { %><script src="/static/calendar.js" defer></script><% } %>
 <%- include('partials/foot') %>

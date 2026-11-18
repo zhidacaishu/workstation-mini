@@ -1,0 +1,35 @@
+.message-dialog {
+  box-sizing: border-box;
+  width: min(460px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  margin: auto;
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-xl);
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  font: var(--fs-md)/1.6 var(--font-sans);
+  overflow-wrap: anywhere;
+}
+.message-dialog::backdrop { background: var(--scrim); }
+.message-dialog h2 { margin: 0; color: var(--text); font: 600 var(--fs-xl)/1.4 var(--font-sans); white-space: pre-line; }
+.message-dialog p { margin: 10px 0 0; color: var(--muted); white-space: pre-wrap; }
+.message-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.message-actions button {
+  min-height: var(--control);
+  padding: 4px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--button);
+  color: var(--text);
+  cursor: pointer;
+  font: 500 var(--fs-sm)/1.4 var(--font-sans);
+}
+.message-actions button:hover { background: var(--button-hover); }
+.message-actions button[autofocus] { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.message-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.message-window { margin: 0; background: var(--raised); }
+.message-window .message-dialog { width: 100%; max-width: 100%; max-height: 100%; border-radius: 0; box-shadow: none; }
+.message-window h2 { -webkit-app-region: drag; }

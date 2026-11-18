@@ -63,14 +63,8 @@ button:focus-visible, input[type="radio"]:focus-visible, input[type="checkbox"]:
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: var(--raised);
-  color: var(--text);
-  font-size: var(--fs-md);
-  font-weight: 600;
 }
-.mark svg { width: 18px; height: 18px; }
+.mark svg { width: 26px; height: 26px; }
 .mark-back { fill: var(--accent); }
 .mark-front { fill: var(--text); }
 .mark-tick { fill: none; stroke: var(--raised); stroke-width: 66; stroke-linecap: round; stroke-linejoin: round; }
@@ -97,7 +91,7 @@ h3 { margin: 0 0 6px; font-size: var(--fs-sm); font-weight: 600; }
 .sheet { padding: 24px 0; border-top: 1px solid var(--line); }
 .sheet:first-of-type { border-top: 0; }
 .folio { margin: 0 0 4px; }
-.lede { max-width: 66ch; margin: 6px 0 16px; color: var(--muted); }
+.lede { margin: 6px 0 16px; color: var(--muted); overflow-wrap: anywhere; }
 .lede:empty { display: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -112,9 +106,9 @@ body[data-view="welcome"] .eyebrow { display: none; }
 body[data-view="welcome"] main { grid-column: 1; align-self: start; width: min(640px, 100%); margin: 0 auto; padding: clamp(48px, 14vh, 140px) 32px 56px; }
 body[data-view="welcome"] header { margin-bottom: 8px; }
 body[data-view="welcome"] h1 { margin: 0; font-size: var(--fs-4xl); }
-body[data-view="welcome"] .welcome-mark { display: grid; width: 44px; height: 44px; margin-bottom: 20px; border-radius: var(--radius-lg); }
-body[data-view="welcome"] .welcome-mark svg { width: 24px; height: 24px; }
-.welcome-lede { max-width: 36em; margin: 0 0 28px; color: var(--muted); line-height: 1.65; }
+body[data-view="welcome"] .welcome-mark { display: grid; width: 44px; height: 44px; margin-bottom: 20px; }
+body[data-view="welcome"] .welcome-mark svg { width: 38px; height: 38px; }
+.welcome-lede { margin: 0 0 28px; color: var(--muted); line-height: 1.65; }
 .first-run-actions { display: grid; gap: 8px; }
 /* 三个起点是整行可点的按钮：左边一个线条图标，右边标题和一句说明。
    整行本身就是按钮，不再加右侧箭头和图标底块；只有「创建」带淡强调色。 */

@@ -133,8 +133,8 @@ test('draft survives restart; history restores deleted note; tasks edit source i
     await phase('delete-note', async () => {
       await page.goto(origin + '/note/task.md', { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.locator('.note-more summary').click();
-      page.once('dialog', dialog => dialog.accept());
       await page.locator('[data-confirm-delete] button').click();
+      await page.getByRole('alertdialog').getByRole('button', { name: '删除笔记' }).click();
       // 删除后回到笔记列表（分区笔记回到该分区的列表）。
       await page.waitForURL(origin + '/search', { timeout: 15000 });
     });

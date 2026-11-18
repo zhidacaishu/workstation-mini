@@ -23,6 +23,7 @@
   const suspendEl = document.getElementById('review-suspend');
   const undoEl = document.getElementById('review-undo');
   const undoLastEl = document.getElementById('review-undo-last');
+  const createEl = document.querySelector('#reviewer [data-card-create]');
   const returnTo = root.dataset?.returnTo || '/review';
 
   let queue;
@@ -99,6 +100,7 @@
     ratingsEl.hidden = true;
     revealBtn.hidden = false;
     deckEl.textContent = card.deck || '';
+    if (createEl) createEl.dataset.cardCreate = card.deckFile || '';
     if (relearnEl) relearnEl.hidden = !card.relearn;
     if (editEl) {
       editEl.hidden = false;
@@ -367,6 +369,7 @@
   // 导航或退出会终止内存中的评分重试，待落盘时沿用编辑器的离开保护。
   window.addEventListener('beforeunload', event => {
     if (pendingAnswers === 0 && !undoing) return;
+    if (window.workstationDialog?.mayLeave(event)) return;
     event.preventDefault();
     event.returnValue = '';
   });

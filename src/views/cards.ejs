@@ -11,6 +11,7 @@
   </div>
   <div class="actions">
     <a class="button quiet" href="/decks">返回卡组</a>
+    <%- include('partials/card-create-button', { buttonClass: 'button', file: defaultFile }) %>
     <% if (deck && cards.some(card => !card.suspended)) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习</a><% } %>
   </div>
 </header>
@@ -26,7 +27,7 @@
 
 <% if (!cards.length) { %>
   <section class="panel empty-state">
-    <p>这个卡组里还没有卡片。在笔记阅读页选中一段文字，点「建卡片」。</p>
+    <p>还没有卡片。</p>
   </section>
 <% } else { %>
   <ul class="panel card-list">

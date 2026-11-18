@@ -240,6 +240,7 @@
 
   // 更多操作是弹出菜单，和长期展开的帮助内容区别处理。
   function closeNoteMenus(target) {
+    if (document.querySelector('.message-dialog[open]')) return;
     for (const menu of document.querySelectorAll('.note-more[open]')) {
       if (!menu.contains(target)) menu.open = false;
     }
@@ -289,20 +290,23 @@
     });
     window.addEventListener('beforeunload', event => {
       if (saved || (!saving && snapshot().toString() === initial)) return;
+      if (window.workstationDialog?.mayLeave(event)) return;
       event.preventDefault();
       event.returnValue = '';
     });
   }
 
-  // 其它需要确认的表单在 data-confirm 里写好提示语。
-  document.addEventListener('submit', event => {
-    const message = event.target.dataset?.confirm;
-    if (message && !window.confirm(message)) event.preventDefault();
-  });
-
-  document.addEventListener('submit', event => {
-    if (!event.target.matches('[data-confirm-delete]')) return;
-    if (!window.confirm('删除这篇笔记？删除前会保存本地版本，可在“历史与草稿”恢复。')) event.preventDefault();
+  const approvedForms = new WeakSet();
+  document.addEventListener('submit', async event => {
+    const form = event.target;
+    if (!form.matches('[data-confirm], [data-confirm-delete]') || approvedForms.has(form) || event.defaultPrevented) return;
+    event.preventDefault();
+    const action = event.submitter?.textContent.trim() || '确认';
+    const detail = form.dataset.confirm || '删除前会保存本地版本，可在「历史与草稿」恢复。';
+    if (!await window.workstationDialog.confirm(action + '？', detail, action) || !form.isConnected) return;
+    approvedForms.add(form);
+    try { form.requestSubmit(event.submitter || undefined); }
+    finally { approvedForms.delete(form); }
   });
 
   document.querySelector('[data-go-back]')?.addEventListener('click', () => {
@@ -402,7 +406,7 @@
             renderEditorState('error', '草稿未确认保存，请保留此页面并复制内容备份后再处理冲突。');
             return;
           }
-          if (window.confirm('这篇笔记已在别处修改，现在的内容不能直接覆盖它。\n\n你写的内容已存为本机草稿，可在「历史与草稿」找回。要载入最新版本吗？')) {
+          if (await window.workstationDialog.confirm('载入最新版本？', '这篇笔记已在别处修改。你写的内容已存为本机草稿，可在「历史与草稿」找回。', '载入最新版本')) {
             navigating = true;
             window.location.reload();
             return;
@@ -425,6 +429,7 @@
       if (!saving && !dirty) return;
       // 先把草稿发出去：接下来要是选了「离开」，刚打的几个字也能在「历史与草稿」里找回。
       if (dirty) window.workstationDrafts?.flush?.({ leaving: true });
+      if (window.workstationDialog?.mayLeave(event)) return;
       event.preventDefault();
       event.returnValue = '';
     });

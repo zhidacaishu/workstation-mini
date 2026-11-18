@@ -1,11 +1,6 @@
 // 页面有未保存的更改时，离开、关闭、退出都要先问一声。
 //
-// Electron 不会替页面弹「确定离开吗」：beforeunload 拦下以后只发一个
-// will-prevent-unload 事件，没人处理就静默取消 —— 点侧栏、点「取消」、关设置窗口
-// 都像没反应一样，也没有办法放弃修改。这里统一弹原生对话框。
-//
-// 自动化测试里没有人来点对话框：不弹，按 WORKSTATION_TEST_LEAVE_ANSWER 回答
-// （leave 或 stay，默认 stay，与以前的行为一致）。
+// 平常由独立的消息窗口接收选择。自动化可指定 leave / stay，或用 prompt 操作真实弹窗。
 
 const PROMPTS = {
   main: {
@@ -34,22 +29,19 @@ const PROMPTS = {
   }
 };
 
-function createLeaveGuard({ dialog, isTestRun = false, testAnswer = process.env.WORKSTATION_TEST_LEAVE_ANSWER } = {}) {
+function createLeaveGuard({ showMessage, isTestRun = false, testAnswer = process.env.WORKSTATION_TEST_LEAVE_ANSWER } = {}) {
   /** 返回 true 表示用户选择放弃更改、继续离开。 */
-  return function confirmLeave(window, kind = 'main') {
-    if (isTestRun) return testAnswer === 'leave';
+  return async function confirmLeave(window, kind = 'main') {
+    if (isTestRun && testAnswer !== 'prompt') return testAnswer === 'leave';
     const prompt = PROMPTS[kind] || PROMPTS.main;
     const options = {
-      type: 'warning',
       buttons: [prompt.leave, prompt.stay],
       defaultId: 1,
       cancelId: 1,
-      noLink: true,
       message: prompt.message,
       detail: prompt.detail
     };
-    const parent = window && !window.isDestroyed?.() ? window : undefined;
-    return (parent ? dialog.showMessageBoxSync(parent, options) : dialog.showMessageBoxSync(options)) === 0;
+    return await showMessage(window, options) === 0;
   };
 }
 

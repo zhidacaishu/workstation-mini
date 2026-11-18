@@ -50,7 +50,7 @@
   </div>
 </form>
 
-<form id="card-delete-form" action="/cards/delete" method="post" data-confirm="删除这张卡片？删除前的卡组会存进「历史与草稿」，需要时可以在那里恢复。">
+<form id="card-delete-form" action="/cards/delete" method="post" data-confirm="删除前的卡组会存进「历史与草稿」，需要时可以在那里恢复。">
   <input type="hidden" name="id" value="<%= card.id %>">
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="returnTo" value="<%= returnTo %>">

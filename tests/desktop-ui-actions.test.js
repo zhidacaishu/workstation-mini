@@ -14,7 +14,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
   const errors = [];
   let failed = false;
   async function check(name, fn) {
-    await t.test(name, async () => { try { await fn(); } catch (error) { failed = true; throw error; } });
+    await t.test(name, async subtest => { try { await fn(subtest); } catch (error) { failed = true; throw error; } });
   }
   try {
     await fs.mkdir(path.join(vault, 'notes', 'experiments'), { recursive: true });
@@ -73,15 +73,18 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await trigger.click();
       await page.keyboard.press('Tab');
       assert.equal(await visible('.note-more-menu'), true);
-      // 菜单里有三项：阅读行宽、版本历史、删除。
-      await page.keyboard.press('Tab');
+      // 菜单里依次是版本历史和删除。
       await page.keyboard.press('Tab');
       assert.equal(await visible('.note-more-menu'), true);
       await page.keyboard.press('Tab');
       assert.equal(await visible('.note-more-menu'), false, '移出焦点应关闭菜单');
       await trigger.click();
-      page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
       await page.getByRole('button', { name: '删除笔记', exact: true }).click();
+      const question = page.getByRole('alertdialog', { name: '删除笔记？' });
+      await question.waitFor();
+      assert.equal(await question.getByRole('button', { name: '取消' }).evaluate(el => el === document.activeElement), true);
+      await page.keyboard.press('Escape');
+      await question.waitFor({ state: 'detached' });
       assert.equal(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), note);
       await page.getByRole('link', { name: '版本历史与草稿', exact: true }).click();
       assert.ok(page.url().includes('/history?path=sample.md'));
@@ -242,11 +245,73 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.waitForLoadState('load');
       assert.equal(await first.locator('[name="due"]').inputValue(), '2032-06-07');
     });
+    await check('月历原位选日，快速切换、读取失败和历史导航保留一致的日期与备注', async () => {
+      await visit('/plan?view=calendar&month=2030-02&date=2030-02-10');
+      const day = n => page.locator('[data-calendar-day="2030-02-' + n + '"]');
+      const selected = n => page.waitForSelector('[data-calendar-day="2030-02-' + n + '"][aria-current="date"]');
+      const checkDate = async n => {
+        await selected(n);
+        assert.equal(new URL(page.url()).searchParams.get('date'), '2030-02-' + n);
+        assert.equal(await page.locator('[data-calendar-form] [name=date]').inputValue(), '2030-02-' + n);
+      };
+      await page.evaluate(() => { window.initialGrid = document.querySelector('.calgrid'); });
+      await day(11).click();
+      await checkDate(11);
+      assert.equal(await page.evaluate(() => window.initialGrid === document.querySelector('.calgrid')), true);
+      await page.evaluate(() => history.back());
+      await checkDate(10);
+      await page.evaluate(() => history.forward());
+      await checkDate(11);
+      const note = page.locator('#calendar-note');
+      await note.fill('保留输入');
+      await page.evaluate(() => history.back());
+      await page.getByRole('alertdialog').getByRole('button', { name: '取消' }).click();
+      await page.waitForURL('**/plan?**date=2030-02-11');
+      assert.equal(await note.inputValue(), '保留输入');
+      await day(12).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: '切换日期' }).click();
+      await checkDate(12);
+      assert.equal(await note.inputValue(), '');
+      const delayed = '**/plan?**date=2030-02-13';
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      await page.route(delayed, async route => { await gate; await route.continue().catch(() => {}); });
+      try {
+        const requested = page.waitForRequest(delayed);
+        await day(13).click();
+        await requested;
+        await day(14).click();
+        await checkDate(14);
+      } finally { release(); await page.unroute(delayed); }
+      const previous = '**/plan?**date=2030-02-12';
+      const backGate = new Promise(resolve => { release = resolve; });
+      await page.route(previous, async route => { await backGate; await route.continue().catch(() => {}); });
+      try {
+        const requested = page.waitForRequest(previous);
+        await page.evaluate(() => history.back());
+        await requested;
+        await day(14).click();
+        await page.waitForURL('**/plan?**date=2030-02-14');
+        await checkDate(14);
+      } finally { release(); await page.unroute(previous); }
+      const broken = '**/plan?**date=2030-02-15';
+      await page.route(broken, route => route.fulfill({ status: 503, body: '' }));
+      try {
+        await day(15).click();
+        await page.getByText('月历读取失败', { exact: true }).waitFor();
+        await checkDate(14);
+      } finally { await page.unroute(broken); }
+    });
     await check('月历备注保存、清空、未保存保护和月份切换', async () => {
       await visit('/plan?view=calendar&date=' + today);
       const text = page.locator('#calendar-note');
       const submitted = '当天备注测试\n- [ ] 核对图表 @' + today;
       await text.fill(submitted);
+      const todayRead = page.waitForResponse(response => new URL(response.url()).search === '?view=calendar');
+      await page.getByRole('link', { name: '今天', exact: true }).click();
+      await todayRead;
+      assert.equal(await text.inputValue(), submitted);
+      assert.equal(await page.getByRole('alertdialog').count(), 0);
       let release;
       const gate = new Promise(resolve => { release = resolve; });
       await page.route('**/plan/notes', async route => { await gate; await route.continue(); });
@@ -285,9 +350,9 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await visible('[data-calendar-note-link]'), false);
       await assert.rejects(fs.access(path.join(vault, 'notes', 'calendar', today + '.md')), { code: 'ENOENT' });
       await page.getByRole('link', { name: '下个月', exact: true }).click();
-      assert.notEqual(new URL(page.url()).searchParams.get('month'), today.slice(0, 7));
+      await page.waitForFunction(month => document.querySelector('.plan-calendar').dataset.month !== month, today.slice(0, 7));
       await page.getByRole('link', { name: '今天', exact: true }).click();
-      assert.equal(await page.locator('[aria-current="date"]').getAttribute('data-calendar-day'), today);
+      await page.waitForSelector('[aria-current="date"][data-calendar-day="' + today + '"]');
     });
     await check('编辑保存、缺失双链新建、建卡取消和保存', async () => {
       await visit('/note/sample.md');
@@ -318,62 +383,53 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.waitForSelector('.selection-form', { state: 'detached' });
       assert.match(await fs.readFile(path.join(vault, 'cards', 'inbox.md'), 'utf8'), /新增卡片/);
     });
-    await check('页面淡入期间真实坐标点击链接、按钮和保存仍然有效', async () => {
+    await check('复习页直接写正反面，保存后更新卡组，答题途中建卡保留进度', async subtest => {
+      const deckPath = path.join(vault, 'cards', 'memory.md');
+      subtest.after(() => fs.rm(deckPath, { force: true }));
+      await visit('/decks');
+      const create = page.getByRole('button', { name: '新建卡片', exact: true });
+      const form = page.getByRole('dialog', { name: '新建卡片' });
+      await create.click();
+      assert.equal(await form.getByLabel('正面').evaluate(el => el === document.activeElement), true);
+      await form.getByLabel('正面').fill('什么是间隔重复？');
+      await form.getByLabel('正面').press('Enter');
+      assert.equal(await form.getByLabel('背面').evaluate(el => el === document.activeElement), true);
+      await form.getByLabel('背面').fill('在逐渐延长的间隔中回忆答案。');
+      await page.keyboard.press('Escape');
+      await page.getByRole('alertdialog').getByRole('button', { name: '取消' }).click();
+      assert.equal(await form.getByLabel('正面').inputValue(), '什么是间隔重复？');
+      await form.getByLabel('卡组文件').fill('memory');
+      await form.getByRole('button', { name: '保存', exact: true }).click();
+      await page.getByRole('link', { name: 'memory', exact: true }).waitFor();
+      assert.match(await fs.readFile(deckPath, 'utf8'), /## 什么是间隔重复？\s+在逐渐延长的间隔中回忆答案。/);
+      await visit('/review?deck=memory');
+      await page.locator('#review-reveal').click();
+      await create.click();
+      assert.equal(await form.getByLabel('卡组文件').inputValue(), 'memory');
+      await form.getByLabel('正面').fill('另一张卡');
+      await form.getByLabel('背面').fill('第二个答案');
+      await form.getByLabel('背面').press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+      await form.waitFor({ state: 'detached' });
+      assert.equal(await page.locator('#review-remaining').innerText(), '1');
+      assert.equal(await page.locator('#review-back').isVisible(), true);
+      assert.equal(await page.locator('#reviewer').evaluate(el => el === document.activeElement), true);
+      const file = await fs.readFile(deckPath, 'utf8');
+      assert.match(file, /## 另一张卡\s+第二个答案/);
+      assert.doesNotMatch(file, /来自 \[\[/);
+    });
+    await check('切页时内容保持可见，链接、翻面和保存可直接点击', async () => {
       await page.emulateMedia({ reducedMotion: 'no-preference' });
-      const styles = '**/static/styles.css';
-      // 在浏览器里读取实际样式，沿用桌面壳的内部请求认证。
-      const sourceStyles = await page.evaluate(async () => {
-        const response = await fetch('/static/styles.css', { cache: 'no-store' });
-        if (!response.ok) throw new Error('读取样式失败：' + response.status);
-        return response.text();
-      });
-      await page.route(styles, route => route.fulfill({
-        status: 200, contentType: 'text/css; charset=utf-8', headers: { 'cache-control': 'no-store' },
-        body: sourceStyles + '\n.workspace-main { animation-duration: 3s !important; }\n'
-          + '::view-transition-old(root), ::view-transition-new(root) { animation-duration: 3s !important; }\n'
-      }));
-      const duringFade = async () => {
-        try {
-          await page.waitForFunction(() => document.getAnimations().some(animation =>
-            animation.playState === 'running' && animation.effect?.getComputedTiming().duration >= 2500));
-        } catch (error) {
-          console.error('[fade-diagnostic]', await page.evaluate(() => ({
-            url: location.href,
-            motion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-            name: getComputedStyle(document.querySelector('.workspace-main')).animationName,
-            duration: getComputedStyle(document.querySelector('.workspace-main')).animationDuration,
-            animations: document.getAnimations().map(animation => ({ state: animation.playState, timing: animation.effect?.getComputedTiming() }))
-          })));
-          throw error;
-        }
-      };
-      const clickAt = async locator => {
-        const box = await locator.boundingBox();
-        assert.ok(box);
-        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      };
-      try {
-        await visit('/decks');
-        await duringFade();
-        await Promise.all([
-          page.waitForURL(url => url.pathname === '/review'),
-          clickAt(page.locator('.page-head a[href="/review"]'))
-        ]);
-        await duringFade();
-        await clickAt(page.locator('#review-reveal'));
-        await page.waitForSelector('#review-back:not([hidden])');
-        await visit('/edit/sample.md');
-        await duringFade();
-        const body = page.locator('[name="body"]');
-        await body.fill(await body.inputValue() + '\n动画期间保存验证\n');
-        await Promise.all([
-          page.waitForURL('**/note/sample.md'),
-          clickAt(page.locator('[data-editor-save]'))
-        ]);
-        assert.match(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), /动画期间保存验证/);
-      } finally {
-        await page.unroute(styles);
-      }
+      await visit('/decks');
+      assert.equal(await page.locator('.workspace-main').evaluate(el => getComputedStyle(el).animationName), 'none');
+      await page.locator('.page-head a[href="/review"]').click();
+      await page.locator('#review-reveal').click();
+      await page.waitForSelector('#review-back:not([hidden])');
+      await visit('/edit/sample.md');
+      const body = page.locator('[name="body"]');
+      await body.fill(await body.inputValue() + '\n切页保存验证\n');
+      await page.locator('[data-editor-save]').click();
+      await page.waitForURL('**/note/sample.md');
+      assert.match(await fs.readFile(path.join(vault, 'notes', 'sample.md'), 'utf8'), /切页保存验证/);
     });
     await check('鼠标显示答案后数字快捷键仍可评分，评分按钮完成复习', async () => {
       await visit('/review?deck=' + encodeURIComponent('交互卡组'));
@@ -511,8 +567,8 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await fs.writeFile(path.join(vault, 'cards', 'trash.md'), '---\ndeck: 待删卡组\n---\n\n## 要删的卡\n\n内容\n');
       await visit('/cards?deck=' + encodeURIComponent('待删卡组'));
       await page.locator('.card-row-front').filter({ hasText: '要删的卡' }).click();
-      page.once('dialog', dialog => dialog.accept().catch(() => {}));
       await page.getByRole('button', { name: '删除这张卡', exact: true }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: '删除这张卡' }).click();
       await page.waitForURL(url => url.pathname === '/cards' && url.searchParams.get('deck') === '待删卡组');
       assert.equal(await page.locator('.card-row').count(), 0);
       assert.doesNotMatch(await fs.readFile(path.join(vault, 'cards', 'trash.md'), 'utf8'), /要删的卡/);
@@ -592,9 +648,7 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       const readonlyOrigin = new URL(page.url()).origin;
       await page.goto(readonlyOrigin + '/note/sample.md');
       assert.equal(await page.locator('.note-actions a[href^="/edit"], .note-actions form[action="/delete"], .note-actions a[href^="/history"], .workspace-create, .selection-card').count(), 0);
-      // 只读时「更多」里只剩阅读行宽这一项：它只改显示，不写资料库。
-      assert.equal(await page.locator('.note-more-menu > *').count(), 1);
-      assert.equal(await page.locator('.note-more-menu form[action="/prefs/reading-width"]').count(), 1);
+      assert.equal(await page.locator('.note-more').count(), 0);
       await page.goto(readonlyOrigin + '/board/experiment');
       assert.equal(await page.locator('.statusform').count(), 0);
       await page.goto(readonlyOrigin + '/plan?view=list');
@@ -605,6 +659,14 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.goto(readonlyOrigin + '/plan?view=calendar');
       assert.equal(await page.locator('[data-calendar-form]').count(), 0);
       assert.equal(await page.locator('.calendar-note-readonly').count(), 1);
+      const readonlyDay = page.locator('.calday:not(.is-selected):not(.is-outside)').first();
+      const targetDate = await readonlyDay.getAttribute('data-calendar-day');
+      const documentId = await page.evaluate(() => performance.timeOrigin);
+      await readonlyDay.focus();
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('[aria-current=date][data-calendar-day="' + targetDate + '"]');
+      assert.equal(await page.evaluate(() => performance.timeOrigin), documentId);
+      assert.equal(await page.locator('[data-calendar-form]').count(), 0);
       await settings.close();
     });
     assert.deepEqual(errors, []);

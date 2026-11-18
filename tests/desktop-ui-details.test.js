@@ -291,7 +291,9 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
               }), true, '矮窗口可滚动到月历底部');
             }
           }
-          assert.ok(geometry.markers.every(marker => marker.width === marker.height && marker.width === 28 && marker.centered), '单双位日期都有固定正方形尺寸且居中');
+          // Windows 175% 缩放下 28 CSS px 的 DOMRect 可能是 28.0000019。
+          assert.ok(geometry.markers.every(marker => Math.abs(marker.width - 28) < 0.001
+            && Math.abs(marker.height - 28) < 0.001 && marker.centered), '单双位日期都有固定正方形尺寸且居中');
           assert.ok(geometry.badges.every(delta => delta < 1), '单数字角标不被内边距撑成椭圆');
           if (process.env.WORKSTATION_VISUAL_OUTPUT) {
             await fs.mkdir(process.env.WORKSTATION_VISUAL_OUTPUT, { recursive: true });

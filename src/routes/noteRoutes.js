@@ -128,7 +128,6 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
         note,
         parseError: '',
         html, outline,
-        comfort: req.cookies?.reading_width === 'comfort',
         backlinks: db.backlinks(notePath)
       });
     } catch (error) {
@@ -252,17 +251,6 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
   });
 
   // 命令面板空查询显示最近笔记，非空查询执行全文检索。
-  /**
-   * 阅读页的行宽偏好。记在 cookie 里：cookie 按主机而不是端口区分，
-   * 内部服务每次启动换端口也读得到（和计划页记住视图是同一个办法）。
-   */
-  router.post('/prefs/reading-width', (req, res) => {
-    const value = req.body.value === 'comfort' ? 'comfort' : 'full';
-    res.cookie('reading_width', value, { maxAge: 365 * 86_400_000, httpOnly: true, sameSite: 'strict', path: '/' });
-    const returnTo = String(req.body.returnTo || '');
-    res.redirect(303, returnTo.startsWith('/note/') ? returnTo : '/');
-  });
-
   router.get('/api/search', (req, res) => {
     const query = String(req.query.q || '');
     if (!query.trim()) {

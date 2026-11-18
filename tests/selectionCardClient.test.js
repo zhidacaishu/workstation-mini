@@ -148,6 +148,7 @@ async function loadSelectionCard(requestJson) {
 
   const notifications = [];
   const window = {
+    addEventListener() {},
     scrollX: 0,
     scrollY: 0,
     innerWidth: 1200,

@@ -51,7 +51,7 @@ function createQuitCoordinator({ getWindows, onAccepted, onCancelled = () => {},
         const vetoed = await windowVetoesUnload(window);
         if (vetoed) {
           reveal(window);
-          if (confirmDiscard?.(window)) continue;
+          if (await confirmDiscard?.(window)) continue;
           state = 'idle';
           onCancelled(window);
           return { cancelled: true };

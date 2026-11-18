@@ -22,6 +22,13 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
   // 所以下面只有 /cards/add 挂这个守卫，答题和同步不挂。
   const blockMarkdownWrite = blockWhenReadOnly(config, '不能修改笔记与卡片。');
 
+  async function defaultDeckFile(deck, cards) {
+    if (!deck || config.readOnly) return '';
+    if (cards.length) return cards[0].deckFile;
+    const files = await listDeckFiles(config.vaultDir);
+    return files.find(item => item.deck === deck)?.file || deck;
+  }
+
   router.get('/decks', async (req, res, next) => {
     try {
       res.render('decks', { title: '卡片', ...(await service.stats()) });
@@ -58,6 +65,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
       res.render('review', {
         title: deck ? `复习 · ${deck}` : '复习',
         deck,
+        defaultFile: await defaultDeckFile(deck, cards),
         returnTo: deck ? `/review?deck=${encodeURIComponent(deck)}` : '/review',
         queue: payload,
         ratings: RATING_LABELS
@@ -119,7 +127,12 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
     }
   });
 
-  /** 划词建卡：从笔记里选一段文字，直接追加成一张卡。 */
+  router.get('/api/card-decks', async (req, res, next) => {
+    try { res.json(await listDeckFiles(config.vaultDir)); }
+    catch (error) { next(error); }
+  });
+
+  /** 手写与划词建卡都追加到卡组文件，划词建卡额外保留来源。 */
   router.post('/cards/add', blockMarkdownWrite, async (req, res, next) => {
     try {
       const front = String(req.body.front || '').trim();
@@ -170,6 +183,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         title: deck ? `卡片 · ${deck}` : '全部卡片',
         deck,
         cards,
+        defaultFile: await defaultDeckFile(deck, cards),
         decks: [...new Set(all.map(card => card.deck))].sort((a, b) => a.localeCompare(b, 'zh-CN')),
         returnTo: deck ? `/cards?deck=${encodeURIComponent(deck)}` : '/cards'
       });

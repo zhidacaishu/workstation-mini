@@ -682,7 +682,10 @@ test('409 时草稿未确认保存则不刷新，保留编辑内容与离开保�
   const c = await loadEditor(async () => ({ ok: false, status: 409, json: async () => ({ message: '版本冲突' }) }));
   c.bodyInput.value = '唯一的未保存内容';
   c.window.workstationDrafts = { flush: async () => false };
-  c.window.confirm = () => { throw new Error('不能承诺草稿已保存'); };
+  c.window.workstationDialog = {
+    confirm: () => { throw new Error('不能承诺草稿已保存'); },
+    mayLeave: () => false
+  };
   c.window.location.reload = () => { throw new Error('不能刷新'); };
   await c.form.dispatch('submit', { preventDefault() {} });
   assert.match(c.status.textContent, /草稿未确认保存/);

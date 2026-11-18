@@ -40,6 +40,8 @@
   <%# 颜色、字号、圆角等变量，主窗口、设置和恢复窗口共用这一份。 %>
   <link rel="stylesheet" href="/static/tokens.css">
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/message-dialog.css">
+  <script src="/static/message-dialog.js" defer></script>
   <%# 新建笔记的标题与路径要在草稿和编辑器记下初始状态之前就位，所以排在最前面。 %>
   <% if (typeof isNew !== 'undefined' && isNew) { %><script src="/static/new-note.js" defer></script><% } %>
   <script src="/static/inline-math.js" defer></script>
@@ -56,13 +58,13 @@
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app-shell">
     <aside class="workspace-sidebar" aria-label="应用导航">
-      <a class="workspace-brand" href="/" aria-label="科研工作台首页" title="科研工作台">
+      <div class="workspace-brand" role="img" aria-label="科研工作台">
         <svg class="workspace-mark" viewBox="163 172 680 680" aria-hidden="true">
           <rect class="workspace-mark-back" x="225" y="176" width="440" height="560" rx="72" transform="rotate(22 297 664)"/>
           <rect class="workspace-mark-front" x="225" y="176" width="440" height="560" rx="72"/>
           <path class="workspace-mark-tick" d="M327 462 L417 552 L581 368"/>
         </svg>
-      </a>
+      </div>
 
       <button type="button" class="palette-trigger workspace-search" data-palette-open aria-haspopup="dialog" aria-controls="palette" aria-keyshortcuts="<%= onMac ? 'Meta+K' : 'Control+K' %>" title="搜索与命令（<%= paletteHint %>）">
         <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>

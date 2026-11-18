@@ -20,6 +20,7 @@
   };
   window.addEventListener('beforeunload', event => {
     if (!window.workstationPlan.hasUnsavedChanges() && !window.workstationPlan.hasPendingUpdate()) return;
+    if (window.workstationDialog?.mayLeave(event)) return;
     event.preventDefault();
     event.returnValue = '';
   });

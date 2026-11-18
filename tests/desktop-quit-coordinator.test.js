@@ -135,7 +135,7 @@ test('有未保存更改的窗口：用户选「仍然退出」就继续，选�
   assert.equal(asked.length, 1);
 
   answer = false;
-  const second = createQuitCoordinator({ getWindows: () => [veto], onAccepted: async () => ({ ok: true }), confirmDiscard: () => answer });
+  const second = createQuitCoordinator({ getWindows: () => [veto], onAccepted: async () => ({ ok: true }), confirmDiscard: async () => answer });
   assert.deepEqual(await second.request(), { cancelled: true });
 });
 
@@ -150,13 +150,13 @@ test('卡死或崩溃的页面不会让退出永远挂住', async () => {
   assert.equal(await windowVetoesUnload(crashed), false);
 });
 
-test('离开确认：测试运行时按约定回答，不弹框', () => {
+test('离开确认：测试运行时按约定回答，不弹框', async () => {
   const { createLeaveGuard } = require('../electron/leave-guard');
-  const dialog = { showMessageBoxSync: () => { throw new Error('测试里不该弹框'); } };
-  assert.equal(createLeaveGuard({ dialog, isTestRun: true, testAnswer: undefined })(null, 'main'), false);
-  assert.equal(createLeaveGuard({ dialog, isTestRun: true, testAnswer: 'leave' })(null, 'main'), true);
+  const showMessage = () => { throw new Error('测试里不该弹框'); };
+  assert.equal(await createLeaveGuard({ showMessage, isTestRun: true, testAnswer: undefined })(null, 'main'), false);
+  assert.equal(await createLeaveGuard({ showMessage, isTestRun: true, testAnswer: 'leave' })(null, 'main'), true);
   const asked = [];
-  const real = createLeaveGuard({ dialog: { showMessageBoxSync: (parent, options) => { asked.push(options.buttons); return 0; } }, isTestRun: false });
-  assert.equal(real({ isDestroyed: () => false }, 'settings'), true);
+  const real = createLeaveGuard({ showMessage: async (parent, options) => { asked.push(options.buttons); return 0; } });
+  assert.equal(await real({}, 'settings'), true);
   assert.deepEqual(asked[0], ['放弃修改', '继续编辑']);
 });

@@ -345,26 +345,11 @@ test('编辑页带上分栏预览、补全和贴图的开关；只读时不加�
 
 // ── 阅读行宽 ───────────────────────────────────────────────────────────────
 
-test('POST /prefs/reading-width：记在 cookie 里，只回到笔记页', async () => {
+test('旧版行宽 cookie 不限制笔记正文，菜单不再提供行宽操作', async () => {
   const ctx = await setup({ notes: { 'inbox/a.md': '# 甲\n\n正文\n' } });
   try {
-    const before = await request(ctx.app).get('/note/inbox/a.md').expect(200);
-    assert.doesNotMatch(before.text, /note-layout[^"]*is-comfort/);
-    assert.match(before.text, /舒适行宽/);
-
-    const set = await request(ctx.app).post('/prefs/reading-width').type('form').send({ value: 'comfort', returnTo: '/note/inbox/a.md' }).expect(303);
-    assert.equal(set.headers.location, '/note/inbox/a.md');
-    const cookie = set.headers['set-cookie'][0];
-    assert.match(cookie, /^reading_width=comfort;/);
-    assert.match(cookie, /HttpOnly/i);
-
-    const after = await request(ctx.app).get('/note/inbox/a.md').set('Cookie', 'reading_width=comfort').expect(200);
-    assert.match(after.text, /note-layout[^"]*is-comfort/);
-    assert.match(after.text, /正文铺满窗口/);
-
-    const stray = await request(ctx.app).post('/prefs/reading-width').type('form').send({ value: '随便', returnTo: 'https://example.invalid/' }).expect(303);
-    assert.equal(stray.headers.location, '/');
-    assert.match(stray.headers['set-cookie'][0], /^reading_width=full;/);
+    const page = await request(ctx.app).get('/note/inbox/a.md').set('Cookie', 'reading_width=comfort').expect(200);
+    assert.doesNotMatch(page.text, /is-comfort|舒适行宽|正文铺满窗口|prefs\/reading-width/);
   } finally { await ctx.cleanup(); }
 });
 

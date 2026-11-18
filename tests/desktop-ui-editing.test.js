@@ -181,8 +181,16 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
     await check('图片上传期间阻止保存及离开，完成后替换占位符', async () => {
       const result = await area().evaluate(async (textarea, base64) => {
         const originalFetch = window.fetch;
-        let complete, saves = 0;
+        const originalMayLeave = window.workstationDialog.mayLeave;
+        let complete, submit, saves = 0, askedDuringSave = false;
         const form = textarea.form;
+        const captureSubmit = event => { submit = event; };
+        window.addEventListener('submit', captureSubmit, true);
+        window.workstationDialog.mayLeave = event => {
+          if (event.type === 'beforeunload') return originalMayLeave(event);
+          askedDuringSave = true;
+          return true;
+        };
         window.fetch = (url, options) => {
           if (String(url) === '/api/attachments') return new Promise(resolve => { complete = resolve; });
           if (String(url) === form.action) {
@@ -195,18 +203,21 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
           const transfer = new DataTransfer();
           transfer.items.add(new File([Uint8Array.from(atob(base64), c => c.charCodeAt(0))], 'pending.png', { type: 'image/png' }));
           textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
-          const submit = new Event('submit', { bubbles: true, cancelable: true });
-          form.dispatchEvent(submit);
+          form.requestSubmit();
           const leaving = new Event('beforeunload', { cancelable: true });
           window.dispatchEvent(leaving);
           const pending = textarea.value.includes('workstation-upload-');
           complete({ ok: true, json: async () => ({ markdown: '![[ready.png]]' }) });
           await new Promise(resolve => setTimeout(resolve, 0));
-          return { saves, pending, blocked: submit.defaultPrevented, leaveBlocked: leaving.defaultPrevented,
+          return { saves, pending, askedDuringSave, blocked: submit.isTrusted && submit.defaultPrevented, leaveBlocked: leaving.defaultPrevented,
             ready: textarea.value.includes('![[ready.png]]'), marker: textarea.value.includes('workstation-upload-') };
-        } finally { window.fetch = originalFetch; }
+        } finally {
+          window.removeEventListener('submit', captureSubmit, true);
+          window.workstationDialog.mayLeave = originalMayLeave;
+          window.fetch = originalFetch;
+        }
       }, PNG_BASE64);
-      assert.deepEqual(result, { saves: 0, pending: true, blocked: true, leaveBlocked: true, ready: true, marker: false });
+      assert.deepEqual(result, { saves: 0, pending: true, askedDuringSave: false, blocked: true, leaveBlocked: true, ready: true, marker: false });
       await area().fill('# 草稿\n\n图片测试\n');
     });
 
@@ -228,16 +239,11 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
       assert.equal(await page.locator('.prose img').evaluate(async image => { await image.decode(); return image.naturalWidth; }), 1);
     });
 
-    await check('阅读页代码块有高亮和复制按钮，舒适行宽能切换', async () => {
+    await check('阅读页代码块有高亮和复制按钮，正文随窗口展开', async () => {
       await visit('/note/inbox/' + encodeURIComponent('排队论读书笔记.md'));
       assert.ok(await page.locator('.prose pre .hljs-string').count() >= 1);
       assert.equal(await page.locator('.prose .code-copy').count(), 1);
-      await page.locator('.note-more summary').click();
-      await page.locator('.note-more-menu button', { hasText: '舒适行宽' }).click();
-      await page.waitForSelector('.note-layout.is-comfort');
-      await page.locator('.note-more summary').click();
-      await page.locator('.note-more-menu button', { hasText: '正文铺满窗口' }).click();
-      await page.waitForSelector('.note-layout:not(.is-comfort)');
+      assert.equal(await page.locator('.note-more-menu form[action="/prefs/reading-width"]').count(), 0);
     });
 
     await check('计划页一行添加待办', async () => {
