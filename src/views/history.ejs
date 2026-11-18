@@ -54,10 +54,13 @@
           <p class="page-meta"><%= ui.dateTimeLabel(selected.at) %> · <%= selected.kind === 'draft' ? '未保存草稿' : reasonOf(selected).detail %> · <span class="history-path" title="<%= selected.path %>"><%= selected.path %></span></p>
         </div>
         <% if (!readOnly && selected.source === 'deck') { %>
+          <% if (!expectedHash) { %><p class="notice is-warn">无法读取当前卡组，修复文件后请刷新预览。</p><% } else { %>
           <form action="/history/restore-deck" method="post" data-confirm="这个版本将覆盖当前卡组文件。覆盖前的内容会先存进历史。">
+            <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
             <input type="hidden" name="id" value="<%= selected.id %>">
             <button class="button primary" type="submit">恢复这个卡组版本</button>
           </form>
+          <% } %>
         <% } else if (!readOnly) { %><a class="button primary" href="/recover/<%= encodeURIComponent(selected.id) %>">载入编辑器</a><% } %>
       </header>
       <%

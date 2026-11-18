@@ -35,7 +35,7 @@
     <p>进入「复习」，先在心里回忆答案，按空格翻面，再按 <kbd>1</kbd>–<kbd>4</kbd> 如实评分。之后到期的卡片会自动排进今日复习。</p>
   <% } %>
 <% } %>
-<% const actionLink = (id, primary) => { const action = actions[id]; if (!action || readOnly) return; %>
+<% const actionLink = (id, primary) => { const action = actions[id]; if (!action || (readOnly && id !== 'review')) return; %>
   <a class="button small<%= primary ? ' primary' : '' %>" href="<%= action.href %>"<% if (action.title) { %> title="<%= action.title %>"<% } %>><%= action.label %></a>
 <% } %>
 
@@ -74,7 +74,7 @@
     <h2 id="start-title">上手清单</h2>
     <span class="onboarding-count">已完成 <%= doneCount %> / <%= progress.total %></span>
   </div>
-  <% if (readOnly) { %><p class="guide-muted">当前是只读模式，清单里的事情需要先在设置里关闭只读模式才能做。</p><% } %>
+  <% if (readOnly) { %><p class="guide-muted">当前是只读模式，可以复习已有卡片。要写笔记、添加待办或制作卡片，请先在设置里关闭只读模式。</p><% } %>
   <ol class="guide-checklist">
     <% steps.forEach(step => { const isNext = step.id === progress.next; %>
       <li class="guide-check<%= step.done ? ' is-done' : isNext ? ' is-next' : '' %>"<% if (isNext) { %> aria-current="step"<% } %>>

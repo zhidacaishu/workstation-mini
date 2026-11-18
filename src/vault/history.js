@@ -352,7 +352,12 @@ async function getRecord(root, id) {
   throw notFound();
 }
 
+async function listDeckRecords(vaultDir, file = '') {
+  return (await listRecords(vaultDir, file)).filter(record => record.path.startsWith('cards/'));
+}
+
 module.exports = {
+  listDeckRecords,
   DIRECTORY, KEEP_RECENT, KEEP_DAYS,
   DRAFT_KEEP_DAYS,
   getRecord, listRecords, saveVersion, saveDraft, removeDraft, discardDraft, pruneVersions, pruneDrafts, noteKey

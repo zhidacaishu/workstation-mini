@@ -980,3 +980,30 @@ test('远端不可访问时保留 fetch 错误，绝不报告冲突已解决', a
     assert.equal(await sync.detectRecovery(), null);
   } finally { await fixture.cleanup(); }
 });
+
+test('完整同步在无上游时取回同名远端分支并推送本机修改', async t => {
+  const fixture = await conflictFixture();
+  t.after(fixture.cleanup);
+  git(fixture.local, 'branch', '--unset-upstream');
+  await fs.writeFile(path.join(fixture.local, 'mine.md'), '本机笔记');
+  const sync = createSync({ vaultDir: fixture.local, logger: quietLogger });
+  const result = await sync.cycle('完整同步');
+  assert.equal(result.ok, true, result.error);
+  assert.equal(git(fixture.local, 'rev-parse', '--abbrev-ref', '@{u}').trim(), 'origin/main');
+  assert.equal(await fs.readFile(path.join(fixture.local, 'shared.md'), 'utf8'), 'remote\n');
+  assert.equal(git(fixture.bare, 'show', 'main:mine.md'), '本机笔记');
+});
+
+test('从空远端克隆后首次完整同步可以创建上游', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-empty-clone-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  git(root, 'init', '--bare', '-b', 'main', 'hub');
+  git(root, 'clone', 'hub', 'work');
+  const local = path.join(root, 'work');
+  git(local, 'config', 'user.name', 'Test');
+  git(local, 'config', 'user.email', 'test@example.invalid');
+  await fs.writeFile(path.join(local, 'n.md'), '首篇');
+  const result = await createSync({ vaultDir: local, logger: quietLogger }).cycle('首次同步');
+  assert.equal(result.ok, true, result.error);
+  assert.equal(git(path.join(root, 'hub'), 'show', 'main:n.md'), '首篇');
+});

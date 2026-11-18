@@ -241,7 +241,9 @@
 
   const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
+  const areaUploads = new WeakMap();
   let uploadSequence = 0;
+  let insertingUpload = null;
   let pendingUploads = 0;
   // 表单捕获阶段拦截，先于笔记/卡片各自的保存逻辑，避免保存临时占位链接。
   document.addEventListener('submit', event => {
@@ -259,40 +261,94 @@
 
   async function uploadImages(area, files) {
     pendingUploads += 1;
+    areaUploads.set(area, (areaUploads.get(area) || 0) + 1);
+    area.setAttribute('aria-busy', 'true');
     try {
       await performUpload(area, files);
-    } finally { pendingUploads -= 1; }
+    } finally {
+      pendingUploads -= 1;
+      const remaining = areaUploads.get(area) - 1;
+      areaUploads.set(area, remaining);
+      if (!remaining) area.removeAttribute('aria-busy');
+    }
   }
 
   async function performUpload(area, files) {
-    const uploads = files.map(file => {
-      const id = globalThis.crypto?.randomUUID?.() || Date.now().toString(36) + '-' + (++uploadSequence);
-      return { file, placeholder: '![正在保存图片…](workstation-upload-' + id + ')' };
-    });
-    // 一次粘贴的所有位置先固定，等待上传期间继续打字不会改变后续图片插入点。
-    replaceRange(area, area.selectionStart, area.selectionEnd, uploads.map(item => item.placeholder).join('\n'));
-    for (const { file, placeholder } of uploads) {
-      const swap = text => {
-        const index = area.value.indexOf(placeholder);
-        if (index === -1) return; // 用户已经撤销或删掉这一处，不再插回去。
-        const start = area.selectionStart, end = area.selectionEnd;
-        const focused = document.activeElement;
-        replaceRange(area, index, index + placeholder.length, text);
-        const delta = text.length - placeholder.length;
-        const adjust = position => position <= index ? position
-          : position >= index + placeholder.length ? position + delta : index + text.length;
-        area.setSelectionRange(adjust(start), adjust(end));
-        if (focused && focused !== area) focused.focus({ preventScroll: true });
-      };
-      try {
-        const response = await fetch('/api/attachments', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', Accept: 'application/json' }, body: file });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.message || '图片保存失败（' + response.status + '）');
-        swap(payload.markdown);
-      } catch (error) {
-        swap('');
-        notify(error.message, { type: 'error' });
+    const order = ++uploadSequence;
+    let from = area.selectionStart, to = area.selectionEnd;
+    let previous = area.value;
+    let cancelled = false;
+    let beforeInput = null;
+    const rememberSelection = () => {
+      beforeInput = { start: area.selectionStart, end: area.selectionEnd };
+    };
+    // 临时位置只在内存里。根据 input 后的光标和前后缀定位实际改动；
+    // 若用户已经改写选区，保留其编辑。上传失败时正文和草稿天然完整。
+    function trackEdit() {
+      const value = area.value;
+      const delta = value.length - previous.length;
+      const selection = insertingUpload || beforeInput;
+      beforeInput = null;
+      let start, oldEnd;
+      // 先用编辑前的真实选区，避免把“将 ABC 替换为 ABCDEF”误判成末尾输入。
+      if (selection && value.startsWith(previous.slice(0, selection.start))
+          && value.endsWith(previous.slice(selection.end)) && selection.end + delta >= selection.start) {
+        start = selection.start;
+        oldEnd = selection.end;
+      } else {
+        // 删除键、撤销、部分程序化编辑会修改选区之外的字符。
+        let newEnd = value.length;
+        oldEnd = previous.length;
+        while (oldEnd && newEnd > area.selectionEnd && previous[oldEnd - 1] === value[newEnd - 1]) {
+          oldEnd--; newEnd--;
+        }
+        start = 0;
+        while (start < oldEnd && start < newEnd && previous[start] === value[start]) start++;
       }
+      const insertBefore = insertingUpload && insertingUpload.order < order;
+      if (insertingUpload && start === from && oldEnd === to) {
+        from = to = insertBefore ? oldEnd + delta : start;
+      } else if (oldEnd < from || (oldEnd === from && (start < from || from < to || insertBefore))) {
+        from += delta;
+        to += delta;
+      } else if (start < to && oldEnd > from) {
+        cancelled = true;
+      }
+      previous = value;
+    }
+    area.addEventListener('beforeinput', rememberSelection);
+    area.addEventListener('input', trackEdit);
+    notify('正在保存图片…', { type: 'info' });
+    const links = [];
+    try {
+      for (const file of files) {
+        try {
+          const response = await fetch('/api/attachments', { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', Accept: 'application/json' }, body: file });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload.markdown) throw new Error(payload.message || '图片保存失败（' + response.status + '）');
+          links.push(payload.markdown);
+        } catch (error) { notify(error.message, { type: 'error' }); }
+      }
+    } finally {
+      area.removeEventListener('beforeinput', rememberSelection);
+      area.removeEventListener('input', trackEdit);
+    }
+    if (!links.length) return;
+    if (cancelled || previous !== area.value) {
+      notify('原插入位置已修改。图片已保存在附件目录。', { type: 'info' });
+      return;
+    }
+    const text = links.join('\n');
+    const start = area.selectionStart, end = area.selectionEnd;
+    const focused = document.activeElement;
+    const adjust = position => position < from ? position
+      : position >= to ? position + text.length - (to - from) : from + text.length;
+    insertingUpload = { order, start: from, end: to };
+    try {
+      replaceRange(area, from, to, text, adjust(start), adjust(end));
+    } finally {
+      insertingUpload = null;
+      if (focused && focused !== area) focused.focus({ preventScroll: true });
     }
   }
 

@@ -210,3 +210,14 @@ test('计划页记住上次的视图：直接打开 /plan 时沿用，显式参�
   const explicit = await request(ctx.app).get('/plan?view=list&filter=undated').set('Cookie', 'plan_view=calendar').expect(200);
   assert.match(explicit.text, /data-plan-view="list"/);
 });
+
+test('未闭围栏内的快速添加仍可索引，保留原文且只用有效日期排期', async t => {
+  const { app, config, db } = await setup(t);
+  const prefix = '\uFEFF---\r\ntitle: 备注\r\n---\r\n';
+  const body = '记录  \r\n\r\n```python\r\nprint(1)  ';
+  const file = 'calendar/' + TODAY + '.md';
+  await writeNote(config.notesDir, file, { raw: prefix + body });
+  await request(app).post('/plan/tasks').set('Accept', 'application/json').send({ text: '复核 @2026-02-31', due: TODAY }).expect(200);
+  assert.equal((await readNote(config.notesDir, file)).raw, prefix + '- [ ] 复核 @2026-02-31 @' + TODAY + '\r\n\r\n' + body);
+  assert.deepEqual(db.listTasks().map(t => [t.title, t.due]), [['复核 @2026-02-31', TODAY]]);
+});

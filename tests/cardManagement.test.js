@@ -225,7 +225,24 @@ test('删卡前的卡组版本记为「删除」，在历史页能看到并恢�
   const id = page.match(/href="\/history\?id=(deck%3A[^"&]+)/)[1];
   const preview = (await request(app).get('/history?id=' + id).expect(200)).text;
   assert.match(preview, /要删的卡/);
-  await request(app).post('/history/restore-deck').type('form').send({ id: decodeURIComponent(id) }).expect(302);
+  const restore = expectedHash => request(app).post('/history/restore-deck').type('form').send({ id: decodeURIComponent(id), expectedHash });
+  const token = html => html.match(/name="expectedHash" value="([^"]+)"/)[1];
+  await restore('').expect(409);
+  await appendCard(vaultDir, { deckFile: 'ml', front: '预览后新增', back: '保留' });
+  await restore(token(preview)).expect(409);
+  assert.match(await read(vaultDir, 'ml.md'), /预览后新增/);
+  const latest = (await request(app).get('/history?id=' + id)).text;
+  await restore(token(latest)).expect(302);
+  assert.match(await read(vaultDir, 'ml.md'), /## 要删的卡/);
+  await fs.unlink(path.join(vaultDir, 'cards/ml.md'));
+  await restore(token(latest)).expect(409);
+  const missing = token((await request(app).get('/history?id=' + id)).text);
+  assert.equal(missing, 'missing');
+  await appendCard(vaultDir, { deckFile: 'ml', front: '同名卡组', back: '保留' });
+  await restore(missing).expect(409);
+  assert.match(await read(vaultDir, 'ml.md'), /同名卡组/);
+  await fs.unlink(path.join(vaultDir, 'cards/ml.md'));
+  await restore(missing).expect(302);
   assert.match(await read(vaultDir, 'ml.md'), /## 要删的卡/);
 });
 

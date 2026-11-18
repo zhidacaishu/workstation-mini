@@ -110,8 +110,9 @@ function hashContent(content) {
 }
 
 function firstHeading(body) {
-  const match = String(body ?? '').match(/^[ \t]{0,3}#[ \t]+(.+?)[ \t]*#*[ \t]*$/m);
-  return match ? match[1].trim() : '';
+  const source = String(body ?? '');
+  if (!/^ {0,3}#[ \t]+/m.test(source)) return '';
+  return require('../markdown').firstMarkdownHeading(source);
 }
 
 /**

@@ -5,7 +5,7 @@ const {
   addMonths, isValidDateString, isValidMonthString, monthGridDates, weekdayOf,
   WEEKDAYS_MONDAY_FIRST
 } = require('../dates');
-const { sortTasks } = require('../tasks');
+const { sortTasks, extractTasks, LINE_BREAK } = require('../tasks');
 const { toLocalDate } = require('../templates');
 const { readNote, writeNote, deleteNote } = require('../vault/note');
 const { enqueueNote } = require('../vault/note-queue');
@@ -199,7 +199,6 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
    * 快速添加待办：不用先打开一篇笔记。写成一行 `- [ ] 文字 @日期`，追加到今天的月历备注里
    * —— 那是「今天随手记的东西」本来就该去的地方，之后照常在笔记里改。
    */
-  const DATE_TAG = /(?:^|\s)@\d{4}-\d{2}-\d{2}(?=\s|$)/;
   router.post('/plan/tasks', blockWhenReadOnly(config, '不能添加待办。'), async (req, res, next) => {
     try {
       const text = String(req.body.text ?? '').replace(/\s+/g, ' ').trim();
@@ -208,7 +207,8 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
       const due = String(req.body.due || '');
       if (due && !isValidDateString(due)) throw httpError(400, '请选择有效日期。');
       // 文字里已经手写了 @日期 的，以手写的为准，不再追加第二个。
-      const line = `- [ ] ${text}${due && !DATE_TAG.test(text) ? ` @${due}` : ''}`;
+      let line = `- [ ] ${text}`;
+      if (due && !extractTasks(line)[0]?.due) line += ` @${due}`;
       const date = toLocalDate(now());
       const notePath = notePathFor(date);
       await enqueueNote(config.notesDir, notePath, async () => {
@@ -219,11 +219,18 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
           return;
         }
         const eol = existing.raw.includes('\r\n') ? '\r\n' : '\n';
-        const trimmed = existing.raw.replace(/\s+$/, '');
-        const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
-        // 接在列表后面就直接续一项；前面是普通段落或属性区时空一行，免得粘在一起。
-        const gap = !existing.body.trim() ? eol : /^\s*[-*+]\s/.test(lastLine) ? eol : eol + eol;
-        await writeNote(config.notesDir, notePath, { raw: trimmed + gap + line + eol });
+        const body = existing.body;
+        const prefix = existing.raw.slice(0, existing.raw.length - body.length);
+        const lines = body.split(LINE_BREAK);
+        const last = lines.at(-1) || lines.at(-2) || '';
+        const gap = (body && !body.endsWith('\n') && !body.endsWith('\r') ? eol : '')
+          + (last && !/^\s*[-*+]\s/.test(last) ? eol : '');
+        let nextBody = body + gap + line + eol;
+        // 未闭合的围栏会吞掉追加行。改在正文开头写入，保留原文及属性区。
+        const addedLine = nextBody.split(LINE_BREAK).length - 1;
+        if (!extractTasks(nextBody).some(task => task.line === addedLine)) nextBody = line + eol + eol + body;
+        const separator = prefix && !/[\r\n\uFEFF]$/.test(prefix) ? eol : '';
+        await writeNote(config.notesDir, notePath, { raw: prefix + separator + nextBody });
       });
       await indexer.scan({ paths: [notePath] });
       if ((req.get('accept') || '').includes('application/json')) {

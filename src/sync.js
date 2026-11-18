@@ -406,9 +406,28 @@ function createSync({
     const denied = await beginMutation('pull', options);
     if (denied) return denied;
     if (!(await hasRemote(options))) return finish({ ok: true, skipped: '没有配置远端' });
-    if (!(await hasUpstream(options))) return finish({ ok: true, skipped: '尚未建立上游分支' });
+    const upstream = await hasUpstream(options);
+    if (!upstream && !message) return finish({ ok: true, skipped: '尚未建立上游分支' });
 
     try {
+      let trackingRef = '@{u}';
+      if (!upstream) {
+        const target = await resolveSyncTarget(false, options);
+        if (!target.trackingRef) return finish({ ok: true, skipped: '远端还没有这个分支' });
+        trackingRef = target.trackingRef;
+        if (await hasHead(options)) {
+          // 首次关联只接续同一个资料库的历史。
+          await git(['merge-base', 'HEAD', trackingRef], options).catch(error => {
+            if (error.code !== 1) throw error;
+            throw new Error('本机与远端分支没有共同历史，请核对资料库和远端后再同步。');
+          });
+        } else if (await hasChanges(options)) {
+          throw new Error('本机尚无提交，远端已有历史。请先妥善保存本机文件，再关联远端分支。');
+        } else {
+          await pauseWrites(() => git(['merge', '--ff-only', trackingRef], options));
+          return finish({ ok: true });
+        }
+      }
       if (await hasChanges(options)) {
         // 单独的拉取（启动时那一次）不替用户提交：跳过，下一轮完整同步时一起处理。
         if (!message) return finish({ ok: true, skipped: '本机有未提交的修改，下一轮同步时先提交再拉取' });
@@ -418,11 +437,11 @@ function createSync({
         await git(['commit', '-m', message], options);
       }
       // 拉取拆成两步：联网的 fetch 不挡笔记保存；改工作区的变基期间暂停写入。
-      await git(['fetch', '--quiet'], options);
+      if (upstream) await git(['fetch', '--quiet'], options);
       // 远端的提交本机已经都有了（包括在外面手工 merge 过的情形）就不用变基：
       // 变基会把合并提交拆开重放，同一处冲突要再解决一遍。
-      if (await isAncestor('@{u}', 'HEAD', options)) return finish({ ok: true });
-      await pauseWrites(() => git(['rebase', '--no-autostash', '@{u}'], options));
+      if (await isAncestor(trackingRef, 'HEAD', options)) return finish({ ok: true });
+      await pauseWrites(() => git(['rebase', '--no-autostash', trackingRef], options));
       return finish({ ok: true });
     } catch (error) {
       const message = String(error.stderr || error.message).trim();
@@ -516,12 +535,26 @@ function createSync({
     );
   }
 
-  async function resolveReviewTarget(upstream, options) {
+  // 空远端的 clone 或尚未 fetch 的分支可能只有配置，还没有本地跟踪引用。
+  async function untrackedDestination(branch, options) {
+    const read = async key => {
+      try { return (await git(['config', '--get', `branch.${branch}.${key}`], options)).stdout.trim(); }
+      catch (error) { if (error.code === 1) return ''; throw error; }
+    };
+    const remote = await read('remote');
+    const destination = await read('merge');
+    if (!remote && !destination) return { remote: await defaultRemote(options), destination: `refs/heads/${branch}` };
+    if (!remote || !destination.startsWith('refs/heads/')) throw new Error('当前上游分支配置无法安全解析。');
+    await git(['remote', 'get-url', remote], options);
+    return { remote, destination };
+  }
+
+  async function resolveSyncTarget(upstream, options) {
     let branch;
     try {
       branch = (await git(['symbolic-ref', '--quiet', '--short', 'HEAD'], options)).stdout.trim();
     } catch {
-      throw new Error('当前处于 detached HEAD，无法安全建立复习同步上游。');
+      throw new Error('当前处于 detached HEAD，无法安全建立同步上游。');
     }
 
     if (upstream) {
@@ -545,10 +578,8 @@ function createSync({
       };
     }
 
-    const remote = await defaultRemote(options);
-    await git(['remote', 'get-url', remote], options);
-    const destination = `refs/heads/${branch}`;
-    const trackingRef = `refs/remotes/${remote}/${branch}`;
+    const { remote, destination } = await untrackedDestination(branch, options);
+    const trackingRef = `refs/remotes/${remote}/${destination.slice('refs/heads/'.length)}`;
     const exists = (await git([
       'ls-remote', '--heads', remote, destination
     ], options)).stdout.trim().length > 0;
@@ -633,7 +664,7 @@ function createSync({
 
       const remote = await hasRemote(options);
       const upstream = remote && await hasUpstream(options);
-      const target = remote ? await resolveReviewTarget(upstream, options) : null;
+      const target = remote ? await resolveSyncTarget(upstream, options) : null;
       if (target) {
         const range = await reviewRange(target, options);
         if (range.violations.length > 0) {
@@ -757,10 +788,13 @@ function createSync({
       // 这里过去写死 origin，和 defaultRemote 的判断对不上 —— 同一个 vault 上
       // 复习记录能推出去、常规提交却报「'origin' does not appear to be a git
       // repository」，而用户并没有配错任何东西。
-      const push = (await hasUpstream(options))
-        ? ['push']
-        : ['push', '-u', await defaultRemote(options), 'HEAD'];
-      await git(push, options);
+      if (await hasUpstream(options)) {
+        await git(['push'], options);
+      } else {
+        const branch = (await git(['symbolic-ref', '--quiet', '--short', 'HEAD'], options)).stdout.trim();
+        const { remote, destination } = await untrackedDestination(branch, options);
+        await git(['push', '-u', remote, `HEAD:${destination}`], options);
+      }
       return finish({ ok: true, committed: changed, pushed: true });
     } catch (error) {
       const message = String(error.stderr || error.message).trim();

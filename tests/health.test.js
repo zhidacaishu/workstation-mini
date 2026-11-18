@@ -118,3 +118,35 @@ test('health prioritizes Git and sync recovery over a clean worktree', async () 
     assert.doesNotMatch(syncPage.text, /Git <strong>干净/);
   } finally { db.close(); await fs.rm(vaultDir, { recursive: true, force: true }); }
 });
+
+test('健康页统计普通历史与卡组版本，并指出无法读取的卡组', async t => {
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-health-cards-'));
+  const config = loadConfig({ vaultDir, dbPath: ':memory:', syncEnabled: false });
+  const db = openDatabase(':memory:');
+  t.after(async () => { db.close(); await fs.rm(vaultDir, { recursive: true, force: true }); });
+  const indexer = createIndexer({ db, vaultDir: config.notesDir });
+  const app = createApp(config, { db, indexer, search: createSearch(db) });
+  await fs.mkdir(config.notesDir);
+  await writeNote(config.notesDir, 'a.md', { body: '初稿' });
+  await writeNote(config.notesDir, 'a.md', { body: '定稿' });
+  await writeNote(vaultDir, 'cards/a.md', { body: '## 提问' });
+  await writeNote(vaultDir, 'cards/a.md', { body: '## 新提问' });
+  await fs.writeFile(path.join(vaultDir, 'cards/bad.md'), '---\ndeck: [bad\n---\n');
+  await indexer.scan();
+  const report = (await request(app).get('/api/health').expect(200)).body;
+  assert.equal(report.drafts.historyCount, 2);
+  assert.deepEqual(report.reviews.deckFailures, ['cards/bad.md']);
+  const html = (await request(app).get('/health').expect(200)).text;
+  assert.match(html, /本地历史与草稿 <strong>2<\/strong>/);
+  assert.match(html, /cards\/bad\.md/);
+  assert.doesNotMatch(html, /一切正常/);
+  // cards/ 不是目录时所有平台都会返回枚举错误，和子目录不可读走同一条错误路径。
+  await fs.rename(path.join(vaultDir, 'cards'), path.join(vaultDir, '原卡组'));
+  await fs.writeFile(path.join(vaultDir, 'cards'), '目录不可用');
+  const failed = (await request(app).get('/api/health').expect(200)).body.reviews;
+  assert.equal(failed.deckScanFailed, true);
+  assert.equal(failed.orphanedCards, null);
+  const warning = (await request(app).get('/health').expect(200)).text;
+  assert.match(warning, /卡组扫描未完成/);
+  assert.doesNotMatch(warning, /一切正常|查看卡组历史/);
+});

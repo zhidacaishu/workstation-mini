@@ -21,7 +21,7 @@
     : report.git.upstream ? (report.git.ahead || report.git.behind ? `本机领先 ${report.git.ahead}，落后 ${report.git.behind}` : '和远端一致') : '还没有关联远端分支';
   const indexWarn = Boolean(report.index.fatal || report.index.failureTotal || report.index.statErrors.length || (report.vault.indexLag && report.vault.indexLag !== 0));
   const linkWarn = Boolean(report.links.brokenCount);
-  const reviewWarn = Boolean(report.reviews.malformedLines || report.reviews.duplicateEventIds);
+  const reviewWarn = Boolean(report.reviews.malformedLines || report.reviews.duplicateEventIds || report.reviews.deckScanFailed || report.reviews.deckFailures.length);
   const vaultWarn = !report.vault.exists || !report.vault.notesDirExists;
   const issues = [vaultWarn, indexWarn, gitWarn, linkWarn, reviewWarn].filter(Boolean).length;
 %>
@@ -54,7 +54,7 @@
   <section class="health-tile<%= gitWarn ? ' is-warn' : '' %>">
     <h2>版本控制</h2>
     <p class="health-value is-text">Git <strong><%= gitLabel %></strong></p>
-    <p class="health-detail"><% if (gitHint) { %><%= gitHint %> · <% } %>本地历史与草稿 <strong><%= report.drafts.count + report.drafts.deletedNoteHistoryCount %></strong> 条</p>
+    <p class="health-detail"><% if (gitHint) { %><%= gitHint %> · <% } %>本地历史与草稿 <strong><%= report.drafts.historyCount %></strong> 条</p>
   </section>
   <section class="health-tile<%= linkWarn ? ' is-warn' : '' %>">
     <h2>双链</h2>
@@ -68,6 +68,14 @@
   </section>
 </div>
 
+<% if (report.reviews.deckScanFailed) { %>
+  <p class="notice is-warn" role="alert">卡组扫描未完成。请检查资料库中的 cards/ 目录及其子目录是否可以读取。</p>
+<% } %>
+<% if (report.reviews.deckFailures.length) { %>
+  <section class="panel health-failures"><h2>无法读取的卡组</h2><ul>
+    <% report.reviews.deckFailures.forEach(file => { %><li><code><%= file %></code><a href="/history?deck=<%= encodeURIComponent(file) %>">查看卡组历史</a></li><% }) %>
+  </ul></section>
+<% } %>
 <% if (needsGitRecovery) { %>
 <section class="notice is-warn" role="alert">
   <strong>Git 操作需要恢复</strong>

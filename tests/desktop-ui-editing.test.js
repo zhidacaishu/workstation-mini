@@ -145,7 +145,6 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
     });
 
     await check('两次粘图乱序返回仍对应原位置，保持用户光标与焦点', async () => {
-      // 用不会出现在上传占位符或其随机 UUID 里的文字定位光标。
       await area().fill('# 草稿\n\n![正在保存图片…]()\n正文段');
       const result = await area().evaluate(async (textarea, base64) => {
         const originalFetch = window.fetch;
@@ -178,7 +177,7 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
       await area().fill('# 草稿\n\n图片测试\n');
     });
 
-    await check('图片上传期间阻止保存及离开，完成后替换占位符', async () => {
+    await check('图片上传期间阻止保存及离开，完成后插入图片', async () => {
       const result = await area().evaluate(async (textarea, base64) => {
         const originalFetch = window.fetch;
         const originalMayLeave = window.workstationDialog.mayLeave;
@@ -206,7 +205,7 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
           form.requestSubmit();
           const leaving = new Event('beforeunload', { cancelable: true });
           window.dispatchEvent(leaving);
-          const pending = textarea.value.includes('workstation-upload-');
+          const pending = textarea.getAttribute('aria-busy') === 'true' && !textarea.value.includes('workstation-upload-');
           complete({ ok: true, json: async () => ({ markdown: '![[ready.png]]' }) });
           await new Promise(resolve => setTimeout(resolve, 0));
           return { saves, pending, askedDuringSave, blocked: submit.isTrusted && submit.defaultPrevented, leaveBlocked: leaving.defaultPrevented,
@@ -221,7 +220,74 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
       await area().fill('# 草稿\n\n图片测试\n');
     });
 
+    await check('图片上传失败保留原选区，等待期间草稿可恢复同时输入的原文', async () => {
+      const original = '# 草稿\n\n左侧选中的文字右侧';
+      await area().fill(original);
+      await area().evaluate(textarea => {
+        const originalFetch = window.fetch;
+        window.fetch = (url, options) => String(url) === '/api/attachments'
+          ? new Promise(resolve => { window.finishFailedUpload = () => {
+            window.fetch = originalFetch;
+            resolve({ ok: false, status: 415, json: async () => ({ message: '图片格式错误' }) });
+          }; }) : originalFetch(url, options);
+        const start = textarea.value.indexOf('选中的文字');
+        textarea.setSelectionRange(start, start + '选中的文字'.length);
+        const transfer = new DataTransfer();
+        transfer.items.add(new File(['invalid'], 'bad.png', { type: 'image/png' }));
+        textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      });
+      await page.keyboard.insertText('继续写');
+      const saved = await page.evaluate(async () => {
+        await window.workstationDrafts.flush();
+        const id = document.querySelector('[data-draft-id]').dataset.draftId;
+        const response = await fetch('/recover/' + id);
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        return doc.querySelector('[name=body]').value;
+      });
+      assert.equal(saved, original + '继续写');
+      await page.evaluate(() => window.finishFailedUpload());
+      await page.waitForFunction(() => !document.querySelector('textarea[data-md-editor]').hasAttribute('aria-busy'));
+      assert.equal(await value(), saved);
+    });
+
+    await check('重叠粘图按发起顺序保留，上传期间重新输入同样开头的文字也不会被覆盖', async () => {
+      const original = 'leftABCright';
+      const begin = async count => {
+        await area().fill(original);
+        await area().evaluate((textarea, count) => {
+          const originalFetch = window.fetch;
+          const pending = [];
+          window.fetch = (url, options) => String(url) === '/api/attachments'
+            ? new Promise(resolve => pending.push(resolve)) : originalFetch(url, options);
+          window.resolvePicture = (index, name) => {
+            pending[index]({ ok: true, json: async () => ({ markdown: '![[' + name + '.png]]' }) });
+            if (index === 0) window.fetch = originalFetch;
+          };
+          const transfer = new DataTransfer();
+          transfer.items.add(new File(['img'], 'img.png', { type: 'image/png' }));
+          textarea.focus();
+          for (let i = 0; i < count; i++) {
+            textarea.setSelectionRange(4, 7);
+            textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
+          }
+        }, count);
+      };
+      await begin(1);
+      await page.keyboard.insertText('ABCDEF');
+      await page.evaluate(() => window.resolvePicture(0, 'one'));
+      await page.waitForFunction(() => !document.querySelector('textarea[data-md-editor]').hasAttribute('aria-busy'));
+      assert.equal(await value(), 'leftABCDEFright');
+      await begin(2);
+      await page.evaluate(() => window.resolvePicture(1, 'two'));
+      await page.waitForFunction(() => document.querySelector('textarea[data-md-editor]').value.includes('two'));
+      await page.evaluate(() => window.resolvePicture(0, 'one'));
+      await page.waitForFunction(() => !document.querySelector('textarea[data-md-editor]').hasAttribute('aria-busy'));
+      assert.equal(await value(), 'left![[one.png]]![[two.png]]right');
+    });
+
     await check('粘贴图片存进 attachments/ 并在光标处写入嵌入', async () => {
+      await area().fill('# 草稿\n\n图片测试\n');
       await area().click();
       await page.keyboard.press('Control+End');
       await page.keyboard.type('\n\n');

@@ -1265,7 +1265,7 @@ form.plan-task-form:hover .plan-task-when, .plan-task-due:focus-within .plan-tas
 .plan-note-actions { display: flex; align-items: center; gap: 12px; }
 .calendar-note-status { color: var(--subtle); font-size: var(--fs-xs); }
 .calendar-note-status.is-error { color: var(--danger); }
-.calendar-note-readonly { white-space: pre-wrap; color: var(--text-2); }
+.calendar-note-readonly { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
 .plan-note-error { color: var(--warn-text); }
 .calendar-note-open { align-self: flex-start; font-size: var(--fs-sm); }
 
@@ -1368,7 +1368,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .card-row-back { overflow: hidden; color: var(--subtle); font-size: var(--fs-sm); text-overflow: ellipsis; white-space: nowrap; }
 .card-row-front .katex, .card-row-back .katex { font-size: 1.08em; }
 .card-row.is-suspended .card-row-front { color: var(--muted); }
-.card-row-deck { flex: none; max-width: 140px; overflow: hidden; color: var(--subtle); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
+.card-row-deck { flex: none; width: min(22%, 140px); overflow: hidden; color: var(--subtle); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
 /* 每行的「暂停 / 恢复」平时隐藏，鼠标移到这一行或用 Tab 移过去才出现：
    一列重复十几遍的同一个按钮比卡片内容还显眼。位置照常占着，出现时整行不跳。 */
 .card-row-action { opacity: 0; transition: opacity var(--motion); }
@@ -1664,7 +1664,7 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 }
 .error-icon { width: 36px; height: 36px; color: var(--subtle); stroke-width: 1.5; }
 .error-state h1 { font-size: var(--fs-3xl); font-weight: 600; }
-.error-state p { color: var(--muted); }
+.error-state p { max-width: 100%; overflow-wrap: anywhere; color: var(--muted); }
 .error-state .actions { justify-content: center; margin-top: 8px; }
 
 /* ---------- 命令面板 ---------- */

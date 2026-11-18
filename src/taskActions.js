@@ -1,4 +1,4 @@
-const { extractTasks, dueTagOf } = require('./tasks');
+const { extractTasks } = require('./tasks');
 const { stripMachineDirectives } = require('./machineDirectives');
 const { isValidDateString } = require('./dates');
 const { readNote, writeNote } = require('./vault/note');
@@ -19,7 +19,7 @@ async function updateTask(notesDir, { path, line, expectedHash, done, due }) {
     }
     if (note.hash !== expectedHash) throw httpError(409, '笔记已在别处修改，请刷新后重试。');
     // 和索引、阅读页同一套规则认待办：机器指令行先去掉（不增删行），再解析。
-    const task = extractTasks(stripMachineDirectives(note.body)).find(item => item.line === line);
+    const task = extractTasks(stripMachineDirectives(note.body), { includeDates: true }).find(item => item.line === line);
     if (!task) throw httpError(409, '原位置已不是待办，请刷新后重试。');
     // gray-matter exposes the body as a suffix. Preserve its exact prefix,
     // including YAML comments, BOM, and the original newline convention.
@@ -29,15 +29,11 @@ async function updateTask(notesDir, { path, line, expectedHash, done, due }) {
     let target = parts[(line - 1) * 2];
     if (done !== undefined) target = target.replace(/^(\s*[-*+]\s+\[)[ xX](\])/, (_, a, b) => a + (done ? 'x' : ' ') + b);
     if (due !== undefined) {
-      const match = task.due ? dueTagOf(target, task.due) : null;
-      if (match) target = target.slice(0, match.index) + (due ? '@' + due : '') + target.slice(match.index + match[0].length);
-      else if (due) target = target.replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)/, '$1@' + due + ' ');
-      // 取消排期要把这一行里的日期标记都去掉：只去第一个的话，后面那个会顶上来当截止日。
-      if (!due) {
-        for (let extra = dueTagOf(target); extra; extra = dueTagOf(target)) {
-          target = target.slice(0, extra.index) + target.slice(extra.index + extra[0].length);
-        }
+      const dates = due ? task.dates.slice(0, 1) : task.dates;
+      for (const tag of dates.slice().reverse()) {
+        target = target.slice(0, tag.index) + (due ? '@' + due : '') + target.slice(tag.index + 1 + tag.date.length);
       }
+      if (due && !dates.length) target = target.replace(/^(\s*[-*+]\s+\[[ xX]\]\s+)/, '$1@' + due + ' ');
     }
     parts[(line - 1) * 2] = target;
     const raw = note.raw.slice(0, note.raw.length - note.body.length) + parts.join('');

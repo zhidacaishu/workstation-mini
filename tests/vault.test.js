@@ -449,3 +449,10 @@ test('附件嵌入不算双链，笔记嵌入仍算', () => {
   const links = parseWikilinks('![[组会录音.mp3]] ![[图 1.png]] ![[论文.pdf]] ![[另一篇]] ![[第三篇.md]] [[第四篇]]');
   assert.deepEqual(links.map(link => link.target), ['另一篇', '第三篇', '第四篇']);
 });
+
+test('标题跳过代码和公式块，仍保留一级标题原文', () => {
+  const body = ['~~~sh', '# initialize data', '~~~', '', '$$', '# formula', '$$', '', '# 真正的 **标题** ###'].join('\n');
+  assert.equal(note.resolveTitle({}, body, 'notes/a.md'), '真正的 **标题**');
+  assert.equal(note.resolveTitle({}, '#\n\n# 正文标题', 'name.md'), '正文标题');
+  assert.equal(note.resolveTitle({}, '    # 代码\n\n~~~\n# 仍是代码', 'a.md'), 'a');
+});

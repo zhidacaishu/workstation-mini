@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('node:crypto');
-const { listRecords, getRecord, saveDraft, removeDraft } = require('../vault/history');
-const { readNote, writeNote, parseFrontmatter, resolveTitle } = require('../vault/note');
+const { listRecords, listDeckRecords, getRecord, saveDraft, removeDraft } = require('../vault/history');
+const { readNote, writeNote, parseFrontmatter, resolveTitle, hashContent } = require('../vault/note');
 const { enqueueFile } = require('../vault/note-queue');
 const fs = require('node:fs/promises');
 const { isSafeRelativePath, isNotePath, basename, ensureSafeFilePath } = require('../vault/paths');
@@ -31,9 +31,8 @@ function createHistoryRoutes({ config, db }) {
   // 卡组文件（cards/）不在 notes/ 里，旧版本存在资料库根目录那份本机历史里。
   // 两边的记录放在同一页：卡组记录的 id 带 deck: 前缀，恢复时直接写回卡组文件。
   async function deckRecords(deckPath = '') {
-    const records = await listRecords(config.vaultDir, deckPath);
+    const records = await listDeckRecords(config.vaultDir, deckPath);
     return records
-      .filter(record => record.path.startsWith('cards/'))
       .map(record => ({ ...record, id: DECK_PREFIX + record.id, source: 'deck' }));
   }
   // 列表和预览的主文字用标题，路径退到次要位置。
@@ -82,7 +81,7 @@ function createHistoryRoutes({ config, db }) {
     try {
       const absolute = await ensureSafeFilePath(deck ? config.vaultDir : config.notesDir, record.path);
       const stats = await fs.stat(absolute);
-      if (!stats.isFile() || stats.size > DIFF_MAX_BYTES) return undefined;
+      if (!stats.isFile() || (!deck && stats.size > DIFF_MAX_BYTES)) return undefined;
       return await fs.readFile(absolute, 'utf8');
     } catch (error) {
       return error.code === 'ENOENT' ? null : undefined;
@@ -90,15 +89,19 @@ function createHistoryRoutes({ config, db }) {
   }
   // 逐行对比的方向跟着「时间先后」走：旧版本是「从它到现在改了什么」，
   // 没保存的草稿比文件新，是「草稿相对现在的文件改了什么」。
-  async function compareWithCurrent(record) {
-    const current = await currentRaw(record);
+  function compareWithCurrent(record, current) {
     if (current === null) return { state: 'missing' };
-    if (current === undefined || Buffer.byteLength(record.raw) > DIFF_MAX_BYTES) return { state: 'unavailable' };
+    if (current === undefined || Buffer.byteLength(current) > DIFF_MAX_BYTES || Buffer.byteLength(record.raw) > DIFF_MAX_BYTES) return { state: 'unavailable' };
     const draft = record.kind === 'draft';
     const result = draft ? compareText(current, record.raw) : compareText(record.raw, current);
     if (result.tooLarge) return { state: 'unavailable' };
     if (!result.changed) return { state: 'same' };
     return { state: 'diff', draft, ...result };
+  }
+
+  function deckVersion(raw) {
+    if (raw === undefined) return '';
+    return raw === null ? 'missing' : hashContent(raw);
   }
 
   router.get('/history', async (req, res, next) => {
@@ -117,10 +120,12 @@ function createHistoryRoutes({ config, db }) {
       const found = req.query.id ? await findRecord(String(req.query.id)) : null;
       // 预览的是这一条记录本身，标题也取它自己的内容：旧版本可能还是改名前的标题。
       const selected = found ? { ...found, title: titleFromRaw(found) || basename(found.path) } : null;
-      const comparison = selected ? await compareWithCurrent(found) : null;
+      const current = selected ? await currentRaw(found) : undefined;
+      const expectedHash = selected?.source === 'deck' ? deckVersion(current) : '';
+      const comparison = selected ? compareWithCurrent(found, current) : null;
       const showFull = req.query.view === 'full' || !comparison || comparison.state !== 'diff';
       res.render('history', {
-        title: '版本历史与草稿', records, selected, notePath, deckPath, comparison, showFull,
+        title: '版本历史与草稿', records, selected, notePath, deckPath, comparison, showFull, expectedHash,
         page, hasMore: all.length > page * HISTORY_PAGE, total: all.length
       });
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
@@ -129,7 +134,18 @@ function createHistoryRoutes({ config, db }) {
     try {
       const record = await findRecord(String(req.body?.id || ''));
       if (record.source !== 'deck') throw httpError(400, '这条记录不是卡组版本。');
-      await enqueueFile(config.vaultDir, record.path, () => writeNote(config.vaultDir, record.path, { raw: record.raw }));
+      await enqueueFile(config.vaultDir, record.path, async () => {
+        const expected = req.body.expectedHash;
+        if (!expected || expected !== deckVersion(await currentRaw(record))) {
+          throw httpError(409, '卡组版本无法确认或已更改，请刷新预览后再恢复。');
+        }
+        try {
+          await writeNote(config.vaultDir, record.path, { raw: record.raw }, { exclusive: expected === 'missing' });
+        } catch (error) {
+          if (error.code === 'EEXIST') throw httpError(409, '同名卡组已创建，请刷新预览后再恢复。');
+          throw error;
+        }
+      });
       res.redirect('/cards');
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
   });

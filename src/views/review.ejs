@@ -61,7 +61,7 @@
       <button id="review-undo-last" class="button" type="button" hidden>撤销最后一张</button>
       <a class="button" href="/decks">卡组</a>
       <%- include('partials/card-create-button', { buttonClass: 'button', file: defaultFile }) %>
-      <a class="button primary" href="/review">再来一轮</a>
+      <a class="button primary" href="<%= returnTo %>">再来一轮</a>
     </div>
   </section>
 

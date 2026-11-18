@@ -7,6 +7,7 @@ const { installMathSyntax, maskMath } = require('./mathSyntax');
 const { maskCode, headingFragment, wikilinkFragment } = require('./vault/wikilink');
 const { toPosix, wikilinkTarget, encodePath } = require('./vault/paths');
 const { stripMachineDirectives } = require('./machineDirectives');
+const { isValidDateString } = require('./dates');
 const { toLocalDate } = require('./templates');
 
 const WIKILINK_PATTERN = /\[\[([^\]\n|#]+)(?:#([^\]\n|]+))?(?:\|([^\]\n]+))?\]\]/g;
@@ -28,17 +29,21 @@ const MEDIA_EXTENSION = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|mp3|m4a|wav|ogg|
  * 其它路径原样放过：与其猜一个可能是错的地址，不如让它保持原样，至少作者一眼能看出
  * 是自己写错了。
  */
-function resolveResourceHref(src, notePath) {
+function resolveResourceHref(src, notePath, { encoded = false } = {}) {
   const raw = String(src || '').trim();
   if (!raw) return raw;
   // 带协议的（http:、https:、data:、mailto:）和已经是应用内绝对路径的都不动。
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('/') || raw.startsWith('#')) return raw;
 
-  const cleaned = toPosix(raw).replace(/^\.\//, '');
+  // 标准 Markdown 的目标已经由 markdown-it 编码。双链传入的则是文件名原文。
+  const suffix = encoded ? raw.match(/[?#].*$/)?.[0] || '' : '';
+  const resource = suffix ? raw.slice(0, -suffix.length) : raw;
+  const urlPath = value => (encoded ? value : encodePath(value)) + suffix;
+  const cleaned = toPosix(resource).replace(/^\.\//, '');
 
   function hrefFor(vaultPath) {
-    if (vaultPath.startsWith(ATTACHMENTS_PREFIX)) return `/${encodePath(vaultPath)}`;
-    if (vaultPath.startsWith(AUDIO_PREFIX)) return `/media/${encodePath(vaultPath.slice(AUDIO_PREFIX.length))}`;
+    if (vaultPath.startsWith(ATTACHMENTS_PREFIX)) return `/${urlPath(vaultPath)}`;
+    if (vaultPath.startsWith(AUDIO_PREFIX)) return `/media/${urlPath(vaultPath.slice(AUDIO_PREFIX.length))}`;
     return '';
   }
 
@@ -59,7 +64,7 @@ function resolveResourceHref(src, notePath) {
   // 没有目录分隔符的纯文件名按附件找。Obsidian 里 `![[Pasted image.png]]`
   // 就是这个形状，把它指到 attachments/ 比留一个死链有用。
   if (!cleaned.includes('/') && MEDIA_EXTENSION.test(cleaned)) {
-    return `/${ATTACHMENTS_PREFIX}${encodePath(cleaned)}`;
+    return `/${ATTACHMENTS_PREFIX}${urlPath(cleaned)}`;
   }
 
   return raw;
@@ -131,7 +136,7 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     tokens[idx].attrSet('rel', 'noopener noreferrer');
   } else if (href && !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith('/') && !href.startsWith('#')) {
     // `[原图](attachments/fig.png)` 这类普通链接也指到附件路由，和图片同一套解析。
-    const resolved = resolveResourceHref(href, env?.notePath);
+    const resolved = resolveResourceHref(href, env?.notePath, { encoded: true });
     if ((resolved.startsWith('/attachments/') || resolved.startsWith('/media/')) && MEDIA_EXTENSION.test(href.split(/[?#]/)[0])) {
       tokens[idx].attrSet('href', resolved);
     }
@@ -148,7 +153,7 @@ const defaultImage = md.renderer.rules.image
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   if (env?.images === false) return md.utils.escapeHtml(tokens[idx].content || '');
   const src = tokens[idx].attrGet('src');
-  const resolved = resolveResourceHref(src, env?.notePath);
+  const resolved = resolveResourceHref(src, env?.notePath, { encoded: true });
   if (AV_EXTENSION.test(String(src || '').split(/[?#]/)[0])) {
     const label = md.utils.escapeHtml(tokens[idx].content || String(src).split('/').pop());
     return `<a class="media-link" href="${md.utils.escapeHtml(resolved)}">${label}</a>`;
@@ -167,29 +172,39 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
 // 列表项第一行本身必须是 `- [ ] 文本` 的写法（TASK_LINE），写回时才找得到那一行。
 const TASK_PREFIX = /^\[( |x|X)\]\s+/;
 const TASK_LINE = /^(\s*)[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/;
-const TASK_DUE = /@(\d{4})-(\d{2})-(\d{2})\b/g;
+const TASK_DUE = /@(\d{4}-\d{2}-\d{2})\b/y;
+
+// 在解析器消费源码时记位置。链接目标、代码、转义和公式由各自规则整体消费，
+// 不会因显示文本里有相同的日期而在写回时误改另一处。
+md.inline.ruler.before('text', 'task_date', (state, silent) => {
+  if (state.src[state.pos] !== '@' || state.linkLevel || state.src[state.pos - 1] === '/' || !TASK_PREFIX.test(state.src)) return false;
+  TASK_DUE.lastIndex = state.pos;
+  const tag = TASK_DUE.exec(state.src);
+  if (!tag || !isValidDateString(tag[1])) return false;
+  // 无协议的网址由 core linkify 在行内解析之后识别；双链也要保留整个目标。
+  if (!state.taskLinks) {
+    state.taskLinks = md.linkify.match(state.src) || [];
+    if (state.src.includes('[[')) {
+      const masked = maskMath(maskCode(state.src));
+      for (const match of masked.matchAll(WIKILINK_PATTERN)) {
+        state.taskLinks.push({ index: match.index, lastIndex: match.index + match[0].length });
+      }
+    }
+  }
+  if (state.taskLinks.some(link => link.index <= state.pos && state.pos < link.lastIndex)) return false;
+  if (!silent) {
+    const token = state.push('task_date', '', 0);
+    token.content = tag[1];
+    token.meta = { offset: state.pos };
+  }
+  state.pos += tag[0].length;
+  return true;
+});
+md.renderer.rules.task_date = (tokens, index) => '@' + tokens[index].content;
 
 function plainInlineText(children) {
   return children.filter(child => child.type === 'text' || child.type === 'code_inline')
-    .map(child => child.content).join('').replace(TASK_DUE, '').replace(/\s+/g, ' ').trim();
-}
-
-/**
- * 待办第一行里、行内代码之外的第一个 @日期。行内代码可以跨行，所以按 token 走，
- * 不能按原文逐行找：`- [ ] 示例 \`@2026-10-05` 换行再闭合时，那个日期在代码里。
- */
-function firstLineDue(children) {
-  for (const child of children) {
-    if (child.type === 'softbreak' || child.type === 'hardbreak') return null;
-    if (child.type === 'text') {
-      TASK_DUE.lastIndex = 0;
-      const due = TASK_DUE.exec(child.content);
-      TASK_DUE.lastIndex = 0;
-      if (due) return `${due[1]}-${due[2]}-${due[3]}`;
-    }
-    if (child.type === 'code_inline' && child.content.includes('\n')) return null;
-  }
-  return null;
+    .map(child => child.content).join('').replace(/\s+/g, ' ').trim();
 }
 
 /** 截止日标签：今年只写月/日，跨年带上年份；没完成且已过期的写明「逾期」。 */
@@ -223,7 +238,14 @@ md.core.ruler.push('task_items', state => {
 
     const line = tokens[index - 2].map ? tokens[index - 2].map[0] + 1 : 0;
     const writable = line > 0 && TASK_LINE.test(lineOf(line));
-    if (writable && state.env.collectTasks) state.env.collectTasks.push({ line, done, due: firstLineDue(children) });
+    if (writable && state.env.collectTasks) {
+      const sourceLine = lineOf(line);
+      const start = sourceLine.indexOf('[');
+      const firstLineLength = inline.content.split('\n', 1)[0].length;
+      const dates = children.filter(child => child.type === 'task_date' && child.meta.offset < firstLineLength)
+        .map(child => ({ date: child.content, index: start + child.meta.offset }));
+      state.env.collectTasks.push({ line, done, due: dates[0]?.date || null, ...(state.env.includeDates ? { dates } : {}) });
+    }
     const box = new state.Token('html_inline', '', 0);
     if (writable && state.env.taskToggle) {
       const label = md.utils.escapeHtml((done ? '标记为未完成：' : '标记为完成：') + plainInlineText(children));
@@ -231,34 +253,14 @@ md.core.ruler.push('task_items', state => {
     } else {
       box.content = `<span class="task-box${done ? ' is-done' : ''}" role="img" aria-label="${done ? '已完成' : '待办'}"></span>`;
     }
-    const rebuilt = [box];
     for (const child of children) {
-      if (child.type !== 'text' || !TASK_DUE.test(child.content)) {
-        rebuilt.push(child);
-        continue;
-      }
-      TASK_DUE.lastIndex = 0;
-      let cursor = 0;
-      for (const due of child.content.matchAll(TASK_DUE)) {
-        if (due.index > cursor) {
-          const text = new state.Token('text', '', 0);
-          text.content = child.content.slice(cursor, due.index);
-          rebuilt.push(text);
-        }
-        const time = new state.Token('html_inline', '', 0);
-        const date = `${due[1]}-${due[2]}-${due[3]}`;
-        const { label, tone } = dueLabel(date, today, done);
-        time.content = `<time class="task-due${tone}" datetime="${date}">${label}</time>`;
-        rebuilt.push(time);
-        cursor = due.index + due[0].length;
-      }
-      if (cursor < child.content.length) {
-        const text = new state.Token('text', '', 0);
-        text.content = child.content.slice(cursor);
-        rebuilt.push(text);
-      }
+      if (child.type !== 'task_date') continue;
+      const date = child.content;
+      const { label, tone } = dueLabel(date, today, done);
+      child.type = 'html_inline';
+      child.content = `<time class="task-due${tone}" datetime="${date}">${label}</time>`;
     }
-    inline.children = rebuilt;
+    inline.children = [box, ...children];
   }
 });
 
@@ -451,13 +453,22 @@ function renderMarkdown(body, resolve = () => '', { notePath = '', anchors = tru
 }
 
 /**
- * 正文里哪几行是待办：和阅读页渲染同一遍解析。返回 [{ line, done }]，line 从 1 开始、
+ * 正文里哪几行是待办：和阅读页渲染同一遍解析。返回 [{ line, done, due }]，line 从 1 开始、
  * 相对正文（不含 frontmatter）。调用方传入的应是去掉机器指令行之后的正文。
  */
-function listTaskItems(body) {
-  const env = { collectTasks: [], today: '0000-00-00' };
+function listTaskItems(body, { includeDates = false } = {}) {
+  const env = { collectTasks: [], includeDates, today: '0000-00-00' };
   md.parse(String(body ?? ''), env);
   return env.collectTasks;
 }
 
-module.exports = { renderMarkdown, replaceWikilinks, escapeMarkdownText, resolveResourceHref, listTaskItems };
+// 只需要块结构，不解析行内格式。保留标题里的 Markdown 原文。
+function firstMarkdownHeading(body) {
+  const tokens = [];
+  md.block.parse(body.replace(/\r\n?/g, '\n'), md, {}, tokens);
+  const index = tokens.findIndex((token, i) => token.type === 'heading_open' && token.tag === 'h1'
+    && token.markup === '#' && token.level === 0 && tokens[i + 1].content.trim());
+  return index < 0 ? '' : tokens[index + 1].content.trim();
+}
+
+module.exports = { firstMarkdownHeading, renderMarkdown, replaceWikilinks, escapeMarkdownText, resolveResourceHref, listTaskItems };

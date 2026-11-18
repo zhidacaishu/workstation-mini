@@ -38,6 +38,7 @@
   let shownAt = Date.now();
   let answered = 0;
   let pendingAnswers = 0;
+  let saveTail = null;
   let anySynced = false;
   // 评过分的卡（按卡计，不按次数）和本轮选过「忘了」的卡。
   const reviewedCards = new Map();
@@ -250,7 +251,9 @@
     // 按钮输入而跳过。下一张以及最后一张的保存期间，都交回仍可见的复习区。
     root.focus({ preventScroll: true });
 
-    entry.saved = submitAnswer(payload);
+    // 后一张可以立即作答，写入必须等前一张（含重试）结束，和服务端的撤销顺序一致。
+    entry.saved = saveTail ? saveTail.then(() => submitAnswer(payload)) : submitAnswer(payload);
+    saveTail = entry.saved;
     try {
       if (await entry.saved) {
         answered += 1;
@@ -259,6 +262,7 @@
         entry.failed = true;
       }
     } finally {
+      if (saveTail === entry.saved) saveTail = null;
       pendingAnswers -= 1;
       updateBusyState();
       if (!current()) render();

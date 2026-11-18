@@ -3,7 +3,7 @@ const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { listNotes } = require('./vault/note');
-const { listRecords } = require('./vault/history');
+const { listRecords, listDeckRecords } = require('./vault/history');
 const { readEvents, isValidEvent, isRegularFile } = require('./review');
 const { loadAllCards } = require('./cards');
 
@@ -82,15 +82,22 @@ async function reviewReport(vaultDir) {
       }
     }
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  let orphanedCards = 0;
+  const deckFailures = [];
+  let cards;
   try {
-    const events = await readEvents(vaultDir);
-    // Review event IDs are derived from each card heading, not only filenames.
-    const cards = await loadAllCards(vaultDir);
-    const cardIds = new Set(cards.flatMap(card => [card.id, card.legacyId]));
-    orphanedCards = new Set(events.filter(event => !cardIds.has(event.cardId)).map(event => event.cardId)).size;
-  } catch {}
-  return { files, records, malformedLines, duplicateEventIds, orphanedCards };
+    cards = await loadAllCards(vaultDir, { onError: failure => deckFailures.push(failure.path) });
+  } catch {
+    // 整个目录未能列完，无法确定哪些卡组或卡片缺失。
+  }
+  let orphanedCards = null;
+  if (cards && !deckFailures.length) {
+    const events = await readEvents(vaultDir).catch(() => null);
+    if (events) {
+      const cardIds = new Set(cards.flatMap(card => [card.id, card.legacyId]));
+      orphanedCards = new Set(events.filter(event => !cardIds.has(event.cardId)).map(event => event.cardId)).size;
+    }
+  }
+  return { files, records, malformedLines, duplicateEventIds, orphanedCards, deckFailures, deckScanFailed: !cards };
 }
 
 async function createHealthReport({ config, db, indexer, sync, now = () => new Date() }) {
@@ -116,6 +123,8 @@ async function createHealthReport({ config, db, indexer, sync, now = () => new D
   ).all(BROKEN_LINK_LIMIT)) || [] : [];
   let records = [];
   try { records = await listRecords(config.notesDir); } catch {}
+  const decks = await listDeckRecords(config.vaultDir).catch(() => []);
+  const historyCount = records.length + decks.length;
   const git = await gitReport(config.vaultDir);
   const reviews = await reviewReport(config.vaultDir);
   const draftCount = records.filter(record => record.kind === 'draft').length;
@@ -128,9 +137,9 @@ async function createHealthReport({ config, db, indexer, sync, now = () => new D
     links: { brokenCount, broken: brokenLinks, brokenTruncated: brokenCount != null && brokenCount > brokenLinks.length },
     sync: { enabled: Boolean(config.syncEnabled) },
     reviews,
-    drafts: { count: draftCount, deletedNoteHistoryCount },
+    drafts: { count: draftCount, deletedNoteHistoryCount, historyCount },
     git: Object.assign({}, git, { changedPaths: git.changedPaths || [] }),
-    recovery: { markdownSource: true, indexRebuildable: true, historyAvailable: records.length > 0, safeToRebuildIndex: !index.fatal || index.fatal.code === 'database-corrupt', syncRecovery }
+    recovery: { markdownSource: true, indexRebuildable: true, historyAvailable: historyCount > 0, safeToRebuildIndex: !index.fatal || index.fatal.code === 'database-corrupt', syncRecovery }
   };
 }
 

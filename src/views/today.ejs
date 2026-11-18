@@ -56,9 +56,9 @@
         </ul>
       <% } else { %>
         <div class="empty-state">
-          <p>还没有笔记</p>
+          <p><%= featured ? '暂无其他最近笔记' : '还没有笔记' %></p>
           <%# 上手清单在的时候，它的「下一步」已经给了「新建笔记」，这里不再放第二个。 %>
-          <% if (!readOnly && !(typeof onboarding !== 'undefined' && onboarding)) { %><a class="button" href="/new">写第一篇笔记</a><% } %>
+          <% if (!featured && !readOnly && !(typeof onboarding !== 'undefined' && onboarding)) { %><a class="button" href="/new">写第一篇笔记</a><% } %>
         </div>
       <% } %>
     </section>

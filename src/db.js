@@ -22,7 +22,8 @@ const Database = require('better-sqlite3');
 // v9：表结构不变。待办改由 markdown-it 识别（代码块、公式块里的 `- [ ]` 不算），
 //     附件嵌入（`![[图.png]]`）不再算双链。重建一次，旧索引里按老规则抽出的条目才会消失。
 // v10：双链只去掉最后的 .md，重建含版本号等点分文件名的正向和反向链接。
-const SCHEMA_VERSION = 10;
+// v11：重算 Markdown 一级标题和待办日期。
+const SCHEMA_VERSION = 11;
 
 const SCHEMA = `
   -- 每篇笔记一行。body_raw / title_raw 是原文缓存，供 LIKE 兜底和渲染使用；

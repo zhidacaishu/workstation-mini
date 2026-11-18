@@ -162,9 +162,10 @@ test('鼠标评分后即使隐藏按钮仍持有焦点，下一张也能用空�
   ui.keydown({ key: ' ' });
   assert.equal(ui.elements.get('review-back').hidden, false, '下一张答案应能通过空格显示');
   ui.keydown({ key: '2' });
-  assert.deepEqual(payloads.map(({ cardId, rating }) => [cardId, rating]), [[CARD.id, 3], ['deck/next', 2]]);
+  assert.deepEqual(payloads.map(p => p.cardId), [CARD.id]);
   answer.resolve({ ok: true });
   await flush();
+  assert.deepEqual(payloads.map(({ cardId, rating }) => [cardId, rating]), [[CARD.id, 3], ['deck/next', 2]]);
   assert.equal(ui.elements.get('review-done').hidden, false);
 });
 
@@ -253,7 +254,7 @@ test('评分全部失败时完成页明确保留失败数和刷新指引', async
   assert.deepEqual(calls, ['/review/answer']);
 });
 
-test('乱序返回中成功评分不清除其他失败，混合结果只计入成功数', async () => {
+test('连续评分中成功评分不清除其他失败，混合结果只计入成功数', async () => {
   const first = deferred();
   const second = deferred();
   let attempts = 0;
@@ -443,9 +444,9 @@ test('首次评分仍在保存时快速重学，撤销第二次不丢掉首次�
   ui.reveal();
   const initial = ui.rate(1);
   ui.reveal();
-  await ui.rate(3);
+  const second = ui.rate(3);
   first.resolve({ ok: true });
-  await initial;
+  await Promise.all([initial, second]);
   ui.keydown({ key: 'z' });
   await flush();
   ui.reveal();
@@ -471,4 +472,25 @@ test('撤销响应连接中断时保留事件 ID，可重试后回到原卡', as
   assert.deepEqual(ids, ['event-1', 'event-1']);
   assert.equal(ui.elements.get('review-front').innerHTML, CARD.front);
   assert.equal(ui.elements.get('review-remaining').textContent, '1');
+});
+
+test('第一张重试时继续作答，撤销目标仍是最后落盘的第二张', async () => {
+  const first = deferred();
+  const calls = [];
+  const ui = await loadReview(async (url, options) => {
+    if (url === '/review/sync') return { ok: true, json: async () => ({ ok: true }) };
+    calls.push([url, JSON.parse(options.body).eventId]);
+    if (calls.length === 1) return first.promise;
+    return { ok: true, json: async () => ({ ok: true }) };
+  }, [CARD, { ...CARD, id: 'deck/next', front: '第二张' }]);
+  ui.reveal(); ui.rate(3);
+  ui.reveal(); ui.rate(3);
+  ui.keydown({ key: 'z' });
+  first.resolve({ ok: false, status: 503 });
+  await flush();
+  assert.deepEqual(calls, [
+    ['/review/answer', 'event-1'], ['/review/answer', 'event-1'],
+    ['/review/answer', 'event-2'], ['/review/undo', 'event-2']
+  ]);
+  assert.equal(ui.elements.get('review-front').innerHTML, '第二张');
 });

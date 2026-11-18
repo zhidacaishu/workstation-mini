@@ -34,3 +34,24 @@ test('正文里有单独的 \\r 时，勾选改的就是点的那一行，原来
   await updateTask(dir, { path: 'n.md', line: a.line, expectedHash: note.hash, done: true });
   assert.equal((await readNote(dir, 'n.md')).raw, raw.replace('- [ ] A', '- [x] A'));
 });
+
+test('改期和清空日期只改第一行可写的真实标记，其他 Markdown 原样保留', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-task-dates-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const protectedText = '[日程](https://example.org/@2026-11-19) `@2026-11-19` $x@2026-11-19$ [[档案@2026-11-19]] @2026-02-31';
+  const raw = '- [ ] ' + protectedText + ' @2026-11-19 @2026-12-01\r\n  续行 @2026-12-02\r\n';
+  const note = await writeNote(dir, 'task.md', { raw });
+  assert.equal(extractTasks(raw)[0].due, '2026-11-19');
+  assert.equal(extractTasks('- [ ] 讲解 `[[` @2026-11-19 `]]`')[0].due, '2026-11-19');
+  assert.doesNotMatch(renderMarkdown(raw), /datetime="2026-02-31"/);
+  const result = await updateTask(dir, { path: 'task.md', line: 1, expectedHash: note.hash, due: '2027-01-10' });
+  assert.equal((await readNote(dir, 'task.md')).raw, raw.replace(' @2026-11-19 @', ' @2027-01-10 @'));
+  const cleared = await updateTask(dir, { path: 'task.md', line: 1, expectedHash: result.hash, due: '' });
+  const expected = raw.replace(' @2026-11-19 @2026-12-01\r', '  \r');
+  assert.equal((await readNote(dir, 'task.md')).raw, expected);
+  await updateTask(dir, { path: 'task.md', line: 1, expectedHash: cleared.hash, done: true, due: '' });
+  assert.equal((await readNote(dir, 'task.md')).raw, expected.replace('[ ]', '[x]'));
+  for (const source of ['- [ ] example.org/@2026-11-19', '- [ ] `跨行 @2026-11-19\n  结束` @2026-11-20']) {
+    assert.equal(extractTasks(source)[0].due, null);
+  }
+});

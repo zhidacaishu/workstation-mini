@@ -461,3 +461,13 @@ test('历史对比纯新增或纯删除超过行数上限时同样退回全文',
   assert.equal(compareText('', many).tooLarge, true);
   assert.equal(compareText(many, '').tooLarge, true);
 });
+
+test('标准 Markdown 媒体与双链使用相同的文件地址，保留标准 URL 的查询和片段', () => {
+  const raw = '试验 图 100%.png';
+  const url = '/attachments/' + encodeURIComponent(raw);
+  const html = renderMarkdown(`![a](<../../attachments/${raw}>) ![[${raw}]] [下载](${url.slice(1)}?q=1#图)`, undefined, { notePath: 'inbox/记录.md' });
+  assert.equal(html.split('src="' + url + '"').length - 1, 2);
+  assert.ok(html.includes('href="' + url + '?q=1#' + encodeURIComponent('图') + '"'));
+  assert.ok(renderMarkdown('![录音](<audio/讲 座.mp3>)').includes('href="/media/' + encodeURIComponent('讲 座.mp3') + '"'));
+  assert.ok(renderMarkdown('![[100%20.png]]').includes('src="/attachments/100%2520.png"'));
+});
