@@ -145,7 +145,8 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
     });
 
     await check('两次粘图乱序返回仍对应原位置，保持用户光标与焦点', async () => {
-      await area().fill('# 草稿\n\n![正在保存图片…]()\nabc');
+      // 用不会出现在上传占位符或其随机 UUID 里的文字定位光标。
+      await area().fill('# 草稿\n\n![正在保存图片…]()\n正文段');
       const result = await area().evaluate(async (textarea, base64) => {
         const originalFetch = window.fetch;
         const pending = [];
@@ -157,10 +158,10 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
           textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
         };
         try {
-          const from = textarea.value.indexOf('abc');
+          const from = textarea.value.indexOf('正文段');
           textarea.focus(); textarea.setSelectionRange(from, from); paste();
           textarea.setSelectionRange(textarea.value.length, textarea.value.length); paste();
-          const anchor = textarea.value.indexOf('abc') + 1;
+          const anchor = textarea.value.indexOf('正文段') + 1;
           textarea.setSelectionRange(anchor, anchor);
           pending[1]({ ok: true, json: async () => ({ markdown: '![[second.png]]' }) });
           await new Promise(resolve => setTimeout(resolve, 0));
@@ -171,8 +172,8 @@ test('编辑器、快速添加、复习撤销在真实窗口里可用', { timeou
           return { value: textarea.value, caret: textarea.selectionStart, focus: document.activeElement === pathInput };
         } finally { window.fetch = originalFetch; }
       }, PNG_BASE64);
-      assert.match(result.value, /!\[正在保存图片…\]\(\)\n!\[\[first\.png\]\]abc!\[\[second\.png\]\]$/);
-      assert.equal(result.caret, result.value.indexOf('abc') + 1);
+      assert.match(result.value, /!\[正在保存图片…\]\(\)\n!\[\[first\.png\]\]正文段!\[\[second\.png\]\]$/);
+      assert.equal(result.caret, result.value.indexOf('正文段') + 1);
       assert.equal(result.focus, true);
       await area().fill('# 草稿\n\n图片测试\n');
     });
