@@ -35,7 +35,7 @@ function setup() {
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/public/drafts.js'), 'utf8'), context);
   const tick = () => new Promise(resolve => setImmediate(resolve));
-  return { fields, status, requests, ui: window.workstationDrafts, tick };
+  return { fields, status, requests, listeners, ui: window.workstationDrafts, tick };
 }
 const saved = raw => new Map([['path', 'a.md'], ['body', raw]]);
 
@@ -97,7 +97,7 @@ test('离开页面时立刻发出草稿（带 keepalive），不排在还没回�
   await first;
 });
 
-test('离开时内容没变或没填路径就不发草稿；太长的草稿不用 keepalive', async () => {
+test('离开时内容没变就不发草稿；太长的草稿不用 keepalive', async () => {
   const c = setup();
   c.ui.flush({ leaving: true });
   assert.equal(c.requests.length, 0);
@@ -106,4 +106,18 @@ test('离开时内容没变或没填路径就不发草稿；太长的草稿不�
   assert.equal(c.requests.length, 1);
   assert.equal(c.requests[0].keepalive, false);
   c.requests[0].wait.resolve({ ok: true });
+});
+
+
+test('自动保存确认后继续输入，离开前立即能看到最新内容尚待保存', async () => {
+  const c = setup();
+  c.fields.body.value = '已保存部分';
+  const save = c.ui.flush();
+  await c.tick();
+  c.requests[0].wait.resolve({ ok: true });
+  await save;
+  assert.match(c.status.textContent, /已保存在本机/);
+  c.fields.body.value += '新输入';
+  c.listeners.input();
+  assert.match(c.status.textContent, /等待保存/);
 });

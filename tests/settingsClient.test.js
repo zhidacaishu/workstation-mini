@@ -268,6 +268,17 @@ test('同步恢复状态独立展示，并阻止手工同步', async () => {
   assert.equal(ui.body.dataset.settingsState, 'clean');
 });
 
+test('Git 中止入口按照已应用的只读设置禁用', async () => {
+  const initial = makeData({ readOnly: true });
+  initial.syncStatus = { phase: 'recovery-required', recovery: { kind: 'rebase', abortable: true, unmergedCount: 1 } };
+  const ui = await loadSettings(initial);
+  assert.equal(ui.abortGit.hidden, false);
+  assert.equal(ui.abortGit.disabled, true);
+  ui.fields.get('readOnly').checked = false;
+  await ui.form.dispatch('input');
+  assert.equal(ui.abortGit.disabled, true);
+});
+
 test('取消启用同步后保留 dirty 表单，不伪装成已保存', async () => {
   const ui = await loadSettings(makeData({ syncEnabled: false }));
   ui.fields.get('syncEnabled').checked = true;

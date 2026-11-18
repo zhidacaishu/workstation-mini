@@ -33,7 +33,7 @@
             <strong><%= row.title %></strong>
             <% if (excerpt) { %><span class="library-excerpt"><%- excerpt %></span><% } %>
           </span>
-          <span class="library-document-meta"><% if (!section) { %><span><%= sectionName(row.section) %></span><% } %><% if (modified) { %><time datetime="<%= new Date(modified).toISOString() %>"><%= ui.modifiedLabel(modified, today) %></time><% } %></span>
+          <span class="library-document-meta"><% if (!section) { %><span title="<%= sectionName(row.section) %>"><%= sectionName(row.section) %></span><% } %><% if (modified) { %><time datetime="<%= new Date(modified).toISOString() %>"><%= ui.modifiedLabel(modified, today) %></time><% } %></span>
         </a></li>
       <% }) %>
     </ul>

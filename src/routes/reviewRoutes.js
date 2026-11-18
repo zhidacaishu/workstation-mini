@@ -205,8 +205,9 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         // 表单里复选框没勾就不出现在请求里，所以表单总是明确设定。
         suspended: json ? (req.body.suspended === undefined ? undefined : isTrue(req.body.suspended)) : isTrue(req.body.suspended)
       });
-      if (wantsJson(req)) { res.json({ ok: true, ...result }); return; }
-      res.redirect(safeReturn(req.body.returnTo, '/decks'));
+      const redirect = safeReturn(req.body.returnTo, '/decks');
+      if (wantsJson(req)) { res.json({ ok: true, ...result, redirect }); return; }
+      res.redirect(redirect);
     } catch (error) { next(error); }
   });
 

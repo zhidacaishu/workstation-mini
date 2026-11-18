@@ -837,15 +837,25 @@ function createSync({
       const file = entry.slice(3);
       if (file.includes('\\')) throw userError('「' + file + '」路径包含反斜杠，无法安全自动处理；请用 Git 工具处理。');
       if (!/\.(md|jsonl)$/i.test(file)) continue;
+      let stagedText;
+      if (!unmerged && 'AMRCT'.includes(staged)) {
+        stagedText = await blobText(':0:' + file, PRESERVE_MAX_BYTES, options);
+        if (stagedText === null) throw userError('「' + file + '」的暂存版本超过备份大小上限，未中止 Git 操作。');
+      }
+      let content;
       try {
         const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
         const stat = await fs.lstat(absolute);
         if (!stat.isFile()) throw userError('无法安全备份「' + file + '」，未中止 Git 操作。');
         if (stat.size > PRESERVE_MAX_BYTES) throw userError('「' + file + '」超过备份大小上限，未中止 Git 操作。');
-        files.push({ path: file, content: await fs.readFile(absolute, 'utf8') });
+        content = await fs.readFile(absolute, 'utf8');
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
       }
+      if (stagedText !== undefined && stagedText !== content) {
+        files.push({ path: file, content: stagedText, source: 'index' });
+      }
+      if (content !== undefined) files.push({ path: file, content, source: 'worktree' });
     }
     return files;
   }
@@ -878,6 +888,8 @@ function createSync({
   async function restoreDiscardedEdits(snapshot, history) {
     const preserved = [];
     for (const item of snapshot) {
+      // 暂存的旧日志单独留在快照中。自动补回复习事件时只采用用户最后看到的日志。
+      if (item.source === 'index' && isReviewPath(item.path)) continue;
       try {
         const absolute = await ensureSafeFilePath(vaultDir, item.path, { allowMissing: true });
         let current = '';
@@ -895,7 +907,8 @@ function createSync({
           const lead = current && !current.endsWith('\n') ? '\n' : '';
           await writeReviewLog(item.path, `${current}${lead}${missing.join('\n')}\n`);
           preserved.push({ path: item.path, kind: 'review', count: missing.length });
-        } else if (history.has(item.path)) {
+        } else if (history.delete(item.path)) {
+          // 同一文件的暂存和工作区版本可能都已存入历史，界面按文件计数。
           preserved.push({ path: item.path, kind: 'history' });
         }
       } catch (error) {

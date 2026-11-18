@@ -10,7 +10,7 @@
   </div>
 </header>
 
-<form id="card-edit-form" class="panel card-edit-form" action="/cards/update" method="post" data-guard-unsaved>
+<form id="card-edit-form" class="panel card-edit-form" action="/cards/update" method="post" data-card-editor>
   <input type="hidden" name="id" value="<%= card.id %>">
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="returnTo" value="<%= returnTo %>">
@@ -44,6 +44,7 @@
     <span>暂停复习<small>暂停后不再出现在复习队列里，随时可以恢复。</small></span>
   </label>
 
+  <p class="notice is-warn" data-card-error role="alert" hidden></p>
   <div class="card-edit-actions">
     <button class="button danger card-delete" type="submit" form="card-delete-form">删除这张卡</button>
   </div>

@@ -84,8 +84,9 @@ function updateActions() {
   syncButton.disabled = locked || !runtimeRunning
     || ['disabled', 'running'].includes(syncStatus.phase)
     || Boolean(syncStatus.recovery);
-  abortGitButton.disabled = locked || syncStatus.phase === 'running';
-  if (resolveButton) resolveButton.disabled = locked || syncStatus.phase === 'running' || !conflictsReady();
+  const readOnly = Boolean((externalData?.settings || baselineSettings).readOnly);
+  abortGitButton.disabled = locked || readOnly || syncStatus.phase === 'running';
+  if (resolveButton) resolveButton.disabled = locked || readOnly || syncStatus.phase === 'running' || !conflictsReady();
   document.getElementById('open-vault').disabled = locked || !savedVaultDir;
   document.getElementById('open-config').disabled = locked;
   document.getElementById('open-recovery').disabled = locked;

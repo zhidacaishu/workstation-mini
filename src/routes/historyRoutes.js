@@ -10,6 +10,8 @@ const { blockWhenReadOnly, httpError } = require('./http');
 
 const DECK_PREFIX = 'deck:';
 const HISTORY_PAGE = 100;
+// 旧草稿可能有以点号开头的路径，恢复时让用户重新命名。
+const needsPath = record => record.kind === 'draft' && !isNotePath(record.path);
 // 超过这个大小的文件不做逐行对比，直接给全文。
 const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 
@@ -38,6 +40,7 @@ function createHistoryRoutes({ config, db }) {
   // 笔记的标题规则和别处一样（frontmatter 的 title、第一个 H1、文件名）；卡组取 frontmatter 的 deck。
   // 写坏的 frontmatter 解析不了，就退回文件名。
   function titleFromRaw(record) {
+    if (needsPath(record)) return '未命名草稿';
     try {
       const parsed = parseFrontmatter(record.raw);
       return record.source === 'deck'
@@ -55,7 +58,7 @@ function createHistoryRoutes({ config, db }) {
     let reads = 0;
     for (const record of records) {
       const key = `${record.source || 'note'}:${record.path}`;
-      if (titles.has(key)) continue;
+      if (needsPath(record) || titles.has(key)) continue;
       let title = record.source === 'deck' ? '' : db?.getNote?.(record.path)?.title || '';
       if (!title && reads < TITLE_READS) {
         reads += 1;
@@ -63,7 +66,7 @@ function createHistoryRoutes({ config, db }) {
       }
       titles.set(key, title || basename(record.path));
     }
-    return records.map(record => ({ ...record, title: titles.get(`${record.source || 'note'}:${record.path}`) }));
+    return records.map(record => ({ ...record, title: needsPath(record) ? '未命名草稿' : titles.get(`${record.source || 'note'}:${record.path}`) }));
   }
   async function findRecord(id) {
     if (!id.startsWith(DECK_PREFIX)) return getRecord(config.notesDir, id);
@@ -133,18 +136,23 @@ function createHistoryRoutes({ config, db }) {
   router.get('/recover/:id', guard, async (req, res, next) => {
     try {
       const record = await getRecord(config.notesDir, req.params.id);
-      if (!isNotePath(record.path)) throw httpError(404, '恢复记录不存在。');
+      const unnamed = needsPath(record);
       let current;
-      try { current = await readNote(config.notesDir, record.path, { tolerateInvalid: true }); }
-      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (!unnamed) {
+        if (!isNotePath(record.path)) throw httpError(404, '恢复记录不存在。');
+        try { current = await readNote(config.notesDir, record.path, { tolerateInvalid: true }); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
       res.render('edit', {
-        title: '恢复笔记', notePath: record.path, body: record.raw,
+        title: '恢复笔记', notePath: unnamed ? '' : record.path, body: record.raw,
         expectedHash: current?.hash || '', isNew: !current,
-        draftId: crypto.randomUUID(), recovered: true,
+        draftId: crypto.randomUUID(), recovered: true, autoPath: unnamed,
+        folder: unnamed && record.folder && isNotePath(record.folder + '/x.md') ? record.folder : 'inbox',
         recoveredFrom: record.kind === 'draft' ? record.id : '',
         editorWarning: current
           ? '已载入恢复内容，尚未覆盖当前文件。请核对后保存；当前版本会保留在历史中。'
-          : '已载入恢复内容，尚未写入笔记。保存后将重新创建文件。'
+          : unnamed ? '已载入未命名草稿。填写标题或保存路径后即可保存。'
+            : '已载入恢复内容，尚未写入笔记。保存后将重新创建文件。'
       });
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
   });

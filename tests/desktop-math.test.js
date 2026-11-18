@@ -18,8 +18,9 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     await fs.mkdir(path.join(vault, 'cards'), { recursive: true });
     await fs.mkdir(path.join(userData, 'workstation-data'), { recursive: true });
     const math = '$\\frac{a}{b}$';
+    const inline = '$\\begin{matrix}' + Array(60).fill('x_i').join('&') + '\\end{matrix}$';
     const block = '$$\n\\sum_{i=1}^{n} x_i = ' + Array(45).fill('x_i').join(' + ') + '\n$$';
-    await fs.writeFile(path.join(vault, 'notes', 'math.md'), '# 公式测试\n\n中文 ' + math + ' 结束\n\n' + block + '\n\n$\\unknown{x}$');
+    await fs.writeFile(path.join(vault, 'notes', 'math.md'), '# 公式测试\n\n中文 ' + math + ' 结束\n\n' + block + '\n\n' + inline + '\n\n$\\rlap{X}$\n\n$\\unknown{x}$');
     await fs.writeFile(path.join(vault, 'cards', 'math.md'), '## 公式挖空\n答案 {{ ' + math + ' }}');
     await fs.writeFile(path.join(userData, 'workstation-data', 'guide.json'), JSON.stringify({ step: 7, status: 'completed' }));
     await fs.writeFile(path.join(userData, 'workstation-data', 'settings.json'), JSON.stringify({ schemaVersion: 1, vaultDir: vault, device: 'math-smoke', syncEnabled: false }));
@@ -50,13 +51,27 @@ test('公式离线显示、窄屏、源码建卡、保存与复习', { timeout: 
     });
     await page.goto(origin + '/note/math.md');
     await page.evaluate(() => document.fonts.ready);
-    assert.equal(await page.locator('.prose .katex').count(), 2);
+    assert.equal(await page.locator('.prose .katex').count(), 4);
     assert.equal(await page.locator('.math-error').count(), 1);
     assert.equal(await page.evaluate(() => document.fonts.check('16px KaTeX_Main')), true);
     for (const theme of ['dark', 'light']) {
       await page.emulateMedia({ colorScheme: theme });
       await page.setViewportSize({ width: 900, height: 720 });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      const wide = page.locator('inline-math.is-wide');
+      assert.ok(await wide.evaluate(el => { el.scrollLeft = 20; return el.scrollLeft > 0; }));
+      const overlap = page.locator('inline-math').last();
+      assert.equal(await overlap.evaluate(el => getComputedStyle(el).overflowX), 'visible');
+      const short = page.locator('inline-math').first();
+      const shift = await short.evaluate(el => {
+        const glyph = el.querySelector('.katex-html .mathnormal');
+        const before = glyph.getBoundingClientRect().bottom;
+        el.style.display = 'inline';
+        const natural = glyph.getBoundingClientRect().bottom;
+        el.style.removeProperty('display');
+        return Math.abs(natural - before);
+      });
+      assert.ok(shift < 1, '短公式保持文本基线');
       assert.equal(await page.locator('.math-display').evaluate(e => e.scrollWidth > e.clientWidth && getComputedStyle(e).overflowX === 'auto'), true);
     }
     await page.locator('.prose p').filter({ hasText: '中文' }).evaluate(p => {

@@ -88,6 +88,9 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
     await fs.mkdir(path.join(vault, 'notes', 'research'), { recursive: true });
     await fs.mkdir(path.join(vault, 'cards'), { recursive: true });
     await fs.mkdir(path.join(userData, 'workstation-data'), { recursive: true });
+    const longSection = 'multicenter_validation_'.repeat(5);
+    await fs.mkdir(path.join(vault, 'notes', longSection));
+    await fs.writeFile(path.join(vault, 'notes', longSection, 'study.md'), '# 队列研究记录');
     const token = 'LongModelIdentifier'.repeat(12);
     await fs.writeFile(path.join(vault, 'notes', 'experiments', 'long.md'), [
       '---', 'title: ' + token, 'status: running', 'dataset: ' + token,
@@ -164,6 +167,12 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
             assert.deepEqual(taskBoxes.map(box => box.label), ['待办', '已完成']);
             assert.ok(taskBoxes.every(box => box.width >= 15), '复习卡片中的待办状态框必须可见');
           }
+          if (route === '/search') {
+            const row = page.locator('.library-document').filter({ hasText: '队列研究记录' });
+            assert.ok(await row.locator('.library-document-content').evaluate(el => el.clientWidth > 150));
+            assert.equal(await row.locator('[title="' + longSection + '"]').evaluate(el => el.scrollWidth > el.clientWidth), true);
+            assert.equal(await row.locator('time').isVisible(), true);
+          }
           if (route === '/decks') {
             const action = await page.locator('.deck-action a').boundingBox();
             assert.ok(action && action.x + action.width <= await page.evaluate(() => innerWidth), '长卡组名不能隐藏复习操作');
@@ -205,6 +214,7 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
     const opened = app.waitForEvent('window');
     await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById('show-settings').click());
     const settingsPage = await opened;
+    await settingsPage.emulateMedia({ colorScheme: null });
     await settingsPage.waitForSelector('body[data-settings-state="clean"]');
     for (const theme of ['dark', 'light', 'system']) {
       await settingsPage.locator('.theme-switch label').filter({
@@ -213,6 +223,10 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
       await settingsPage.locator('#save').click();
       await settingsPage.waitForFunction(() => document.querySelector('#message').textContent === '设置已保存。');
       assert.equal(await app.evaluate(({ nativeTheme }) => nativeTheme.themeSource), theme);
+      const dark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
+      await settingsPage.waitForFunction(dark =>
+        matchMedia('(prefers-color-scheme: dark)').matches === dark &&
+        getComputedStyle(document.body).backgroundColor === (dark ? 'rgb(12, 14, 17)' : 'rgb(248, 249, 250)'), dark);
       assert.equal((await settingsPage.evaluate(() => window.workstationSettings.get())).settings.theme, theme);
       if (process.env.WORKSTATION_VISUAL_OUTPUT) await settingsPage.screenshot({ path: path.join(screenshots, 'settings-' + theme + '.png'), fullPage: true });
       assert.equal(page.url(), editorUrl);

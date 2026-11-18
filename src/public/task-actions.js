@@ -9,17 +9,19 @@
   };
 
   function refreshDueTag(item, done) {
-    const tag = item.querySelector('time.task-due');
-    const date = tag?.getAttribute('datetime');
-    if (!tag || !date) return;
     const today = localToday();
-    const [year, month, day] = date.split('-');
-    const short = `${Number(month)}/${Number(day)}`;
-    const label = year === today.slice(0, 4) ? short : `${year}/${short}`;
-    tag.classList.remove('is-overdue', 'is-today');
-    if (!done && date < today) { tag.classList.add('is-overdue'); tag.textContent = `逾期 ${label}`; }
-    else if (!done && date === today) { tag.classList.add('is-today'); tag.textContent = '今天'; }
-    else tag.textContent = label;
+    for (const tag of item.querySelectorAll('time.task-due')) {
+      if (tag.closest('li.task-item') !== item) continue;
+      const date = tag.getAttribute('datetime');
+      if (!date) continue;
+      const [year, month, day] = date.split('-');
+      const short = `${Number(month)}/${Number(day)}`;
+      const label = year === today.slice(0, 4) ? short : `${year}/${short}`;
+      tag.classList.remove('is-overdue', 'is-today');
+      if (!done && date < today) { tag.classList.add('is-overdue'); tag.textContent = `逾期 ${label}`; }
+      else if (!done && date === today) { tag.classList.add('is-today'); tag.textContent = '今天'; }
+      else tag.textContent = label;
+    }
   }
 
   document.addEventListener('change', async event => {

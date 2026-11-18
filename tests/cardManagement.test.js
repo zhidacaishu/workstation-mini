@@ -259,3 +259,31 @@ test('大量同名卡删除和移动后剩余身份保持不变', async t => {
   await updateCard(vaultDir, { id: original[1].id, deckFile: 'target', expectedHash: await hash('same.md') });
   assert.deepEqual((await loadAllCards(vaultDir)).map(c => c.id).sort(), original.slice(1).map(c => c.id).sort());
 });
+
+test('目标卡组的代码围栏未闭合时，拒绝追加和移动并保留两份原文', async t => {
+  const { vaultDir } = await setup(t);
+  await appendCard(vaultDir, { deckFile: 'source', front: '题目', back: '源答案' });
+  const source = await readNote(vaultDir, 'cards/source.md');
+  const target = '## 摘录\n\n~~~python\nprint(1)\n';
+  await fs.writeFile(path.join(vaultDir, 'cards', 'target.md'), target);
+  await assert.rejects(appendCard(vaultDir, { deckFile: 'target', front: '新增' }), { status: 409 });
+  await assert.rejects(updateCard(vaultDir, {
+    id: 'source/题目', expectedHash: source.hash, deckFile: 'target'
+  }), { status: 409 });
+  assert.equal(await read(vaultDir, 'source.md'), source.raw);
+  assert.equal(await read(vaultDir, 'target.md'), target);
+});
+
+test('长正面卡片挪入新建和已有卡组后仍使用原始复习身份', async t => {
+  const { app, vaultDir } = await setup(t);
+  const front = '长'.repeat(520);
+  await appendCard(vaultDir, { deckFile: 'long', front });
+  await appendCard(vaultDir, { deckFile: 'used', front: '已有卡' });
+  for (const [from, to] of [['long', 'new'], ['new', 'used']]) {
+    const id = 'long/' + front;
+    const { hash } = await readNote(vaultDir, 'cards/' + from + '.md');
+    await updateCard(vaultDir, { id, expectedHash: hash, deckFile: to });
+    assert.equal((await queueOf(app)).filter(card => card.id === id).length, 1);
+    assert.equal((await read(vaultDir, from + '.md')).includes(front), false);
+  }
+});

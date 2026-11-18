@@ -555,6 +555,7 @@ function syncRecoveryLabel(recovery) {
 
 async function confirmAndAbortGitOperation() {
   if (!runtime) throw new Error('工作台尚未启动。');
+  if (runtime.config.readOnly) throw new Error('只读模式下不能中止 Git 操作。');
   const status = runtime.getSyncStatus();
   const recovery = status.recovery;
   if (!recovery) return { ok: true, skipped: '没有需要恢复的 Git 操作' };
@@ -587,7 +588,7 @@ function actionMenuItems({ includeShow = true } = {}) {
     { type: 'separator' },
     ...(recovery ? [{ id: 'sync-status', label: `Git 需要恢复：${syncRecoveryLabel(recovery)}`, enabled: false }] : []),
     { id: 'sync-now', label: syncBusy ? '正在同步…' : '立即同步', enabled: Boolean(runtime && settings.syncEnabled && !syncBusy && !recovery), click: () => runtime?.syncNow().catch(showFatalError) },
-    ...(recovery?.abortable ? [{ id: 'abort-git-operation', label: '中止当前 Git 操作…', click: () => confirmAndAbortGitOperation().catch(showFatalError) }] : []),
+    ...(recovery?.abortable ? [{ id: 'abort-git-operation', label: '中止当前 Git 操作…', enabled: !runtime.config.readOnly && !syncBusy, click: () => confirmAndAbortGitOperation().catch(showFatalError) }] : []),
     { id: 'open-vault', label: '打开资料库', enabled: Boolean(settings.vaultDir), click: openVault },
     { id: 'change-vault', label: '更换资料库', click: () => chooseAndSaveVault().catch(showFatalError) },
     { type: 'separator' },

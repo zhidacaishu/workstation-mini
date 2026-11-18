@@ -245,11 +245,36 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
     await check('月历备注保存、清空、未保存保护和月份切换', async () => {
       await visit('/plan?view=calendar&date=' + today);
       const text = page.locator('#calendar-note');
-      await text.fill('当天备注测试');
+      const submitted = '当天备注测试\n- [ ] 核对图表 @' + today;
+      await text.fill(submitted);
+      let release;
+      const gate = new Promise(resolve => { release = resolve; });
+      await page.route('**/plan/notes', async route => { await gate; await route.continue(); });
+      try {
+        const arrived = page.waitForRequest(r => r.url().endsWith('/plan/notes'));
+        await page.getByRole('button', { name: '保存备注', exact: true }).click();
+        await arrived;
+        await text.fill(submitted + '\n继续写');
+        release();
+        await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent.includes('还有未保存的更改'));
+      } finally {
+        release();
+        await page.unroute('**/plan/notes');
+      }
+      assert.equal(await text.inputValue(), submitted + '\n继续写');
+      const updated = '前面插入一行\n' + submitted + '\n- [ ] 复核样本 @' + today;
+      await text.fill(updated);
       await page.getByRole('button', { name: '保存备注', exact: true }).click();
       await page.waitForFunction(() => document.querySelector('[data-calendar-status]').textContent === '已保存');
       assert.equal(await visible('[data-calendar-note-link]'), true);
-      assert.match(await fs.readFile(path.join(vault, 'notes', 'calendar', today + '.md'), 'utf8'), /当天备注测试/);
+      const day = page.locator('[aria-current="date"]');
+      assert.match(await day.innerText(), /复核样本/);
+      const task = page.locator('[data-plan-task]').filter({ hasText: '核对图表' });
+      const changed = page.waitForResponse(r => r.url().endsWith('/tasks/update'));
+      await task.getByRole('checkbox').check();
+      assert.equal((await changed).status(), 200);
+      await task.waitFor({ state: 'detached' });
+      assert.match(await fs.readFile(path.join(vault, 'notes', 'calendar', today + '.md'), 'utf8'), /- \[x\] 核对图表/);
       await text.fill('未保存内容');
       page.once('dialog', dialog => dialog.dismiss().catch(() => {}));
       await page.locator('.plan-view-switch a').filter({ hasText: '列表' }).click();
@@ -450,6 +475,23 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.waitForURL(url => url.pathname === '/cards');
       await page.locator('.card-row-front').filter({ hasText: '题目' }).click();
       await page.waitForURL(url => url.pathname === '/cards/edit');
+      assert.equal(await page.locator('[data-nav="review"]').getAttribute('aria-current'), 'page');
+      const original = await fs.readFile(deckFile, 'utf8');
+      await fs.appendFile(deckFile, '\n## 同步新增的卡\n');
+      await page.locator('[name="front"]').fill('冲突的正面');
+      await page.locator('[name="back"]').fill('冲突的背面');
+      await page.locator('[name="deckFile"]').fill('另一个卡组');
+      await page.locator('[name="suspended"]').check();
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      await page.locator('[data-card-error]').waitFor();
+      assert.match(await page.locator('[data-card-error]').innerText(), /已在别处修改/);
+      assert.equal(await page.locator('[name="front"]').inputValue(), '冲突的正面');
+      assert.equal(await page.locator('[name="back"]').inputValue(), '冲突的背面');
+      assert.equal(await page.locator('[name="deckFile"]').inputValue(), '另一个卡组');
+      assert.equal(await page.locator('[name="suspended"]').isChecked(), true);
+      await fs.writeFile(deckFile, original);
+      await page.locator('[name="deckFile"]').fill('sample');
+      await page.locator('[name="suspended"]').uncheck();
       await page.locator('[name="front"]').fill('题目（改）');
       await page.locator('[name="back"]').fill('改过的答案');
       await page.getByRole('button', { name: '保存', exact: true }).click();
@@ -557,6 +599,9 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       assert.equal(await page.locator('.statusform').count(), 0);
       await page.goto(readonlyOrigin + '/plan?view=list');
       assert.equal(await page.locator('[data-task-form]').count(), 0);
+      const due = page.locator('.plan-task-form time[datetime]:not([datetime=""])').first();
+      await due.hover();
+      assert.equal(await due.isVisible(), true);
       await page.goto(readonlyOrigin + '/plan?view=calendar');
       assert.equal(await page.locator('[data-calendar-form]').count(), 0);
       assert.equal(await page.locator('.calendar-note-readonly').count(), 1);

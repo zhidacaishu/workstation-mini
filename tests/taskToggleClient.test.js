@@ -17,7 +17,9 @@ function load(respond) {
   const requests = [];
   const notices = [];
   const tag = { textContent: '逾期 10/1', classList: classList(['task-due', 'is-overdue']), getAttribute: () => '2026-10-01' };
-  const item = { classList: classList(['task-item']), querySelector: selector => selector === 'time.task-due' ? tag : null };
+  const item = { classList: classList(['task-item']), querySelectorAll: () => [childTag, tag] };
+  tag.closest = () => item;
+  const childTag = { ...tag, closest: () => ({}), classList: classList(['is-overdue']) };
   const hashInput = { value: 'v1' };
   const prose = { dataset: { noteHash: 'v1' }, querySelectorAll: () => [box] };
   const attrs = { 'aria-label': '标记为完成：交初稿' };
@@ -41,7 +43,7 @@ function load(respond) {
     } }
   });
   return {
-    box, item, tag, prose, hashInput, attrs, requests, notices,
+    box, item, tag, childTag, prose, hashInput, attrs, requests, notices,
     change: () => Promise.all(listeners.change.map(handler => handler({ target: box })))
   };
 }
@@ -55,6 +57,8 @@ test('阅读页勾选待办：带行号和版本号提交，成功后换新版�
   assert.equal(ui.item.classList.contains('is-done'), true);
   assert.equal(ui.tag.classList.contains('is-overdue'), false);
   assert.equal(ui.tag.textContent, '10/1');
+  assert.equal(ui.childTag.textContent, '逾期 10/1');
+  assert.ok(ui.childTag.classList.contains('is-overdue'));
   assert.equal(ui.attrs['aria-label'], '标记为未完成：交初稿');
   assert.equal(ui.box.disabled, false, '正在操作的勾选框不禁用，键盘焦点留在它上面');
   assert.equal(ui.attrs['aria-disabled'], undefined);

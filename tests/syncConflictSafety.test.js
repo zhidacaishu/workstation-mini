@@ -220,8 +220,9 @@ test('联网命令真的超时时，错误信息写明是超时', HOOK_SLEEP, as
   } finally { await env.cleanup(); }
 });
 
-test('中止保全已暂存的修改和新文件，并在撤销工作区前写入持久快照', async () => {
-  const env = twoDevices({ 'notes/x.md': 'base\n', 'notes/y.md': 'original\n' });
+test('中止保全暂存和工作区两个版本，复习只补回工作区的最终事件', async () => {
+  const log = 'reviews/2026-11-b.jsonl';
+  const env = twoDevices({ 'notes/x.md': 'base\n', 'notes/y.md': 'original\n', [log]: '' });
   try {
     pushFromA(env, 'notes/x.md', 'remote\n');
     fs.writeFileSync(path.join(env.B, 'notes/x.md'), 'local\n');
@@ -229,15 +230,26 @@ test('中止保全已暂存的修改和新文件，并在撤销工作区前写�
     assert.equal((await sync.cycle('local')).recovery.kind, 'rebase');
     fs.writeFileSync(path.join(env.B, 'notes/y.md'), 'staged edit\n');
     fs.writeFileSync(path.join(env.B, 'notes/new.md'), 'staged new\n');
-    git(env.B, 'add', 'notes/y.md', 'notes/new.md');
+    const stagedEvent = '{"event_id":"e1","rating":1}\n';
+    const finalEvent = '{"event_id":"e1","rating":3}\n';
+    fs.writeFileSync(path.join(env.B, log), stagedEvent);
+    git(env.B, 'add', 'notes/y.md', 'notes/new.md', log);
+    fs.writeFileSync(path.join(env.B, log), finalEvent);
+    fs.writeFileSync(path.join(env.B, 'notes/y.md'), 'worktree edit\n');
     const result = await sync.abortOperation();
     assert.equal(result.ok, true, result.error);
-    for (const [file, expected] of [['y.md', 'staged edit\n'], ['new.md', 'staged new\n']]) {
-      const records = await listRecords(path.join(env.B, 'notes'), file);
-      assert.equal((await getRecord(path.join(env.B, 'notes'), records.find(r => r.reason === 'abort').id)).raw, expected);
+    const notes = path.join(env.B, 'notes');
+    for (const [file, expected] of [['y.md', ['staged edit\n', 'worktree edit\n']], ['new.md', ['staged new\n']]]) {
+      const records = (await listRecords(notes, file)).filter(r => r.reason === 'abort');
+      const versions = await Promise.all(records.map(r => getRecord(notes, r.id)));
+      assert.deepEqual(versions.map(r => r.raw).sort(), expected);
     }
     const backups = fs.readdirSync(path.join(env.B, '.workstation-local/git-abort'));
     const snapshot = JSON.parse(fs.readFileSync(path.join(env.B, '.workstation-local/git-abort', backups[0])));
+    assert.equal(fs.readFileSync(path.join(env.B, log), 'utf8'), finalEvent);
+    assert.ok(snapshot.files.some(file => file.path === log && file.content === stagedEvent));
+    assert.deepEqual(snapshot.files.filter(file => file.path === 'notes/y.md').map(file => file.content).sort(),
+      ['staged edit\n', 'worktree edit\n']);
     assert.ok(snapshot.files.some(file => file.path === 'notes/new.md' && file.content === 'staged new\n'));
   } finally { await env.cleanup(); }
 });

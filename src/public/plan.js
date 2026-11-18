@@ -4,9 +4,10 @@
   // 上次用的是列表还是月历由服务端用 cookie 记住（见 calendarRoutes）：
   // 内部服务每次启动换端口，localStorage 按端口隔离，重启后就读不到了。
 
-  const tasks = [...document.querySelectorAll('[data-plan-task]')];
+  let tasks = [];
   const dates = new Map();
   window.workstationPlan = {
+    refreshTasks,
     hasUnsavedChanges: exceptForm => tasks.some(form => form !== exceptForm
       && form.querySelector('[name="due"]').value !== dates.get(form)),
     hasPendingUpdate: () => tasks.some(form => form.dataset.busy === '1'),
@@ -23,7 +24,12 @@
     event.returnValue = '';
   });
 
-  for (const form of tasks) {
+  function refreshTasks() {
+    dates.clear();
+    tasks = [...document.querySelectorAll('[data-plan-task]')];
+    tasks.forEach(enhanceTask);
+  }
+  function enhanceTask(form) {
     form.classList.add('is-enhanced');
     const date = form.querySelector('[name="due"]');
     const baseline = date.defaultValue;
@@ -49,4 +55,5 @@
     refreshDate();
     form.querySelector('[data-task-toggle]').addEventListener('change', () => form.requestSubmit());
   }
+  refreshTasks();
 })();

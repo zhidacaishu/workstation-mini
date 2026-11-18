@@ -227,3 +227,56 @@ test('属性区写坏、从没进过索引的笔记照样能打开，显示原�
   await fs.mkdir(path.join(c.notes, 'folder.md'));
   await request(c.app).get('/note/folder.md').expect(404);
 });
+
+test('删除属性区损坏的笔记仍校验版本，并把删除前原文留在历史', async t => {
+  const c = await setup(t);
+  const raw = '---\ntitle: [\n---\n保留原文\n';
+  await fs.writeFile(path.join(c.notes, 'broken.md'), raw);
+  const { hash } = await readNote(c.notes, 'broken.md', { tolerateInvalid: true });
+  await request(c.app).post('/delete').send({ path: 'broken.md', expectedHash: 'old' }).expect(409);
+  assert.equal(await fs.readFile(path.join(c.notes, 'broken.md'), 'utf8'), raw);
+  await request(c.app).post('/delete').send({ path: 'broken.md', expectedHash: hash }).expect(302);
+  await assert.rejects(fs.access(path.join(c.notes, 'broken.md')), { code: 'ENOENT' });
+  assert.equal(await newestRaw(c.notes, 'broken.md'), raw);
+});
+
+test('带版本号的双链在补全、阅读和反向链接里指向同一个文件', async t => {
+  const c = await setup(t);
+  for (const name of ['method', 'method.v2', 'method.md']) {
+    await writeNote(c.notes, 'inbox/' + name + '.md', { raw: '# ' + name });
+  }
+  await writeNote(c.notes, 'source.md', { raw: '[[method.v2]] 和 [[inbox/method.v2.md]]，另见 [[method.md.md]]' });
+  await c.indexer.scan();
+  const links = (await request(c.app).get('/note/source.md').expect(200)).text;
+  assert.equal((links.match(/href="\/note\/inbox\/method\.v2\.md"/g) || []).length, 2);
+  assert.match(links, /href="\/note\/inbox\/method\.md\.md"/);
+  for (const target of ['method.v2.md', 'method.md.md']) {
+    const path = 'inbox/' + target;
+    assert.deepEqual(c.db.backlinks(path).map(note => note.path), ['source.md']);
+    const { results } = (await request(c.app).get('/api/link-suggest?q=method').expect(200)).body;
+    assert.equal(results.find(note => note.path === path).target, target === 'method.v2.md' ? 'method.v2' : target);
+  }
+  assert.deepEqual(c.db.backlinks('inbox/method.md'), []);
+  await appendCard(c.root, { deckFile: 'inbox', front: '来源', source: 'inbox/method.md.md' });
+  assert.match((await readNote(c.root, 'cards/inbox.md')).raw, /来自 \[\[inbox\/method\.md\.md\]\]/);
+  await deleteNote(c.notes, 'inbox/method.md.md');
+  await c.indexer.scan();
+  const missing = (await request(c.app).get('/note/source.md').expect(200)).text;
+  assert.match(missing, /href="\/new\?path=method\.md\.md"/);
+
+});
+
+test('没有可用笔记路径的草稿可命名恢复，兼容已保存的旧路径', async t => {
+  const c = await setup(t);
+  const id = crypto.randomUUID();
+  const draft = { path: '.hidden.md', raw: '正文', sequence: 1 };
+  await request(c.app).post('/api/drafts/' + id).send(draft).expect(200);
+  assert.equal((await getRecord(c.notes, id)).path, '');
+  const file = path.join(c.notes, '.workstation-local', 'drafts', id + '.json');
+  const legacy = JSON.parse(await fs.readFile(file, 'utf8'));
+  await fs.writeFile(file, JSON.stringify({ ...legacy, path: '.hidden.md' }));
+  const recovery = (await request(c.app).get('/recover/' + id).expect(200)).text;
+  assert.match(recovery, /name="path" value="" required/);
+  assert.match(recovery, /name="autoPath" value="1"/);
+  assert.match(recovery, />正文<\/textarea>/);
+});

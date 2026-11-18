@@ -1,7 +1,7 @@
 <%- include('partials/head') %>
 <%
   // 新建笔记：标题写在最上面，路径按标题自动生成；用户改过路径之后就不再跟着标题变。
-  const autoPathMode = isNew && !recovered && typeof autoPath !== 'undefined' && autoPath;
+  const autoPathMode = isNew && typeof autoPath !== 'undefined' && autoPath;
   const targetFolder = typeof folder === 'string' && folder ? folder : 'inbox';
   // 编辑已有笔记时标题写笔记名（太长时截断，悬停看全名）；保存状态在右侧。
   const heading = recovered ? '恢复笔记' : isNew ? (title || '新建笔记') : (typeof noteTitle === 'string' && noteTitle) || '编辑';
@@ -37,7 +37,7 @@
 
   <% if (editorWarning) { %><p class="notice is-warn" role="alert"><%= editorWarning %></p><% } %>
 
-  <% if (isNew && !recovered) { %>
+  <% if (isNew && (!recovered || autoPathMode)) { %>
     <label class="editor-note-title">
       <span class="visually-hidden">标题</span>
       <input type="text" data-note-title placeholder="标题" autocomplete="off" spellcheck="false"<% if (!notePath) { %> autofocus<% } %>>

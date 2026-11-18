@@ -1,6 +1,6 @@
 const MarkdownIt = require('markdown-it');
 const { maskMath } = require('../mathSyntax');
-const { toPosix, stripExtension, basename, encodePath } = require('./paths');
+const { toPosix, stripExtension, wikilinkTarget, basename, encodePath } = require('./paths');
 
 // [[目标]] / [[目标|显示文字]] / [[目标#小节]]
 const WIKILINK_PATTERN = /\[\[([^\]\n|#]+)(?:#([^\]\n|]+))?(?:\|([^\]\n]+))?\]\]/g;
@@ -79,7 +79,7 @@ function maskCode(markdown) {
 
 /**
  * 从 Markdown 正文里解析出所有 wikilink。
- * 返回 [{ target, heading, display, index }]，target 已去掉扩展名并归一为正斜杠。
+ * 返回 [{ target, heading, display, index }]，target 使用双链写法并归一为正斜杠。
  */
 function parseWikilinks(markdown) {
   const masked = maskMath(maskCode(markdown));
@@ -90,7 +90,7 @@ function parseWikilinks(markdown) {
     // `![[笔记]]` 和 `![[笔记.md]]` 仍按普通双链处理，和阅读页的渲染一致。
     const raw = toPosix(match[1].trim());
     if (match.index > 0 && masked[match.index - 1] === '!' && /\.[^./]+$/.test(raw) && !/\.md$/i.test(raw)) continue;
-    const target = stripExtension(raw);
+    const target = wikilinkTarget(raw);
     if (!target) continue;
     links.push({
       target,
@@ -128,7 +128,7 @@ function buildResolver(notePaths, titles = null) {
   for (const name of ambiguousBasenames) byBasename.delete(name);
 
   function resolve(target) {
-    const normalized = stripExtension(toPosix(target));
+    const normalized = stripExtension(target);
     return byFullPath.get(normalized) || byBasename.get(normalized) || '';
   }
   // 可选：给出「路径 → 标题」时，渲染层可以把没写别名的双链显示成标题。
@@ -156,7 +156,7 @@ function renderWikilinks(markdown, resolve, escapeHtml) {
     // `![[笔记]]` 和 `![[笔记.md]]` 仍按普通双链处理，和阅读页的渲染一致。
     const raw = toPosix(match[1].trim());
     if (match.index > 0 && masked[match.index - 1] === '!' && /\.[^./]+$/.test(raw) && !/\.md$/i.test(raw)) continue;
-    const target = stripExtension(raw);
+    const target = wikilinkTarget(raw);
     if (!target) continue;
     const display = (match[3] || '').trim() || match[1].trim();
     const resolved = resolve(target);

@@ -234,7 +234,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
       await enqueueNote(config.notesDir, notePath, async () => {
         let note;
         try {
-          note = await readNote(config.notesDir, notePath);
+          note = await readNote(config.notesDir, notePath, { tolerateInvalid: true });
         } catch (error) {
           if (error.code === 'ENOENT') throw httpError(404, '笔记不存在。');
           throw error;

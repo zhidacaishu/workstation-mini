@@ -2,7 +2,7 @@ const path = require('node:path');
 const { maskCode } = require('./vault/wikilink');
 const { maskMath } = require('./mathSyntax');
 
-const { toPosix, stripExtension, isSafeRelativePath, ensureSafeFilePath } = require('./vault/paths');
+const { toPosix, stripExtension, wikilinkTarget, isSafeRelativePath, ensureSafeFilePath } = require('./vault/paths');
 const { listNotes, parseFrontmatter, stringifyFrontmatter, readNote, writeNote } = require('./vault/note');
 const { enqueueFile, enqueueFiles, queueKey } = require('./vault/note-queue');
 const fsp = require('node:fs/promises');
@@ -46,8 +46,8 @@ function parseCardMeta(json) {
     const value = JSON.parse(json);
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     const meta = {};
-    if (typeof value.id === 'string' && value.id.trim() && value.id.length <= 512) meta.id = value.id.trim();
-    if (typeof value.legacy === 'string' && value.legacy.trim() && value.legacy.length <= 512) meta.legacy = value.legacy.trim();
+    if (typeof value.id === 'string' && value.id.trim()) meta.id = value.id.trim();
+    if (typeof value.legacy === 'string' && value.legacy.trim()) meta.legacy = value.legacy.trim();
     if (value.suspended === true) meta.suspended = true;
     return meta;
   } catch {
@@ -478,23 +478,30 @@ function replaceCard(raw, index, replacement) {
 
 function appendCardLines(raw, lines) {
   const eol = lineEnding(raw);
-  return raw.replace(/(?:\r?\n)*$/, eol) + eol + lines.join(eol) + eol;
+  const before = raw.replace(/(?:\r?\n)*$/, eol) + eol;
+  const result = before + lines.join(eol) + eol;
+  const { prefix, blocks } = deckParts(result);
+  const headingLine = before.slice(prefix.length).split('\n').length - 1;
+  if (blocks.at(-1)?.start !== headingLine) {
+    throw httpFailure(409, '无法识别新增的卡片，请检查卡组中未闭合的代码块。');
+  }
+  return result;
 }
 
 /**
  * 改完以后，别的卡的 id 不能跟着变。删掉两张同正面的卡里的第一张，第二张算出来
  * 的 id 就会从 X-2 变成 X，接手前一张的复习历史；在应用里改、删、挪卡时，这里
  * 把这类会变的 id 写进各自的元数据行固定住。expected 是改完后第 i 张卡应有的
- * id（null 表示新卡，不检查）。
+ * id。
  */
 function preserveIds(cardPath, raw, taken, expected) {
   let current = raw;
   for (let round = 0; round <= expected.length; round += 1) {
     const cards = parseCardFile(cardPath, current, { taken });
-    const blocks = deckParts(current).blocks;
-    const drift = expected.findIndex((want, index) => want && cards[index]
-      && (cards[index].id !== want.id || cards[index].legacyId !== want.legacyId));
+    if (cards.length !== expected.length) throw httpFailure(409, '无法识别预期的卡片，请检查卡组中未闭合的代码块。');
+    const drift = expected.findIndex((want, index) => cards[index].id !== want.id || cards[index].legacyId !== want.legacyId);
     if (drift < 0) return current;
+    const blocks = deckParts(current).blocks;
     const want = expected[drift];
     current = setCardMeta(current, drift, { ...blocks[drift].meta, id: want.id, legacy: want.legacyId });
   }
@@ -544,7 +551,7 @@ async function appendCard(vaultDir, {
   await fsp.mkdir(vaultDir, { recursive: true });
   await ensureSafeFilePath(vaultDir, relative, { allowMissing: true, createParents: true });
 
-  const sourceLine = source ? `来自 [[${String(source).replace(/\.md$/i, '')}]]` : '';
+  const sourceLine = source ? `来自 [[${wikilinkTarget(source)}]]` : '';
   const backText = [protectCardSeparators(String(back).replace(/\r\n?/g, '\n').trim()), sourceLine].filter(Boolean).join('\n');
   const lines = [renderHeading(trimmedFront), '', ...(backText ? backText.split('\n') : [])];
   const resolvedType = CARD_TYPES.includes(type) ? type : DEFAULT_TYPE;
@@ -621,15 +628,12 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
     let existing;
     try { existing = await readNote(vaultDir, target); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
-    if (existing) {
-      const before = parseCardFile(target, existing.raw, { taken: targetTaken })
-        .map(item => ({ id: item.id, legacyId: item.legacyId }));
-      const raw = preserveIds(target, appendCardLines(existing.raw, lines), targetTaken, [...before, null]);
-      await writeNote(vaultDir, target, { raw });
-    } else {
-      const raw = stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(target), type: DEFAULT_TYPE });
-      await writeNote(vaultDir, target, { raw }, { exclusive: true });
-    }
+    const before = existing ? parseCardFile(target, existing.raw, { taken: targetTaken }) : [];
+    const combined = existing
+      ? appendCardLines(existing.raw, lines)
+      : stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(target), type: DEFAULT_TYPE });
+    const targetRaw = preserveIds(target, combined, targetTaken, [...before, card]);
+    await writeNote(vaultDir, target, { raw: targetRaw }, { exclusive: !existing });
 
     // 目标写好以后重新读一遍源文件再删：不拿挪动前读到的旧内容覆盖回去。
     const reread = await readNote(vaultDir, source);

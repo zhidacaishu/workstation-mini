@@ -9,7 +9,7 @@
     { key: 'notes', label: '笔记', href: '/search', active: matches('/search', '/note', '/edit', '/new') },
     { key: 'projects', label: '研究项目', href: '/board/experiment', active: matches('/board') },
     { key: 'plan', label: '计划', href: '/plan', active: matches('/plan', '/tasks', '/calendar', '/deadlines'), badge: counts.overdue, badgeTone: 'warn', badgeLabel: '项逾期' },
-    { key: 'review', label: '复习', href: '/decks', active: matches('/decks', '/review'), badge: counts.review, badgeLabel: '张到期' }
+    { key: 'review', label: '复习', href: '/decks', active: matches('/decks', '/review', '/cards'), badge: counts.review, badgeLabel: '张到期' }
   ];
   const toolItems = [
     { key: 'history', label: '历史与草稿', href: '/history', active: matches('/history', '/recover') },
@@ -42,6 +42,7 @@
   <link rel="stylesheet" href="/static/styles.css">
   <%# 新建笔记的标题与路径要在草稿和编辑器记下初始状态之前就位，所以排在最前面。 %>
   <% if (typeof isNew !== 'undefined' && isNew) { %><script src="/static/new-note.js" defer></script><% } %>
+  <script src="/static/inline-math.js" defer></script>
   <script src="/static/drafts.js" defer></script>
   <script src="/static/task-actions.js" defer></script>
   <script src="/static/app.js" defer></script>

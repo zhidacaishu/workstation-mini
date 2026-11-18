@@ -256,14 +256,39 @@
     event.preventDefault();
   });
 
-  // 普通表单（卡片编辑页等）改了没保存就离开时提醒：和编辑器同一套离开确认。
-  for (const form of document.querySelectorAll?.('form[data-guard-unsaved]') || []) {
-    const snapshot = () => new URLSearchParams(new FormData(form)).toString();
-    const initial = snapshot();
-    let submitting = false;
-    form.addEventListener('submit', () => { submitting = true; });
+  const cardEditor = document.querySelector('[data-card-editor]');
+  if (cardEditor) {
+    const snapshot = () => new URLSearchParams(new FormData(cardEditor));
+    const initial = snapshot().toString();
+    const errorMessage = cardEditor.querySelector('[data-card-error]');
+    let saving = false;
+    let saved = false;
+    cardEditor.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (saving) return;
+      const body = snapshot();
+      saving = true;
+      cardEditor.inert = true;
+      if (event.submitter) event.submitter.disabled = true;
+      errorMessage.hidden = true;
+      try {
+        const result = await requestJson(cardEditor.action, { method: 'POST', body });
+        saved = true;
+        window.location.assign(result.redirect);
+      } catch (error) {
+        saved = false;
+        errorMessage.textContent = '保存失败：' + error.message;
+        errorMessage.hidden = false;
+      } finally {
+        if (!saved) {
+          saving = false;
+          cardEditor.inert = false;
+          if (event.submitter) event.submitter.disabled = false;
+        }
+      }
+    });
     window.addEventListener('beforeunload', event => {
-      if (submitting || snapshot() === initial) return;
+      if (saved || (!saving && snapshot().toString() === initial)) return;
       event.preventDefault();
       event.returnValue = '';
     });

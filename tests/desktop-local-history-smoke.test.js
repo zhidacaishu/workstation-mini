@@ -71,6 +71,29 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       await recoveryPage.close();
       await settingsPage.close();
     });
+    await phase('restore-unnamed-draft', async () => {
+      await page.goto(origin + '/new?folder=experiments');
+      const body = page.locator('[name="body"]');
+      const raw = await body.inputValue() + '未命名的推导';
+      await body.fill(raw);
+      await page.waitForFunction(() => document.querySelector('[data-draft-status]').textContent.includes('草稿已保存在本机'));
+      const id = await page.locator('[data-editor-form]').getAttribute('data-draft-id');
+      await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
+      await app.close().catch(() => {});
+      app = await launch();
+      page = await app.firstWindow();
+      await page.waitForSelector('.workspace-sidebar');
+      page.on('pageerror', error => errors.push(error.message));
+      origin = new URL(page.url()).origin;
+      await page.goto(origin + '/history');
+      await page.locator('a[href*="' + id + '"]').filter({ hasText: '未命名草稿' }).click();
+      await page.getByRole('link', { name: '载入编辑器' }).click();
+      assert.equal(await page.locator('[name="body"]').inputValue(), raw);
+      await page.locator('[data-note-title]').fill('恢复推导');
+      await page.locator('[data-editor-save]').click();
+      await page.waitForURL(url => decodeURIComponent(url.pathname) === '/note/experiments/恢复推导.md');
+      assert.match(await fs.readFile(path.join(vault, 'notes', 'experiments', '恢复推导.md'), 'utf8'), /未命名的推导/);
+    });
     await phase('autosave-draft', async () => {
       await page.goto(origin + '/edit/task.md', { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.locator('[name="body"]').fill('# My recovered draft\n\n- [ ] write paper @2026-10-05\n');

@@ -135,7 +135,14 @@ function sectionOf(relativePath) {
  * `notes/diary/2026-08-06.md` → `notes/diary/2026-08-06`
  */
 function stripExtension(relativePath) {
-  return toPosix(relativePath).replace(/\.[^./]+$/, '');
+  return toPosix(relativePath).replace(/\.md$/i, '');
+}
+
+// 写进 [[...]] 或待建笔记 URL 的目标需要能还原文件名。foo.md.md 的最后一层不能省略。
+function wikilinkTarget(value) {
+  const path = toPosix(value);
+  const stem = stripExtension(path);
+  return /\.md$/i.test(stem) ? path : stem;
 }
 
 function basename(relativePath) {
@@ -176,6 +183,7 @@ module.exports = {
   ensureSafeFilePath,
   sectionOf,
   stripExtension,
+  wikilinkTarget,
   basename,
   withNoteExtension,
   isNotePath,

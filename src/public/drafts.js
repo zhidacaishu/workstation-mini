@@ -8,8 +8,10 @@
     if (!cleaned) return '';
     return /\.md$/i.test(cleaned) ? cleaned : cleaned + '.md';
   };
+  const pathInput = form.querySelector('[name="path"]');
   const snapshot = () => ({
-    path: notePath(form.querySelector('[name="path"]').value),
+    path: notePath(pathInput.value),
+    folder: pathInput.dataset?.folder,
     raw: form.querySelector('[name="body"]').value,
     baseHash: form.querySelector('[name="expectedHash"]').value
   });
@@ -40,7 +42,7 @@
     // 要离开页面时立刻发：排在前一个请求后面的话，页面可能已经没了。
     if (leaving) {
       const current = snapshot();
-      if (same(current, baseline) || !current.path || current.path === '.md') return queue;
+      if (same(current, baseline)) return queue;
       const submitted = ++sequence;
       persisted = true;
       const sent = request('POST', { ...current, sequence: submitted }, { leaving: true }).catch(() => {});
@@ -56,10 +58,6 @@
         }
         show('');
         return true;
-      }
-      if (!current.path || current.path === '.md') {
-        show('填写标题或路径后，将自动保存本地草稿。');
-        return false;
       }
       const submitted = ++sequence;
       show('正在保存本地草稿…');
@@ -77,7 +75,11 @@
     });
     return queue;
   }
-  function schedule() { clearTimeout(timer); timer = setTimeout(flush, 750); }
+  function schedule() {
+    clearTimeout(timer);
+    show(same(snapshot(), baseline) ? '' : '有新改动，等待保存草稿…');
+    timer = setTimeout(flush, 750);
+  }
   form.addEventListener('input', schedule);
   form.addEventListener('change', schedule);
   window.workstationDrafts = {

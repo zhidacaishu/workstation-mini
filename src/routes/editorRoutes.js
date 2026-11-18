@@ -6,7 +6,7 @@ const { renderClozeAnswer } = require('../cards');
 const { parseNote } = require('../vault/note');
 const { buildIndexResolver } = require('../vault/wikilink');
 const { enqueueFile } = require('../vault/note-queue');
-const { ensureSafeFilePath, isNotePath, toPosix, stripExtension, basename, withNoteExtension } = require('../vault/paths');
+const { ensureSafeFilePath, isNotePath, toPosix, wikilinkTarget, basename, withNoteExtension } = require('../vault/paths');
 const { toLocalDate } = require('../templates');
 const { httpError, blockWhenReadOnly } = require('./http');
 
@@ -68,13 +68,13 @@ function createEditorRoutes({ config, db, now = () => new Date() }) {
     const rows = db.listNoteTitles();
     const basenameCount = new Map();
     for (const row of rows) {
-      const name = stripExtension(basename(row.path));
+      const name = basename(row.path);
       basenameCount.set(name, (basenameCount.get(name) || 0) + 1);
     }
     const scored = [];
     for (const row of rows) {
       const title = String(row.title || '');
-      const path = stripExtension(row.path);
+      const path = wikilinkTarget(row.path);
       const lowerTitle = title.toLowerCase();
       const lowerPath = path.toLowerCase();
       if (!terms.every(term => lowerTitle.includes(term) || lowerPath.includes(term))) continue;
@@ -87,8 +87,9 @@ function createEditorRoutes({ config, db, now = () => new Date() }) {
       }
       // 月历备注数量多、很少被链接，排到后面。
       if (row.path.startsWith('calendar/')) score -= 30;
-      const name = stripExtension(basename(row.path));
-      scored.push({ score, title: title || name, path: row.path, target: basenameCount.get(name) === 1 ? name : path });
+      const name = basename(row.path);
+      const target = basenameCount.get(name) === 1 ? path.split('/').pop() : path;
+      scored.push({ score, title: title || name, path: row.path, target });
     }
     scored.sort((left, right) => right.score - left.score || left.title.localeCompare(right.title, 'zh-Hans-CN'));
     res.json({ results: scored.slice(0, SUGGEST_LIMIT).map(({ title, path, target }) => ({ title, path, target })) });

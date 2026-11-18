@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const path = require('node:path');
-const { ensureSafeFilePath, toPosix, isSafeRelativePath } = require('./paths');
+const { ensureSafeFilePath, toPosix, isSafeRelativePath, isNotePath } = require('./paths');
 const { enqueueFile } = require('./note-queue');
 const { replaceFile } = require('./atomic');
 
@@ -56,9 +56,14 @@ function versionId(key, fileName) {
   return `${key}~${fileName.slice(0, -'.json'.length)}`;
 }
 
+function validRecordPath(kind, value) {
+  if (kind === 'draft' && value === '') return true;
+  return typeof value === 'string' && isSafeRelativePath(value) && value.toLowerCase().endsWith('.md');
+}
+
 function validRecord(value, id) {
   return value && value.id === id && ['version', 'draft'].includes(value.kind)
-    && isSafeRelativePath(value.path) && value.path.toLowerCase().endsWith('.md')
+    && validRecordPath(value.kind, value.path)
     && typeof value.raw === 'string';
 }
 
@@ -233,7 +238,7 @@ async function readDraft(root, id) {
 
 async function saveDraft(root, id, input) {
   if (!UUID.test(String(id))) throw notFound();
-  if (!isSafeRelativePath(input.path) || !input.path.toLowerCase().endsWith('.md')
+  if (!validRecordPath('draft', input.path)
       || typeof input.raw !== 'string' || !Number.isSafeInteger(input.sequence) || input.sequence < 1) {
     throw Object.assign(new Error('草稿路径或版本不合法。'), { status: 400 });
   }
@@ -245,8 +250,11 @@ async function saveDraft(root, id, input) {
     if (old && old.sequence >= input.sequence) {
       throw Object.assign(new Error('草稿版本已更新。'), { status: 409 });
     }
-    const record = { id, kind: 'draft', path: toPosix(input.path), raw: input.raw,
+    const record = { id, kind: 'draft', path: isNotePath(input.path) ? toPosix(input.path) : '', raw: input.raw,
       baseHash: String(input.baseHash || ''), sequence: input.sequence, at: new Date().toISOString() };
+    if (!record.path && typeof input.folder === 'string' && isNotePath(input.folder + '/x.md')) {
+      record.folder = toPosix(input.folder);
+    }
     await writeJson(root, relative, record);
     return { id, sequence: record.sequence };
   });

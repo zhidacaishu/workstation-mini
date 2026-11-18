@@ -251,6 +251,7 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
     }
 
     async function abortGitOperation() {
+      if (config.readOnly) return { ok: false, error: '只读模式下不能中止 Git 操作。', recovery: sync.getStatus().recovery };
       const result = await sync.abortOperation();
       if (result.ok && result.aborted) await indexer.scan();
       return result;

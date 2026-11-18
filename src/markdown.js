@@ -5,7 +5,7 @@ const katex = require('katex');
 const { installMathSyntax, maskMath } = require('./mathSyntax');
 
 const { maskCode, headingFragment, wikilinkFragment } = require('./vault/wikilink');
-const { toPosix, stripExtension, encodePath } = require('./vault/paths');
+const { toPosix, wikilinkTarget, encodePath } = require('./vault/paths');
 const { stripMachineDirectives } = require('./machineDirectives');
 const { toLocalDate } = require('./templates');
 
@@ -102,6 +102,7 @@ installMathSyntax(md, (content, displayMode, env) => {
       strict: 'ignore', maxExpand: 1000, maxSize: 20,
       macros: env.mathMacros || (env.mathMacros = {})
     });
+    if (!displayMode) html = '<inline-math>' + html + '</inline-math>';
   } catch (error) {
     if (!(error instanceof katex.ParseError)) throw error;
     html = '<code class="math-error" title="公式暂无法渲染，请检查语法">' + md.utils.escapeHtml(source) + '</code>';
@@ -346,9 +347,7 @@ function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true
     const literal = match[1].trim();
     const display = escapeMarkdownText((match[3] || '').trim() || literal);
 
-    // `![[图片.png]]` 是嵌入而不是跳转。走原来那条路的话，stripExtension 会把
-    // 扩展名吃掉、resolver 又只认 .md，最后渲染成一个「新建 图片 这篇笔记」的
-    // 死链 —— 对 Obsidian 用户来说这是最常见的写法，不能这么对待。
+    // 附件嵌入按文件类型渲染，笔记目标交给双链解析器。
     const isEmbed = source[match.index - 1] === '!';
     // 嵌入的替换范围连同前面那个 `!` 一起，否则会剩下一个 `!![...]()`，
     // 或者把指向笔记的链接变成一张坏图。
@@ -367,7 +366,7 @@ function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true
       continue;
     }
 
-    const target = stripExtension(toPosix(literal));
+    const target = wikilinkTarget(literal);
     if (!target) continue;
 
     const fragment = wikilinkFragment(match[2]);
