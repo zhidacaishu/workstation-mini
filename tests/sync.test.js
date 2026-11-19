@@ -990,7 +990,8 @@ test('完整同步在无上游时取回同名远端分支并推送本机修改',
   const result = await sync.cycle('完整同步');
   assert.equal(result.ok, true, result.error);
   assert.equal(git(fixture.local, 'rev-parse', '--abbrev-ref', '@{u}').trim(), 'origin/main');
-  assert.equal(await fs.readFile(path.join(fixture.local, 'shared.md'), 'utf8'), 'remote\n');
+  const pulledText = await fs.readFile(path.join(fixture.local, 'shared.md'), 'utf8');
+  assert.equal(pulledText.replaceAll('\r\n', '\n'), 'remote\n');
   assert.equal(git(fixture.bare, 'show', 'main:mine.md'), '本机笔记');
 });
 
