@@ -1,23 +1,22 @@
 <%- include('partials/head') %>
 
-<% if (queue.length === 0) { %>
-  <section class="panel empty-state review-empty">
-    <h1>今天没有要复习的卡片</h1>
+  <section id="review-empty" class="panel empty-state review-empty"<% if (queue.length) { %> hidden<% } %>>
+    <h1><%= deck ? `「${deck}」当前没有到期卡或新卡` : '当前没有到期卡或新卡' %></h1>
     <div class="actions">
       <a class="button" href="/decks">查看卡组</a>
       <%- include('partials/card-create-button', { buttonClass: 'button primary', file: defaultFile }) %>
     </div>
   </section>
-<% } else { %>
-  <section id="reviewer" class="reviewer" tabindex="-1" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>" data-return-to="<%= returnTo %>">
+  <section id="reviewer" class="reviewer"<% if (!queue.length) { %> hidden<% } %> tabindex="-1" data-queue="<%= encodeURIComponent(JSON.stringify(queue)) %>" data-return-to="<%= returnTo %>" data-deck="<%= deck %>">
     <h1 class="visually-hidden"><%= deck ? `复习 · ${deck}` : '复习' %></h1>
     <div class="review-progress">
       <div class="review-progress-row">
         <span>剩余 <strong id="review-remaining"><%= queue.length %></strong> 张</span>
         <%# 不再写「到期 N 张 · 新卡 N 张」：那是开场时的数，答几张就过时了；左边的「剩余」和下面的进度条会跟着变。 %>
         <div class="actions review-totals">
+          <a href="/decks">卡组总览</a>
           <% if (deck) { %><a href="/review">全部卡组</a><% } %>
-          <%- include('partials/card-create-button', { buttonClass: 'review-tool', file: queue[0].deckFile }) %>
+          <%- include('partials/card-create-button', { buttonClass: 'review-tool', file: queue[0]?.deckFile || defaultFile }) %>
         </div>
       </div>
       <div class="review-meter" aria-hidden="true"><span id="review-meter-fill"></span></div>
@@ -68,6 +67,5 @@
   <noscript>
     <p class="notice">复习界面需要 JavaScript。</p>
   </noscript>
-<% } %>
 
 <%- include('partials/foot') %>

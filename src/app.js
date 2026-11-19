@@ -132,7 +132,6 @@ function createApp(config, deps) {
 
   // 侧栏角标只在真的渲染页面时才算：图片、媒体、JSON 接口和跳转都用不上它。
   app.use((req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') navCounts.invalidate();
     const render = res.render.bind(res);
     res.render = (view, locals, callback) => {
       navCounts.get()

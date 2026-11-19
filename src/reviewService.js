@@ -93,7 +93,11 @@ function createReviewService({ vaultDir, device, now = () => new Date() }) {
       .sort((a, b) => a.id.localeCompare(b.id))
       .slice(0, Math.max(0, newLimit));
 
-    return { due, fresh, cards: [...due, ...fresh] };
+    let nextDue = null;
+    for (const { state } of scoped) {
+      if (state.state !== State.New && state.due > nowIso && (!nextDue || state.due < nextDue)) nextDue = state.due;
+    }
+    return { due, fresh, cards: [...due, ...fresh], nextDue };
   }
 
   async function stats() {

@@ -306,3 +306,15 @@ test('划词建卡失败时保留 dialog 和输入并恢复保存按钮', async 
   assert.match(dialog.parts.status.textContent, /磁盘繁忙/);
   assert.equal(dialog.parts.status.classList.contains('is-error'), true);
 });
+
+test('多行选区保留在背面，要求填写具体问题', async () => {
+  const ui = await loadSelectionCard(async () => { throw new Error('未填写正面时不应保存'); });
+  ui.setText('第一段\n第二段');
+  await ui.selectionChange();
+  await ui.bubble().children[0].dispatch('click');
+  const { form, front, back, status } = ui.dialog().parts;
+  assert.equal(front.value || '', '');
+  assert.equal(back.value, '第一段\n第二段');
+  await form.dispatch('submit');
+  assert.equal(status.textContent, '正面不能为空。');
+});

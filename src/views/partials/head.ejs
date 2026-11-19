@@ -50,7 +50,10 @@
   <script src="/static/app.js" defer></script>
   <script src="/static/palette.js" defer></script>
   <script src="/static/guide.js" defer></script>
-  <script src="/static/review.js" defer></script>
+  <% if (typeof queue !== 'undefined' || typeof decks !== 'undefined') { %><script src="/static/review-round.js" defer></script><% } %>
+  <% if (typeof queue !== 'undefined') { %><script src="/static/review.js" defer></script><% } %>
+  <script src="/static/navigation.js" defer></script>
+  <script src="/static/review-counts.js" defer></script>
   <% if (!readOnly) { %><script src="/static/editor.js" defer></script><% } %>
   <% if (!readOnly) { %><script src="/static/selection-card.js" defer></script><% } %>
 </head>

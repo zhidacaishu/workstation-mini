@@ -24,7 +24,14 @@
   const undoEl = document.getElementById('review-undo');
   const undoLastEl = document.getElementById('review-undo-last');
   const createEl = document.querySelector('#reviewer [data-card-create]');
-  const returnTo = root.dataset?.returnTo || '/review';
+  let returnTo = root.dataset?.returnTo || '/review';
+  const round = window.workstationRound;
+  const emptyEl = document.getElementById('review-empty');
+  const deck = root.dataset.deck || '';
+  let token;
+  let restoring = false;
+  let previousSteps = 0;
+  const revisions = new Map();
 
   let queue;
   try {
@@ -40,6 +47,8 @@
   let pendingAnswers = 0;
   let saveTail = null;
   let anySynced = false;
+  let syncMessage = '';
+  let syncVersion = 0;
   // 评过分的卡（按卡计，不按次数）和本轮选过「忘了」的卡。
   const reviewedCards = new Map();
   const relearnedCards = new Set();
@@ -48,6 +57,80 @@
   // 最近一次评分，供「撤销上一张」用；只留一步。
   let lastAnswer = null;
   let undoing = false;
+
+  // 只保存已经落盘的进度。恢复不重发评分，服务端日志决定哪些卡仍可继续、哪一步可撤销。
+  function checkpoint() {
+    if (!round || !token || restoring || pendingAnswers || undoing || suspending) return;
+    if (failedAnswers.size) { round.write(null); return; }
+    const undo = lastAnswer && {
+      id: lastAnswer.card.id, eventId: lastAnswer.payload.eventId,
+      relearn: Boolean(lastAnswer.card.relearn), relearnAdded: lastAnswer.relearnAdded, firstRelearn: lastAnswer.firstRelearn
+    };
+    round.write({
+      token, deck, steps: previousSteps + index, revealed, undo, anySynced, syncMessage,
+      reviewed: [...reviewedCards], relearned: [...relearnedCards],
+      remaining: queue.slice(index).map(card => ({
+        id: card.id, relearn: Boolean(card.relearn), reviewCount: revisions.get(card.id)
+      }))
+    });
+  }
+
+  async function start() {
+    const saved = round?.read();
+    const requested = round && new URLSearchParams(window.location.search).get('round');
+    if (requested && requested === saved?.token && saved.deck === deck) {
+      restoring = true;
+      root.hidden = true;
+      emptyEl.hidden = true;
+      try {
+        const { cards, undoId } = await round.load(saved);
+        const live = new Map(cards.map(card => [card.id, card]));
+        for (const card of cards) revisions.set(card.id, card.reviewCount);
+        queue = saved.remaining.filter(item => live.has(item.id) && live.get(item.id).reviewCount === item.reviewCount)
+          .map(item => ({ ...live.get(item.id), relearn: item.relearn }));
+        previousSteps = saved.steps;
+        for (const [id, count] of saved.reviewed) { reviewedCards.set(id, count); answered += count; }
+        for (const id of saved.relearned) relearnedCards.add(id);
+        anySynced = saved.anySynced;
+        syncMessage = saved.syncMessage || '';
+        token = saved.token;
+        // 只有本机日志里的最后一次有效评分可以撤销。
+        const undo = saved.undo;
+        if (undo && undo.eventId === undoId && live.has(undo.id)) {
+          const card = { ...live.get(undo.id), relearn: undo.relearn };
+          queue.unshift(card);
+          index = 1;
+          previousSteps -= 1;
+          lastAnswer = { ...undo, card, index: 0, saved: true, payload: { eventId: undo.eventId } };
+        }
+        returnTo = round.url(deck, token);
+        restoring = false;
+        updateUndo();
+        render();
+        if (saved.revealed && current()?.id === saved.remaining[0]?.id) reveal();
+        checkpoint();
+      } catch {
+        const message = document.createElement('p');
+        message.setAttribute('role', 'alert');
+        message.textContent = '未能恢复本轮复习。';
+        const retry = document.createElement('a');
+        retry.href = window.location.href;
+        retry.textContent = '重新读取';
+        message.append(retry);
+        root.before(message);
+      }
+      return;
+    }
+    if (!queue.length) return;
+    if (round) {
+      for (const card of queue) revisions.set(card.id, card.reviewCount);
+      token = createEventId();
+      returnTo = round.url(deck, token);
+      history.replaceState(history.state, '', returnTo);
+    }
+    render();
+    checkpoint();
+  }
 
   function updateUndo() {
     const available = Boolean(lastAnswer) && !undoing;
@@ -111,14 +194,14 @@
       suspendEl.hidden = false;
       suspendEl.disabled = false;
     }
-    if (meterEl?.style) meterEl.style.width = `${Math.round((index / Math.max(queue.length, 1)) * 100)}%`;
+    if (meterEl?.style) meterEl.style.width = `${Math.round(((previousSteps + index) / Math.max(previousSteps + queue.length, 1)) * 100)}%`;
     remainingEl.textContent = String(queue.length - index);
     revealed = false;
     shownAt = Date.now();
   }
 
   function reveal() {
-    if (revealed || !current()) return;
+    if (restoring || revealed || !current()) return;
     revealed = true;
     const card = current();
     let answerEl = backEl;
@@ -138,6 +221,7 @@
     if (announcer) announcer.textContent = '答案：' + String(answerEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     // Windows 隐藏按钮后可能仍保留焦点，显式交还给复习区域以恢复数字快捷键。
     root.focus({ preventScroll: true });
+    checkpoint();
   }
 
   function createEventId() {
@@ -256,6 +340,8 @@
     saveTail = entry.saved;
     try {
       if (await entry.saved) {
+        revisions.set(card.id, (revisions.get(card.id) || 0) + 1);
+        window.workstationReviewCounts?.refresh();
         answered += 1;
         reviewedCards.set(card.id, (reviewedCards.get(card.id) || 0) + 1);
       } else {
@@ -266,6 +352,7 @@
       pendingAnswers -= 1;
       updateBusyState();
       if (!current()) render();
+      checkpoint();
     }
   }
 
@@ -291,6 +378,8 @@
         });
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.message || `撤销失败（${response.status}）`);
+        revisions.set(entry.card.id, Math.max(0, (revisions.get(entry.card.id) || 0) - 1));
+        window.workstationReviewCounts?.refresh();
         answered = Math.max(0, answered - 1);
         const count = (reviewedCards.get(entry.card.id) || 0) - 1;
         if (count > 0) reviewedCards.set(entry.card.id, count);
@@ -313,6 +402,8 @@
       lastAnswer = null;
       // 撤销后还会再评一次，结束时要重新同步。
       anySynced = false;
+      syncVersion += 1;
+      syncMessage = '';
       render();
       root.focus({ preventScroll: true });
     } catch (error) {
@@ -323,6 +414,7 @@
       for (const button of ratingsEl.querySelectorAll('[data-rating]')) button.disabled = false;
       if (suspendEl) suspendEl.disabled = false;
       updateUndo();
+      checkpoint();
     }
   }
   undoEl?.addEventListener('click', undoLast);
@@ -334,6 +426,7 @@
     summaryEl.textContent = relearnedCards.size
       ? `复习了 ${reviewedCards.size} 张，其中 ${relearnedCards.size} 张本轮重学过。`
       : `复习了 ${reviewedCards.size} 张。`;
+    summaryEl.textContent += syncMessage;
     if (doneTitle) doneTitle.textContent = failedAnswers.size ? '部分评分未保存' : '这一轮复习完了';
     updateSaveNotice();
     doneEl.focus();
@@ -341,38 +434,46 @@
     // 复习完成后立即提交事件日志，避免等到下一轮定时同步。
     if (answered > 0 && !anySynced) {
       anySynced = true;
+      let message;
+      const version = ++syncVersion;
       try {
         const response = await fetch('/review/sync', { method: 'POST' });
         if (!response.ok) throw new Error(String(response.status));
         const result = await response.json();
         if (result.ok === true && result.pushed === true) {
-          summaryEl.textContent += ' 记录已同步。';
+          message = ' 记录已同步。';
         } else if (result.ok === true && result.committed === true && result.pushed === false) {
-          summaryEl.textContent += ' 记录已提交但尚未推送，仍保留在本地。';
+          message = ' 记录已提交但尚未推送，仍保留在本地。';
         } else if (result.ok === true && result.skipped) {
-          summaryEl.textContent += ` ${result.skipped}，记录仍保留在本地。`;
+          message = ` ${result.skipped}，记录仍保留在本地。`;
         } else if (result.ok === true) {
-          summaryEl.textContent += ' 没有需要同步的改动，记录仍保留在本地。';
+          message = ' 没有需要同步的改动，记录仍保留在本地。';
         } else if (result.blocked === 'recovery-required') {
-          summaryEl.textContent += ' Git 正在等待恢复，记录仍保留在本地。';
+          message = ' Git 正在等待恢复，记录仍保留在本地。';
         } else if (result.blocked === 'remote-branch-missing') {
-          summaryEl.textContent += ' 远端还没有这个分支，先做一次完整同步再试，记录仍保留在本地。';
+          message = ' 远端还没有这个分支，先做一次完整同步再试，记录仍保留在本地。';
         } else if (result.blocked === 'staged-current-review') {
-          summaryEl.textContent += ' 当前设备的复习日志已在 Git 暂存区；请先提交或取消暂存，记录仍保留在本地。';
+          message = ' 当前设备的复习日志已在 Git 暂存区；请先提交或取消暂存，记录仍保留在本地。';
         } else if (result.blocked) {
-          summaryEl.textContent += ' 同步因安全检查被阻止，记录仍保留在本地。';
+          message = ' 同步因安全检查被阻止，记录仍保留在本地。';
         } else {
-          summaryEl.textContent += ' 同步失败，记录仍保留在本地。';
+          message = ' 同步失败，记录仍保留在本地。';
         }
       } catch {
-        summaryEl.textContent += ' 记录已存在本地，同步失败。';
+        message = ' 记录已存在本地，同步失败。';
+      }
+      // 同步返回前可能已撤销或回到答题，过期回包不能修改新一轮的摘要。
+      if (version === syncVersion && root.hidden) {
+        syncMessage = message;
+        summaryEl.textContent += message;
+        checkpoint();
       }
     }
   }
 
   // 导航或退出会终止内存中的评分重试，待落盘时沿用编辑器的离开保护。
   window.addEventListener('beforeunload', event => {
-    if (pendingAnswers === 0 && !undoing) return;
+    if (pendingAnswers === 0 && !undoing && !suspending) return;
     if (window.workstationDialog?.mayLeave(event)) return;
     event.preventDefault();
     event.returnValue = '';
@@ -397,6 +498,7 @@
       // 暂停改了队列，上一张的撤销不再对得上位置。
       lastAnswer = null;
       updateUndo();
+      window.workstationReviewCounts?.refresh();
       window.workstationUI?.notify?.('已暂停这张卡，可以在卡组的卡片列表里恢复。', { type: 'success' });
       render();
       // 禁用按钮可能保留焦点，也可能退回 body；用户已移到其他控件时则不抢焦点。
@@ -408,6 +510,7 @@
       window.workstationUI?.notify?.(error.message, { type: 'error' });
     } finally {
       suspending = false;
+      checkpoint();
     }
   }
   suspendEl?.addEventListener('click', suspendCurrent);
@@ -442,5 +545,6 @@
     }
   });
 
-  render();
+  window.addEventListener('pageshow', event => { if (event.persisted) window.location.reload(); });
+  start();
 })();

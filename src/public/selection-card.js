@@ -13,7 +13,7 @@
       body: JSON.stringify(options.json)
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.message || '保存失败');
+    if (!response.ok) throw Object.assign(new Error(payload.message || '保存失败'), { payload });
     return payload;
   });
 
@@ -207,18 +207,28 @@
       saveButton.setAttribute('aria-busy', 'true');
       showStatus('正在保存…');
       try {
-        const result = await requestJson('/cards/add', {
+        const save = json => requestJson('/cards/add', {
           method: 'POST',
-          json: payload,
+          json,
           fallbackMessage: '保存失败'
         });
+        let result;
+        try {
+          result = await save(payload);
+        } catch (error) {
+          if (!error.payload?.duplicate) throw error;
+          const confirmed = await window.workstationDialog.confirm('保存重复卡片？', error.message, '仍然保存');
+          if (!confirmed) { showStatus('可以修改卡片后再保存。'); return; }
+          result = await save({ ...payload, allowDuplicate: true });
+        }
         saving = false;
         if (activeDialog === dialog) closeForm();
-        if (trigger && !document.getElementById('reviewer')) {
+        if (trigger && (!document.getElementById('reviewer') || trigger.closest?.('.review-empty'))) {
           window.sessionStorage.setItem('card-created', result.path);
           window.location.reload();
         } else {
           if (trigger) document.querySelector('#reviewer:not([hidden])')?.focus({ preventScroll: true });
+          window.workstationReviewCounts?.refresh();
           notify(`已存到 ${result.path}`);
         }
       } catch (error) {
@@ -235,7 +245,7 @@
     dialog.showModal();
     if (selected.includes('\n')) {
       form.querySelector('[name=back]').value = selected;
-      front.value = '公式与笔记';
+      front.placeholder = '根据选中的内容写下问题';
     } else front.value = selected;
     initial = snapshot();
     hasEdits = () => snapshot() !== initial;

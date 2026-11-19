@@ -107,6 +107,7 @@
       render(parts);
       if (!traversing && url !== location.href) history.pushState(null, '', url);
       renderedEntry = navigation.currentEntry;
+      window.workstationNavigation?.remember();
     } catch (error) {
       if (request.signal.aborted) return;
       returnToRenderedEntry();

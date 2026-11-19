@@ -37,42 +37,66 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
     }
   });
 
+  function renderCards(cards) {
+    if (!cards.length) return [];
+    const resolve = resolver();
+    const options = { readOnly: config.readOnly };
+    return cards.map(card => ({
+      id: card.id,
+      deck: card.deck,
+      deckFile: card.deckFile,
+      type: card.type,
+      front: renderMarkdown(card.front, resolve, options),
+      // 挖空卡的答案面带高亮标记：翻面时在原位把空填上，不在卡片底部再重复一遍整句。
+      back: card.type === 'cloze'
+        ? renderClozeAnswer(card.back, text => renderMarkdown(text, resolve, options))
+        : renderMarkdown(card.back, resolve, options),
+      question: card.type === 'cloze' ? renderMarkdown(card.question, resolve, options) : '',
+      state: card.state.state,
+      reviewCount: card.state.reviewCount,
+      due: card.state.due
+    }));
+  }
+
   router.get('/review', async (req, res, next) => {
     try {
       const deck = String(req.query.deck || '');
       const { cards } = await service.queue({ deck });
-
-      // 队列直接嵌进页面，评分过程在窗口内完成，每答一张异步提交。
-      // 每个请求只建一次双链解析器：它要把整张笔记表读一遍，按卡建的话
-      // 几百张到期卡、几千篇笔记时页面要等好几秒。
-      const resolve = resolver();
-      const options = { readOnly: config.readOnly };
-      const payload = cards.map(card => ({
-        id: card.id,
-        deck: card.deck,
-        deckFile: card.deckFile,
-        type: card.type,
-        front: renderMarkdown(card.front, resolve, options),
-        // 挖空卡的答案面带高亮标记：翻面时在原位把空填上，不在卡片底部再重复一遍整句。
-        back: card.type === 'cloze'
-          ? renderClozeAnswer(card.back, text => renderMarkdown(text, resolve, options))
-          : renderMarkdown(card.back, resolve, options),
-        question: card.type === 'cloze' ? renderMarkdown(card.question, resolve, options) : '',
-        state: card.state.state,
-        due: card.state.due
-      }));
 
       res.render('review', {
         title: deck ? `复习 · ${deck}` : '复习',
         deck,
         defaultFile: await defaultDeckFile(deck, cards),
         returnTo: deck ? `/review?deck=${encodeURIComponent(deck)}` : '/review',
-        queue: payload,
+        queue: renderCards(cards),
         ratings: RATING_LABELS
       });
     } catch (error) {
       next(error);
     }
+  });
+
+  // 恢复时按 ID 重新读取卡片，包括本轮需要重学、但尚未到下次复习时间的卡。
+  router.post('/api/review-round', async (req, res, next) => {
+    try {
+      const { ids, deck } = req.body;
+      if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string')) throw httpError(400, '卡片列表无效。');
+      const wanted = new Set(ids);
+      const cards = (await service.withStates()).filter(card =>
+        wanted.has(card.id) && !card.suspended && (!deck || card.deck === deck));
+      if (req.body.preview === true) {
+        res.json({ cards: cards.map(card => ({ id: card.id, reviewCount: card.state.reviewCount })) });
+        return;
+      }
+      res.json({ cards: renderCards(cards), undoId: await service.store.latestLocalEventId() });
+    } catch (error) { next(error); }
+  });
+
+  router.get('/api/review-counts', async (req, res, next) => {
+    try {
+      const { due, fresh, nextDue } = await service.queue();
+      res.set('Cache-Control', 'no-store').json({ due: due.length, fresh: fresh.length, nextDue });
+    } catch (error) { next(error); }
   });
 
   // 记一次复习。只读模式同样允许。
@@ -145,7 +169,13 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
 
       if (!isSafeRelativePath(`cards/${deckFile}.md`)) throw httpError(400, '卡片文件名不合法。');
 
-      const result = await appendCard(config.vaultDir, { deckFile, front, back, source, type });
+      const result = await appendCard(config.vaultDir, {
+        deckFile, front, back, source, type, checkDuplicate: req.body.allowDuplicate !== true
+      });
+      if (result.duplicate) {
+        res.status(409).json({ ok: false, duplicate: true, message: `「${result.deck}」已经有一张正面、背面和来源相同的卡片。` });
+        return;
+      }
       res.json({ ok: true, ...result });
     } catch (error) {
       next(error);
@@ -183,6 +213,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         title: deck ? `卡片 · ${deck}` : '全部卡片',
         deck,
         cards,
+        canReview: cards.some(card => !card.suspended && (card.state.state === State.New || card.state.due <= nowIso)),
         defaultFile: await defaultDeckFile(deck, cards),
         decks: [...new Set(all.map(card => card.deck))].sort((a, b) => a.localeCompare(b, 'zh-CN')),
         returnTo: deck ? `/cards?deck=${encodeURIComponent(deck)}` : '/cards'

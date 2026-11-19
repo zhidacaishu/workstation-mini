@@ -1,7 +1,7 @@
 <% const icons = (typeof ui !== 'undefined' && ui.NAV_ICONS) || {}; %>
 <nav class="workspace-nav" aria-label="主导航">
   <% navItems.forEach(item => { %>
-    <a data-nav="<%= item.key %>" class="workspace-nav-link<%= item.active ? ' is-active' : '' %>" href="<%= item.href %>"<% if (item.active) { %> aria-current="page"<% } %>>
+    <a data-nav="<%= item.key %>" class="workspace-nav-link<%= item.active ? ' is-active' : '' %>" href="<%= item.href %>"<% if (item.key === 'review') { %> title="复习（角标只计到期卡）"<% } %><% if (item.active) { %> aria-current="page"<% } %>>
       <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><%- icons[item.key] %></svg>
       <span><%= item.label %></span>
       <% if (item.badge > 0) { %><span class="nav-badge<%= item.badgeTone === 'warn' ? ' is-warn' : '' %>" title="<%= item.badge %> <%= item.badgeLabel %>"><span class="visually-hidden">，</span><%= item.badge > 99 ? '99+' : item.badge %><span class="visually-hidden"> <%= item.badgeLabel %></span></span><% } %>

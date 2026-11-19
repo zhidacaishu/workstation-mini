@@ -529,7 +529,7 @@ async function readDeck(vaultDir, cardPath, taken, id) {
  * 只追加、不重排：卡片文件是给人读的 Markdown，程序不该擅自改动别的部分。
  */
 async function appendCard(vaultDir, {
-  deckFile = 'inbox', front, back = '', source = '', type = DEFAULT_TYPE
+  deckFile = 'inbox', front, back = '', source = '', type = DEFAULT_TYPE, checkDuplicate = false
 }) {
   // 正面必须是一行。卡片格式里它就是那个 `## 标题`，多行的话只有第一行算正面，
   // 剩下的会被 splitCards 当成背面 —— 于是「下面这句话问题在哪」的那句话
@@ -556,7 +556,13 @@ async function appendCard(vaultDir, {
   const lines = [renderHeading(trimmedFront), '', ...(backText ? backText.split('\n') : [])];
   const resolvedType = CARD_TYPES.includes(type) ? type : DEFAULT_TYPE;
 
-  const changed = await enqueueFile(vaultDir, relative, async () => {
+  // 交互建卡要在同一把库级锁内查重并追加，两次并发保存即使选了不同文件也能识别。
+  const locks = checkDuplicate ? [CARDS_DIR, relative] : [relative];
+  return enqueueFiles(vaultDir, locks, async () => {
+    if (checkDuplicate) {
+      const duplicate = (await loadAllCards(vaultDir)).find(card => card.front === trimmedFront && card.back === backText);
+      if (duplicate) return { duplicate: true, deck: duplicate.deck };
+    }
     let existing;
     try { existing = await readNote(vaultDir, relative); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -564,10 +570,8 @@ async function appendCard(vaultDir, {
       ? appendCardLines(existing.raw, lines)
       : stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(relative), type: resolvedType });
     await writeNote(vaultDir, relative, { raw }, { exclusive: !existing });
-    return true;
+    return { path: relative, front: trimmedFront, changed: true };
   });
-
-  return { path: relative, front: trimmedFront, changed };
 }
 
 // ---------- 在应用里编辑、删除、暂停、挪动卡片 ----------

@@ -12,7 +12,8 @@
   <div class="actions">
     <a class="button quiet" href="/decks">返回卡组</a>
     <%- include('partials/card-create-button', { buttonClass: 'button', file: defaultFile }) %>
-    <% if (deck && cards.some(card => !card.suspended)) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习</a><% } %>
+    <% if (deck && canReview) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习</a><% } %>
+    <a class="button" data-resume-deck="<%= deck %>" hidden>继续上轮</a>
   </div>
 </header>
 

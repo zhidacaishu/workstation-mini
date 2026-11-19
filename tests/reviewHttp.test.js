@@ -414,3 +414,47 @@ test('开始复习计数应用全局新卡上限，并保留全部到期卡', as
     await ctx.cleanup();
   }
 });
+
+test('跨卡组并发保存完全相同的卡片先提示，明确确认或使用不同题面都可以保存', async t => {
+  const ctx = await setup();
+  t.after(() => ctx.cleanup());
+  const draft = { front: '具体问题', back: '同一段正文', source: 'reading/example.md' };
+  const add = (deckFile, extra = {}) => request(ctx.app).post('/cards/add').send({ ...draft, deckFile, ...extra });
+  const results = await Promise.all([add('a'), add('b')]);
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+  const saved = results.find(r => r.status === 200);
+  const deck = path.basename(saved.body.path, '.md');
+  assert.equal(results.find(r => r.status === 409).body.duplicate, true);
+  await add(deck).expect(409);
+  await add(deck, { allowDuplicate: true }).expect(200);
+  await add(deck, { front: '另一个问题' }).expect(200);
+  await add(deck, { source: 'reading/other.md' }).expect(200);
+  await add(deck, { back: '不同答案' }).expect(200);
+  const queue = queueIn((await request(ctx.app).get('/review')).text);
+  assert.equal(new Set(queue.map(card => card.id)).size, 5);
+});
+
+test('本轮重学可读到暂未到期的卡，恢复时排除已暂停、跨组移动和删除的卡', async t => {
+  const ctx = await setup({ cards: { 'one.md': '## 题目\n答案\n' } });
+  t.after(() => ctx.cleanup());
+  const [card] = queueIn((await request(ctx.app).get('/review')).text);
+  const restore = () => request(ctx.app).post('/api/review-round').send({ ids: [card.id], deck: 'one' });
+  await request(ctx.app).post('/review/answer').send({ eventId: 'first', cardId: card.id, rating: 1 }).expect(200);
+  const { body } = await restore().expect(200);
+  assert.equal(body.cards[0].reviewCount, 1);
+  assert.equal(body.undoId, 'first');
+  const counts = await request(ctx.app).get('/api/review-counts').expect(200);
+  assert.equal(counts.body.due + counts.body.fresh, 0);
+  assert.ok(counts.body.nextDue > FIXED_NOW.toISOString());
+  const list = await request(ctx.app).get('/cards?deck=one').expect(200);
+  assert.doesNotMatch(list.text, /class="button primary" href="\/review/);
+  await request(ctx.app).post('/cards/suspend').send({ id: card.id, suspended: true }).expect(302);
+  assert.equal((await restore()).body.cards.length, 0);
+  await fs.rename(path.join(ctx.vaultDir, 'cards', 'one.md'), path.join(ctx.vaultDir, 'cards', 'two.md'));
+  await fs.writeFile(path.join(ctx.vaultDir, 'cards', 'two.md'), `## 题目\n<!-- workstation:card:v1 {"id":${JSON.stringify(card.id)}} -->\n答案\n`);
+  assert.equal((await restore()).body.cards.length, 0);
+  const global = () => request(ctx.app).post('/api/review-round').send({ ids: [card.id] });
+  assert.equal((await global()).body.cards[0].deck, 'two');
+  await fs.rm(path.join(ctx.vaultDir, 'cards', 'two.md'));
+  assert.equal((await global()).body.cards.length, 0);
+});

@@ -631,6 +631,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 .desk-review-icon { flex: none; width: 18px; height: 18px; color: var(--accent); fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .desk-review-text { flex: 1; min-width: 0; }
 .desk-review-text strong { font-weight: 600; }
+.desk-review-text small { display: block; color: var(--muted); font-size: var(--fs-sm); }
+.desk-review-text small b { font-weight: inherit; }
 .desk-review-go { flex: none; color: var(--accent-text); font-size: var(--fs-sm); font-weight: 500; }
 .desk-sublabel { margin: 4px 0 0; color: var(--faint); font-size: var(--fs-xs); font-weight: 500; letter-spacing: .04em; }
 .desk-more { display: inline-block; margin: 2px 0 12px; font-size: var(--fs-sm); }
@@ -1153,7 +1155,7 @@ form.plan-task-form:hover .plan-task-when, .plan-task-due:focus-within .plan-tas
 .plan-quick-add input[type="text"]:focus { border: 0; box-shadow: none; }
 .plan-quick-add input.plan-quick-date { flex: none; width: 138px; height: var(--control-sm); font-size: var(--fs-sm); color: var(--muted); }
 .plan-quick-add.is-compact { height: var(--control); margin: 0 0 6px; }
-.desk-review + .plan-quick-add.is-compact { margin-top: 12px; }
+.desk-review:not([hidden]) + .plan-quick-add.is-compact { margin-top: 12px; }
 .plan-quick-add[aria-busy="true"] { opacity: .6; }
 .plan-project-mark { flex: none; width: 17px; height: 17px; display: grid; place-items: center; }
 .plan-project-mark::before { width: 9px; height: 9px; border-radius: 2px; background: var(--accent); content: ""; transform: rotate(45deg); }

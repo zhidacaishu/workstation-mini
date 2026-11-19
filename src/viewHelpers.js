@@ -216,16 +216,9 @@ function dateTimeLabel(value) {
   return `${toLocalDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/**
- * 侧栏角标：逾期待办数与待复习卡片数。
- *
- * 逾期数每次现查；到期卡数缓存 30 秒，任何写操作（非 GET 请求）都会让它失效，
- * 所以评分或改卡之后，下一页的角标就是准的。
- */
+// 复习服务已缓存卡片解析和日志重放；到期时间应按请求时刻判断。
 function createNavCounts({ config, db, now = () => new Date(), review: shared = null }) {
   let review = shared;
-  let cache = null;
-  const TTL_MS = 30000;
 
   function reviewService() {
     if (review || !config?.vaultDir) return review;
@@ -245,24 +238,14 @@ function createNavCounts({ config, db, now = () => new Date(), review: shared = 
     try {
       value.overdue = (db?.listTasks?.() || []).filter(task => task.due && task.due < today).length;
     } catch {}
-    if (!cache || Date.now() - cache.at >= TTL_MS) {
-      let due = 0;
-      try {
-        // 只数到期卡：新卡每天都有，算进角标会让它永远亮着、失去提醒作用。
-        const queue = await reviewService()?.queue({});
-        due = queue?.due?.length || 0;
-      } catch {}
-      cache = { at: Date.now(), review: due };
-    }
-    value.review = cache.review;
+    try {
+      const queue = await reviewService()?.queue({});
+      value.review = queue?.due?.length || 0;
+    } catch {}
     return value;
   }
 
-  function invalidate() {
-    cache = null;
-  }
-
-  return { get, invalidate };
+  return { get };
 }
 
 // 侧栏图标的路径。导航本身、首次启动导览和上手指南共用同一套，

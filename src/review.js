@@ -345,6 +345,10 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
     return operation;
   }
 
+  const isLocalLog = name => /^\d{4}-\d{2}-/.test(name) && name.slice(8) === device + '.jsonl';
+  const latestLocal = snapshot => snapshot.events.filter(event => isLocalLog(event.source))
+    .sort((left, right) => left.source.localeCompare(right.source) || left.line - right.line).at(-1);
+
   /** 撤销也是追加事件：Git 合并或中止后仍能知道原评分已经作废。 */
   function undo(eventId) {
     const wanted = String(eventId || '').trim();
@@ -352,9 +356,6 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
       if (!wanted || wanted.length > 128) {
         throw Object.assign(new Error('缺少或无效的事件 ID。'), { status: 400 });
       }
-      const isLocalLog = name => /^\d{4}-\d{2}-/.test(name) && name.slice(8) === device + '.jsonl';
-      const latestLocal = snapshot => snapshot.events.filter(event => isLocalLog(event.source))
-        .sort((left, right) => left.source.localeCompare(right.source) || left.line - right.line).at(-1);
       // 响应丢失后重试同一撤销仍成功，但只能认本设备评分及本设备撤销。
       const alreadyUndone = snapshot => snapshot.allEvents.some(event =>
         event.eventId === wanted && !event.undoOf && isLocalLog(event.source))
@@ -390,6 +391,7 @@ function createReviewStore({ vaultDir, device, now = () => new Date() }) {
     record,
     undo,
     states,
+    latestLocalEventId: async () => latestLocal(await cache.refresh())?.eventId || null,
     /** 当前全部事件（缓存过的）；generation 变了才说明日志有变化。 */
     snapshot: () => cache.refresh(),
     readEvents: async () => (await cache.refresh()).events
