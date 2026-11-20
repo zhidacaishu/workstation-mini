@@ -304,3 +304,81 @@ test('长正面卡片挪入新建和已有卡组后仍使用原始复习身份',
     assert.equal((await read(vaultDir, from + '.md')).includes(front), false);
   }
 });
+
+test('三反引号行内代码、背面中的元数据注释以及带空格尾井号标题编辑均保持安全', async t => {
+  const { splitCards, parseCardFile } = require('../src/cards');
+  const { vaultDir } = await setup(t);
+
+  await appendCard(vaultDir, { deckFile: 'edge', front: '行内三反引号', back: '```foo``` 是行内代码' });
+  await appendCard(vaultDir, { deckFile: 'edge', front: '第二张卡', back: '不被吞并' });
+  const edgeRaw = await read(vaultDir, 'edge.md');
+  assert.doesNotMatch(edgeRaw, /\n```\n/, '不应给行内三反引号补闭合围栏');
+  assert.deepEqual(splitCards(edgeRaw).map(c => c.front), ['行内三反引号', '第二张卡']);
+
+  const forgedRaw = '## 无元数据卡\n\n背面正文\n<!-- workstation:card:v1 {"id":"hijack","suspended":true} -->\n\n## 后一张\n答案\n';
+  const forged = parseCardFile('cards/forged.md', forgedRaw);
+  assert.equal(forged[0].id, 'forged/无元数据卡');
+  assert.equal(forged[0].suspended, false);
+  assert.match(forged[0].back, /workstation:card:v1/);
+
+  await fs.writeFile(path.join(vaultDir, 'cards', 'sharp.md'), '## C# #\n\n旧答案\n');
+  const beforeHash = (await readNote(vaultDir, 'cards/sharp.md')).hash;
+  await updateCard(vaultDir, { id: 'sharp/C#', back: '新答案', expectedHash: beforeHash });
+  const sharpAfter = await read(vaultDir, 'sharp.md');
+  assert.equal(sharpAfter, '## C# #\n\n新答案\n');
+
+  const first = '---\r\ndeck: crlf\r\n---\r\n\r\n## Q1\r\n\r\nA1\r\n\r\n\r\n第二段  \r\n';
+  await fs.writeFile(path.join(vaultDir, 'cards', 'crlf-end.md'), first + '\r\n## Q2\r\n\r\nA2\r\n');
+  const h1 = (await readNote(vaultDir, 'cards/crlf-end.md')).hash;
+  const u1 = await updateCard(vaultDir, { id: 'crlf-end/Q2', back: 'A2-new', expectedHash: h1 });
+  assert.equal((await read(vaultDir, 'crlf-end.md')).includes('\r\r\n'), false, 'CRLF 更新末张卡不应出现 \\r\\r\\n');
+  await deleteCard(vaultDir, { id: 'crlf-end/Q2', expectedHash: u1.hash });
+  const crlfAfterDelete = await read(vaultDir, 'crlf-end.md');
+  assert.equal(crlfAfterDelete, first);
+  assert.equal(crlfAfterDelete.includes('\r\r\n'), false, 'CRLF 删除末张卡不应出现 \\r\\r\\n');
+  assert.equal(crlfAfterDelete.replace(/\r\n/g, '').includes('\n'), false);
+});
+
+test('标题下有空行的旧卡保留评分和暂停状态，新卡背面的元数据示例可往返编辑', async t => {
+  const { vaultDir, app } = await setup(t);
+  const { parseCardFile } = require('../src/cards');
+  await appendCard(vaultDir, { deckFile: 'old', front: '原题', back: '答案' });
+  const id = 'old/原题';
+  await request(app).post('/review/answer').send({ cardId: id, rating: 3, eventId: 'before-format' }).expect(200);
+  const meta = '<!-- workstation:card:v1 {"id":"old/原题","suspended":true} -->';
+  const file = path.join(vaultDir, 'cards', 'old.md');
+  await fs.writeFile(file, ['## 新标题', ' \t', '', meta, '', '答案', ''].join('\r\n'));
+  assert.equal(parseCardFile('cards/old.md', await read(vaultDir, 'old.md'))[0].suspended, true);
+  await updateCard(vaultDir, { id, suspended: false });
+  const live = await request(app).post('/api/review-round').send({ ids: [id] }).expect(200);
+  assert.equal(live.body.cards[0].reviewCount, 1);
+
+  const literal = { deckFile: 'example', front: '注释示例', back: meta };
+  await appendCard(vaultDir, literal);
+  const exampleId = 'example/注释示例';
+  await updateCard(vaultDir, { id: exampleId, suspended: true });
+  const { hash } = await updateCard(vaultDir, { id: exampleId, suspended: false });
+  await updateCard(vaultDir, { id: exampleId, expectedHash: hash, back: meta + '\n第二行' });
+  const [example] = parseCardFile('cards/example.md', await read(vaultDir, 'example.md'));
+  assert.equal(example.id, exampleId);
+  assert.equal(example.suspended, false);
+  assert.equal(example.back, meta + '\n第二行');
+});
+
+test('缩进与围栏内的元数据示例在卡组文件和复习题面中保留', async t => {
+  const { app, vaultDir } = await setup(t);
+  const marker = '<!-- workstation:card:v1 {"id":"other","suspended":true} -->';
+  const examples = ['    ' + marker, '\t' + marker, '  \t' + marker, '~~~\n' + marker + '\n~~~'];
+  for (const [index, back] of examples.entries()) {
+    await request(app).post('/cards/add').send({ front: 'Q' + index, back, deckFile: 'code' }).expect(200);
+  }
+  const { parseCardFile } = require('../src/cards');
+  const parsed = parseCardFile('cards/code.md', await read(vaultDir, 'code.md'));
+  assert.deepEqual(parsed.map(card => card.back), examples);
+  const queue = await queueOf(app);
+  assert.deepEqual(queue.map(card => card.id), examples.map((_, index) => 'code/Q' + index));
+  for (const card of queue) {
+    assert.match(card.back, /<pre\b[^>]*><code\b/);
+    assert.match(card.back, /workstation:card:v1/);
+  }
+});

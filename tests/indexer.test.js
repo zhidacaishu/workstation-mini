@@ -328,6 +328,24 @@ test('删掉索引库全量重建，结果与增量更新完全一致', async ()
   }
 });
 
+test('从 v11 索引升级后，未改动的笔记也重算行内代码后的反向链接', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-index-upgrade-'));
+  const vaultDir = path.join(dir, 'notes');
+  const dbPath = path.join(dir, 'workstation.db');
+  let db = openDatabase(dbPath);
+  t.after(async () => { db.close(); await fs.rm(dir, { recursive: true, force: true }); });
+  await fs.mkdir(vaultDir);
+  await writeNote(vaultDir, 'source.md', { body: '```example```\n\n[[target]]' });
+  await writeNote(vaultDir, 'target.md', { body: '# Target' });
+  await createIndexer({ db, vaultDir }).scan();
+  db.raw.exec('DELETE FROM links');
+  db.raw.pragma('user_version = 11');
+  db.close();
+  db = openDatabase(dbPath);
+  await createIndexer({ db, vaultDir }).scan({ kind: 'initial' });
+  assert.deepEqual(db.backlinks('target.md').map(note => note.path), ['source.md']);
+});
+
 test('索引库文件损坏时删除重建，而不是让应用起不来', async () => {
   const { openDatabase } = require('../src/db');
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-corrupt-db-'));

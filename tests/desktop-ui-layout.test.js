@@ -6,6 +6,37 @@ const path = require('node:path');
 const os = require('node:os');
 const { _electron: electron } = require('playwright-core');
 
+async function assertMessageLayout(question, longDetail = false) {
+  const layout = await question.evaluate(dialog => {
+    const copy = dialog.querySelector('.message-copy');
+    const heading = dialog.querySelector('h2').getBoundingClientRect();
+    const box = dialog.getBoundingClientRect();
+    const footer = dialog.querySelector('.message-actions');
+    const footerTop = footer.getBoundingClientRect().top;
+    const inset = parseFloat(getComputedStyle(dialog).paddingBottom);
+    const buttonsFit = [...footer.children].every(button => {
+      const rect = button.getBoundingClientRect();
+      return rect.left >= box.left + inset - 1 && rect.right <= box.right - inset + 1
+        && rect.bottom <= Math.min(box.bottom, innerHeight) - inset + 1;
+    });
+    const topVisible = copy.scrollTop === 0 && heading.top >= Math.max(box.top, 0)
+      && heading.bottom <= copy.getBoundingClientRect().bottom + 1;
+    copy.scrollTop = copy.scrollHeight;
+    return {
+      buttonsFit, topVisible,
+      dialogFits: dialog.scrollHeight <= dialog.clientHeight + 1 && dialog.scrollWidth <= dialog.clientWidth + 1,
+      copyFitsWidth: copy.scrollWidth <= copy.clientWidth + 1,
+      copyScrolled: copy.scrollTop > 0,
+      endVisible: copy.lastElementChild.getBoundingClientRect().bottom <= copy.getBoundingClientRect().bottom + 1,
+      footerStayed: footerTop === footer.getBoundingClientRect().top
+    };
+  });
+  assert.deepEqual(layout, {
+    buttonsFit: true, topVisible: true, dialogFits: true, copyFitsWidth: true,
+    copyScrolled: longDetail, endVisible: true, footerStayed: true
+  });
+}
+
 test('复习说明在宽窗使用整行，未保存编辑使用应用主题确认离开', { timeout: 45000 }, async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-dialog-layout-'));
   const vault = path.join(root, 'vault');
@@ -41,6 +72,13 @@ test('复习说明在宽窗使用整行，未保存编辑使用应用主题确�
       await prompt.emulateMedia({ colorScheme: null });
       const question = prompt.getByRole('alertdialog', { name: '有未保存的更改' });
       await question.waitFor({ timeout: 8000 });
+      const nativeWindow = await app.browserWindow(prompt);
+      const [width, height] = await nativeWindow.evaluate(async win => {
+        if (!win.isVisible()) await new Promise(resolve => win.once('show', resolve));
+        return win.getContentSize();
+      });
+      await prompt.waitForFunction(([w, h]) => innerWidth === w && innerHeight === h, [width, height]);
+      await assertMessageLayout(question);
       assert.equal(await prompt.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches), true);
       assert.equal(await question.getByRole('button', { name: '留下' }).evaluate(el => el === document.activeElement), true);
       if (!leave) {
@@ -62,6 +100,18 @@ test('复习说明在宽窗使用整行，未保存编辑使用应用主题确�
     if (output) await page.screenshot({ path: path.join(output, 'review-help.png') });
     await page.locator('.format-help').evaluate(el => { el.style.width = '360px'; });
     assert.ok(await help.evaluate(p => p.offsetHeight > parseFloat(getComputedStyle(p).lineHeight) * 1.5 && p.scrollWidth <= p.clientWidth), '窄栏内自然折行');
+
+    await page.setViewportSize({ width: 360, height: 320 });
+    await page.evaluate(() => {
+      void window.workstationDialog.ask({
+        message: '无法打开资料库', detail: '/vault/' + 'long-directory-name'.repeat(180),
+        buttons: ['重试', '选择其他资料库', '从备份恢复资料库', '退出'], defaultId: 3
+      });
+    });
+    const longQuestion = page.getByRole('alertdialog', { name: '无法打开资料库' });
+    await assertMessageLayout(longQuestion, true);
+    await page.keyboard.press('Escape');
+    await longQuestion.waitFor({ state: 'detached' });
   } finally {
     if (app) { await app.evaluate(({ app }) => app.exit(0)).catch(() => {}); await app.close().catch(() => {}); }
     await fs.rm(root, { recursive: true, force: true });

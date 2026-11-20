@@ -456,3 +456,44 @@ test('标题跳过代码和公式块，仍保留一级标题原文', () => {
   assert.equal(note.resolveTitle({}, '#\n\n# 正文标题', 'name.md'), '正文标题');
   assert.equal(note.resolveTitle({}, '    # 代码\n\n~~~\n# 仍是代码', 'a.md'), 'a');
 });
+
+test('行首的三反引号行内代码不误判成未闭合代码块，后续双链仍可解析；CRLF 代码围栏同样生效', () => {
+  const md = '```a`b``` 行内代码\n\n后面的 [[目标笔记]] 应正常识别\n';
+  assert.deepEqual(parseWikilinks(md).map(link => link.target), ['目标笔记']);
+  const html = renderWikilinks(md, target => target + '.md', value => value);
+  assert.match(html, /<a class="wikilink" href="\/note\/%E7%9B%AE%E6%A0%87%E7%AC%94%E8%AE%B0\.md">目标笔记<\/a>/);
+
+  const crlfFence = '```py\r\n\r\nx = [[inside_fence]]\r\n```\r\n\r\n[[outside_fence]]\r\n';
+  assert.deepEqual(parseWikilinks(crlfFence).map(link => link.target), ['outside_fence']);
+});
+
+test('代码段按完整反引号串配对，保留外部链接的原始偏移', () => {
+  const text = '```a ````b` [[代码内]]\r\n仍在代码内``` [[外部]]';
+  const links = parseWikilinks(text);
+  assert.deepEqual(links.map(link => [link.target, link.index]), [['外部', text.indexOf('[[外部]]')]]);
+  const escaped = '\\`[[普通文字]]，`[[代码内]]`';
+  assert.deepEqual(parseWikilinks(escaped).map(link => link.target), ['普通文字']);
+});
+
+test('反引号不能跨相邻标题、列表项和表格单元格配对', () => {
+  for (const text of [
+    '# ` 与 ``` 的区别\n参照 [[目标]] 和 `示例`',
+    '- ` 与 ``` 的区别\r\n- 参照 [[目标]] 和 `示例`',
+    '| A | B |\n|---|---|\n| ` | [[目标]] 和 `示例` |'
+  ]) {
+    assert.deepEqual(parseWikilinks(text).map(link => [link.target, link.index]), [['目标', text.indexOf('[[目标]]')]]);
+  }
+});
+
+test('链接标题与公式中的反引号不遮蔽正文，图片说明里的代码按原文位置遮蔽', () => {
+  for (const prefix of [
+    '[语法](doc "比较 ` 与 ``` 的用法")', '$a` + b```$',
+    '> [语法](doc\r\n> "比较 ` 与 ``` 的用法")',
+    '- [语法](doc\n  "比较 ` 与 ``` 的用法")'
+  ]) {
+    const text = prefix + '，参照 [[目标]] 和 `示例`。';
+    assert.deepEqual(parseWikilinks(text).map(link => [link.target, link.index]), [['目标', text.indexOf('[[目标]]')]]);
+  }
+  const text = '[[前]] ![说明 `[[示例]]`](img.png) [[后]]';
+  assert.deepEqual(parseWikilinks(text).map(link => link.target), ['前', '后']);
+});

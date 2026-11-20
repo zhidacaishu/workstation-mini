@@ -62,13 +62,19 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
     try {
       const deck = String(req.query.deck || '');
       const { cards } = await service.queue({ deck });
+      const queue = renderCards(cards);
+      res.vary('Accept');
+      if (req.accepts(['html', 'json']) === 'json') {
+        res.set('Cache-Control', 'no-store').json({ cards: queue });
+        return;
+      }
 
       res.render('review', {
         title: deck ? `复习 · ${deck}` : '复习',
         deck,
         defaultFile: await defaultDeckFile(deck, cards),
         returnTo: deck ? `/review?deck=${encodeURIComponent(deck)}` : '/review',
-        queue: renderCards(cards),
+        queue,
         ratings: RATING_LABELS
       });
     } catch (error) {
@@ -160,7 +166,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
   router.post('/cards/add', blockMarkdownWrite, async (req, res, next) => {
     try {
       const front = String(req.body.front || '').trim();
-      const back = String(req.body.back || '').trim();
+      const back = String(req.body.back || '');
       const deckFile = String(req.body.deckFile || 'inbox').trim().replace(/\.md$/i, '');
       const source = String(req.body.source || '').trim();
       const type = CARD_TYPES.includes(req.body.type) ? req.body.type : DEFAULT_TYPE;
@@ -173,7 +179,8 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
         deckFile, front, back, source, type, checkDuplicate: req.body.allowDuplicate !== true
       });
       if (result.duplicate) {
-        res.status(409).json({ ok: false, duplicate: true, message: `「${result.deck}」已经有一张正面、背面和来源相同的卡片。` });
+        const fields = source ? '正面、背面和来源相同' : '正面和背面相同';
+        res.status(409).json({ ok: false, duplicate: true, message: `「${result.deck}」已经有一张${fields}的卡片。` });
         return;
       }
       res.json({ ok: true, ...result });

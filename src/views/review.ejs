@@ -1,6 +1,6 @@
 <%- include('partials/head') %>
 
-  <section id="review-empty" class="panel empty-state review-empty"<% if (queue.length) { %> hidden<% } %>>
+  <section id="review-empty" class="panel empty-state review-empty" tabindex="-1"<% if (queue.length) { %> hidden<% } %>>
     <h1><%= deck ? `「${deck}」当前没有到期卡或新卡` : '当前没有到期卡或新卡' %></h1>
     <div class="actions">
       <a class="button" href="/decks">查看卡组</a>

@@ -26,10 +26,7 @@
   const issues = [vaultWarn, indexWarn, gitWarn, linkWarn, reviewWarn].filter(Boolean).length;
 %>
 <header class="page-head">
-  <div>
-    <h1>资料库健康</h1>
-    <p class="page-meta">只读诊断</p>
-  </div>
+  <h1>资料库健康</h1>
   <p class="health-summary<%= issues ? ' is-warn' : ' is-ok' %>"><span class="status-mark" aria-hidden="true"></span><%= issues ? `${issues} 项需要留意` : '一切正常' %></p>
 </header>
 
@@ -91,7 +88,7 @@
 <% if (report.links.broken.length) { %>
   <section class="panel health-links" id="broken-links" aria-labelledby="broken-links-title">
     <h2 id="broken-links-title">断链</h2>
-    <p class="health-detail">这些 <code>[[链接]]</code> 指向的笔记还不存在。写错了就去改，本来就打算以后再写的可以不管。</p>
+    <p class="health-detail">以下 <code>[[链接]]</code> 指向尚未创建的笔记。</p>
     <ul>
       <% report.links.broken.forEach(item => { %>
         <li>

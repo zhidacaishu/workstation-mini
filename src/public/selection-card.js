@@ -31,7 +31,10 @@
     if (saved) {
       window.sessionStorage.removeItem('card-created');
       notify('已存到 ' + saved);
-      createButton.focus({ preventScroll: true });
+      const reviewer = document.querySelector?.('#reviewer:not([hidden])');
+      const visibleButton = [...(document.querySelectorAll?.('[data-card-create]') || [])]
+        .find(el => !el.closest?.('[hidden]'));
+      (reviewer || visibleButton || createButton).focus({ preventScroll: true });
     }
     document.addEventListener('click', event => {
       const button = event.target.closest('[data-card-create]');
@@ -56,11 +59,14 @@
     dialog.remove();
     activeDialog = null;
     hasEdits = () => false;
-    const target = restoreFocus && restoreFocus !== document.body && restoreFocus.isConnected !== false
-      ? restoreFocus
-      : document.getElementById('main-content') || prose;
+    const reviewer = document.querySelector?.('#reviewer:not([hidden])');
+    const target = reviewer && reviewer.contains?.(restoreFocus)
+      ? reviewer
+      : restoreFocus && restoreFocus !== document.body && restoreFocus.isConnected !== false
+        ? restoreFocus
+        : document.getElementById('main-content') || prose;
     restoreFocus = null;
-    target?.focus?.();
+    target?.focus?.({ preventScroll: true });
   }
 
   function closeForm() {
@@ -188,7 +194,7 @@
 
       const payload = {
         front: front.value.trim(),
-        back: form.querySelector('[name=back]').value.trim(),
+        back: form.querySelector('[name=back]').value,
         deckFile: deckField.value.trim() || 'inbox',
         source: notePath
       };
@@ -217,8 +223,10 @@
           result = await save(payload);
         } catch (error) {
           if (!error.payload?.duplicate) throw error;
+          showStatus('发现重复卡片，请确认是否继续保存。');
           const confirmed = await window.workstationDialog.confirm('保存重复卡片？', error.message, '仍然保存');
           if (!confirmed) { showStatus('可以修改卡片后再保存。'); return; }
+          showStatus('正在保存…');
           result = await save({ ...payload, allowDuplicate: true });
         }
         saving = false;

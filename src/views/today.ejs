@@ -70,8 +70,13 @@
         逾期数侧栏「计划」的角标和下面的待办都写着，这里不再单独列数字。 %>
     <a class="desk-review" href="/review"<% if (!reviewCount) { %> hidden<% } %>>
       <svg class="desk-review-icon" viewBox="0 0 24 24" aria-hidden="true"><%- ui.NAV_ICONS.review %></svg>
-      <span class="desk-review-text">复习 <strong><%= reviewCount %></strong> 张卡片<small>全部卡组 · 到期 <b data-review-due><%= review.due || 0 %></b> 张 · 新卡 <b data-review-fresh><%= review.fresh || 0 %></b> 张</small></span>
-      <span class="desk-review-go" aria-hidden="true">开始 →</span>
+      <span class="desk-review-text">
+        <span class="desk-review-head">
+          <span class="desk-review-title">复习 <strong><%= reviewCount %></strong> 张卡片</span>
+          <span class="desk-review-go" aria-hidden="true">开始 →</span>
+        </span>
+        <small>全部卡组 · 到期 <b data-review-due><%= review.due || 0 %></b> 张 · 新卡 <b data-review-fresh><%= review.fresh || 0 %></b> 张</small>
+      </span>
     </a>
     <% if (!readOnly) { %>
       <form class="plan-quick-add is-compact" action="/plan/tasks" method="post" data-quick-add>

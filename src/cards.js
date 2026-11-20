@@ -1,6 +1,7 @@
 const path = require('node:path');
 const { maskCode } = require('./vault/wikilink');
 const { maskMath } = require('./mathSyntax');
+const { isDirectiveLine } = require('./machineDirectives');
 
 const { toPosix, stripExtension, wikilinkTarget, isSafeRelativePath, ensureSafeFilePath } = require('./vault/paths');
 const { listNotes, parseFrontmatter, stringifyFrontmatter, readNote, writeNote } = require('./vault/note');
@@ -38,8 +39,7 @@ const CLOZE_PATTERN = /\{\{([^{}]+)\}\}/g;
  * id 把卡片身份固定下来：改了正面、挪到别的卡组，复习记录仍然接得上；
  * suspended 表示暂停复习。这一行在阅读和复习时都不显示。
  */
-const CARD_META_LINE = /^[ \t]*<!--[ \t]*workstation:card:v1[ \t]+(\{.*\})[ \t]*-->[ \t]*$/;
-const DIRECTIVE_LINE = /^[ \t]*<!--[ \t]*workstation:[\w-]+:v\d+(?:[ \t]+.*)?-->[ \t]*$/;
+const CARD_META_LINE = /^ {0,3}<!--[ \t]*workstation:card:v1[ \t]+(\{.*\})[ \t]*-->[ \t]*$/;
 
 function parseCardMeta(json) {
   try {
@@ -67,6 +67,16 @@ function trimBack(text) {
   return String(text ?? '').replace(/\r\n?/g, '\n').replace(/^(?:[ \t]*\n)+/, '').trimEnd();
 }
 
+const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`\r\n]*\r?$)|~{3,})/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/;
+
+// 当前行处理完后仍然打开的围栏。闭合行只允许尾随空白，且不能短于起始围栏。
+function nextFence(line, fence) {
+  if (!fence) return line.match(FENCE_OPEN)?.[1] || '';
+  const closing = line.match(FENCE_CLOSE)?.[1];
+  return closing && closing[0] === fence[0] && closing.length >= fence.length ? '' : fence;
+}
+
 function splitCards(body) {
   const lines = String(body ?? '').split('\n');
   const cards = [];
@@ -76,11 +86,7 @@ function splitCards(body) {
   lines.forEach((rawLine, index) => {
     const line = stripCR(rawLine);
     // 代码块里的 ## 是注释或标题语法，不是卡片分隔符。
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) fence = fenceMatch[1];
-      else if (fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = '';
-    }
+    fence = nextFence(line, fence);
 
     // CommonMark 里结尾的 `#` 只有前面有空白时才算收尾标记，所以 `## C#` 的
     // 标题是「C#」而不是「C」。
@@ -102,16 +108,19 @@ function splitCards(body) {
       };
       return;
     }
-    // 机器指令行（卡片元数据、旧版文献标注留下的标记）不属于背面。
-    if (!fence && DIRECTIVE_LINE.test(line)) {
+    if (!current) return;
+    // 旧卡的标题与元数据之间可有空行。正文开始后，元数据样式的文字属于背面。
+    if (!current.backLines.length && /^[ \t]*$/.test(line)) return;
+    if (!fence && isDirectiveLine(line)) {
       const meta = line.match(CARD_META_LINE);
-      if (meta && current && current.metaLine < 0) {
+      if (!meta) return;
+      if (current.metaLine < 0 && !current.backLines.length) {
         current.meta = parseCardMeta(meta[1]);
         current.metaLine = index;
+        return;
       }
-      return;
     }
-    if (current) current.backLines.push(line);
+    current.backLines.push(line);
   });
   if (current) {
     current.end = lines.length;
@@ -357,12 +366,7 @@ async function loadAllCards(vaultDir, options = {}) {
 function protectCardSeparators(text) {
   let fence = '';
   const lines = String(text ?? '').split('\n').map(line => {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!fence) fence = fenceMatch[1];
-      else if (fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = '';
-      return line;
-    }
+    fence = nextFence(line, fence);
     if (fence) return line;
     return line.replace(/^##(?=[ \t])/, '###');
   });
@@ -411,13 +415,23 @@ function lineEnding(raw) {
 }
 
 /** 元数据行。JSON 里的 `>` 转义掉，正面写了 `-->` 也不会提前结束注释。 */
-function renderMetaLine(meta) {
+function renderMetaLine(meta, back) {
   const fields = {};
   if (meta.id) fields.id = meta.id;
   if (meta.legacy) fields.legacy = meta.legacy;
   if (meta.suspended) fields.suspended = true;
-  if (!Object.keys(fields).length) return null;
+  // 如果背面首个有效行本身就是元数据示例，显式写一个空元数据头来保留原文。
+  if (!Object.keys(fields).length && !startsWithCardMeta(back)) return null;
   return `<!-- workstation:card:v1 ${JSON.stringify(fields).replace(/>/g, '\\u003e')} -->`;
+}
+
+function startsWithCardMeta(back) {
+  for (const line of back.split('\n')) {
+    if (/^[ \t]*$/.test(line)) continue;
+    if (CARD_META_LINE.test(line)) return true;
+    if (!isDirectiveLine(line)) break;
+  }
+  return false;
 }
 
 /** 正面以「空格 + #」结尾时补一个收尾标记，否则那串 # 会被当成收尾标记吃掉。 */
@@ -425,14 +439,16 @@ function renderHeading(front) {
   return /[ \t]#+$/.test(front) ? `## ${front} #` : `## ${front}`;
 }
 
-function renderCardLines({ front, back, meta }) {
-  const lines = [renderHeading(front)];
-  const metaLine = renderMetaLine(meta);
+function cardLines(heading, back, meta) {
+  const lines = [heading];
+  const metaLine = renderMetaLine(meta, back);
   if (metaLine) lines.push(metaLine);
   lines.push('');
-  const text = protectCardSeparators(trimBack(back));
-  if (text) lines.push(...text.split('\n'));
-  return lines;
+  return back ? lines.concat(back.split('\n')) : lines;
+}
+
+function renderCardLines({ front, back, meta, heading = '' }) {
+  return cardLines(heading || renderHeading(front), protectCardSeparators(trimBack(back)), meta);
 }
 
 /** 把卡组文件拆成 frontmatter 前缀和正文行（行尾的 \r 原样留着）。 */
@@ -450,7 +466,7 @@ function deckParts(raw) {
 function setCardMeta(raw, index, meta) {
   const { prefix, lines, blocks, cr } = deckParts(raw);
   const block = blocks[index];
-  const rendered = renderMetaLine(meta);
+  const rendered = renderMetaLine(meta, block.back);
   if (block.metaLine >= 0) {
     if (rendered) lines[block.metaLine] = rendered + cr;
     else lines.splice(block.metaLine, 1);
@@ -471,14 +487,19 @@ function replaceCard(raw, index, replacement) {
   const before = lines.slice(0, block.start);
   const after = lines.slice(block.end);
   const middle = replacement ? [...replacement, ''].map(line => line + cr) : [];
-  let body = [...before, ...middle, ...after].join('\n');
-  if (!after.length) body = body.replace(/(?:\r?\n)*$/, cr + '\n');
-  return prefix + body;
+  const body = [...before, ...middle, ...after].join('\n');
+  return prefix + (after.length ? body : withoutTrailingLineEndings(body) + cr + '\n');
+}
+
+function withoutTrailingLineEndings(text) {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '\r' || text[end - 1] === '\n')) end--;
+  return text.slice(0, end);
 }
 
 function appendCardLines(raw, lines) {
   const eol = lineEnding(raw);
-  const before = raw.replace(/(?:\r?\n)*$/, eol) + eol;
+  const before = withoutTrailingLineEndings(raw) + eol + eol;
   const result = before + lines.join(eol) + eol;
   const { prefix, blocks } = deckParts(result);
   const headingLine = before.slice(prefix.length).split('\n').length - 1;
@@ -552,8 +573,8 @@ async function appendCard(vaultDir, {
   await ensureSafeFilePath(vaultDir, relative, { allowMissing: true, createParents: true });
 
   const sourceLine = source ? `来自 [[${wikilinkTarget(source)}]]` : '';
-  const backText = [protectCardSeparators(String(back).replace(/\r\n?/g, '\n').trim()), sourceLine].filter(Boolean).join('\n');
-  const lines = [renderHeading(trimmedFront), '', ...(backText ? backText.split('\n') : [])];
+  const backText = [protectCardSeparators(trimBack(back)), sourceLine].filter(Boolean).join('\n');
+  const lines = cardLines(renderHeading(trimmedFront), backText, {});
   const resolvedType = CARD_TYPES.includes(type) ? type : DEFAULT_TYPE;
 
   // 交互建卡要在同一把库级锁内查重并追加，两次并发保存即使选了不同文件也能识别。
@@ -601,7 +622,8 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
     if (expectedHash && current.note.hash !== expectedHash) throw httpFailure(409, '卡组文件已在别处修改，请刷新后重试。');
     if (!current.card) throw httpFailure(409, '卡片已被移动或删除，请刷新后重试。');
     const { card, cards, index, note } = current;
-    const block = deckParts(note.raw).blocks[index];
+    const parts = deckParts(note.raw);
+    const block = parts.blocks[index];
 
     const nextFront = front === undefined ? card.front : normalizeFront(front);
     const nextBack = back === undefined ? card.back : trimBack(back);
@@ -614,9 +636,10 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
     const keepIds = cards.map(item => ({ id: item.id, legacyId: item.legacyId }));
 
     if (target === source) {
+      const heading = nextFront === card.front ? stripCR(parts.lines[block.start]) : '';
       const edited = nextFront === card.front && nextBack === card.back
         ? setCardMeta(note.raw, index, meta)
-        : replaceCard(note.raw, index, renderCardLines({ front: nextFront, back: nextBack, meta }));
+        : replaceCard(note.raw, index, renderCardLines({ front: nextFront, back: nextBack, meta, heading }));
       const raw = preserveIds(source, edited, sourceTaken, keepIds);
       const written = await writeNote(vaultDir, source, { raw });
       return { id: card.id, path: source, hash: written.hash };

@@ -562,7 +562,8 @@ async function confirmAndAbortGitOperation() {
     detail: 'Git 会回到该操作开始前的状态，这之后保存过、还没提交的修改会从笔记里撤掉。\n\n撤掉的笔记和卡组内容会先存进「历史与草稿」，复习记录会自动补回。\n\n中止后不会自动重新同步；同一处冲突没解决的话，下次同步还会停在这里。',
     buttons: ['取消', '确认中止'],
     defaultId: 0,
-    cancelId: 0
+    cancelId: 0,
+    primaryId: 1
   };
   const parent = dialogParent();
   const response = await showAppMessage(parent, options);
@@ -1027,7 +1028,8 @@ function registerIpc() {
           detail: '每轮同步会拉取并 rebase，然后执行 git add -A、提交和推送。git add -A 会包含资料库内所有未被 .gitignore 排除的文件，而不只是应用创建的 Markdown。请先确认远端和忽略规则正确。',
           buttons: ['取消', '确认启用'],
           defaultId: 0,
-          cancelId: 0
+          cancelId: 0,
+          primaryId: 1
         });
         if (response !== 1) return { cancelled: true };
       }

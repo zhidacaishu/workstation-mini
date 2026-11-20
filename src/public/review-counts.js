@@ -17,8 +17,14 @@
       }
       if (badge.title !== label) {
         badge.title = label;
-        badge.setAttribute('aria-label', label);
-        badge.textContent = due > 99 ? '99+' : String(due);
+        badge.removeAttribute('aria-label');
+        const comma = document.createElement('span');
+        comma.className = 'visually-hidden';
+        comma.textContent = '，';
+        const suffix = document.createElement('span');
+        suffix.className = 'visually-hidden';
+        suffix.textContent = ' 张到期';
+        badge.replaceChildren(comma, document.createTextNode(due > 99 ? '99+' : String(due)), suffix);
       }
     }
     if (!today) return;

@@ -51,7 +51,11 @@ async function showAppMessage(parent, options) {
       const y = Math.round(bounds.y + (bounds.height - height) / 2);
       window.setPosition(Math.max(area.x, Math.min(x, area.x + area.width - width)), Math.max(area.y, Math.min(y, area.y + area.height - height)));
     }
+    const target = window.getContentBounds();
     window.show();
+    // macOS 挂接无边框模态子窗口时会重新计算内容区。以实际显示后的尺寸校正。
+    const [visibleWidth, visibleHeight] = window.getContentSize();
+    if (visibleWidth !== target.width || visibleHeight !== target.height) window.setContentBounds(target);
     return contents.executeJavaScript('window.messageAnswer');
   }
   try {

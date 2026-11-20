@@ -84,3 +84,15 @@ test('只读模式可浏览备注，无法保存修改', async t => {
   assert.doesNotMatch(page.text, /data-calendar-form/);
   await save(app, '2026-10-24', '更改').expect(403);
 });
+
+test('frontmatter 结尾无换行时保存月历备注不破坏 YAML 分隔符', async t => {
+  const { app, config } = await setup(t);
+  const notePath = 'calendar/2026-10-25.md';
+  await fs.mkdir(path.join(config.notesDir, 'calendar'), { recursive: true });
+  await fs.writeFile(path.join(config.notesDir, notePath), '---\ntitle: 2026-10-25 月历备注\n---');
+  const existing = await readNote(config.notesDir, notePath);
+  await save(app, '2026-10-25', '新备注内容', existing.hash).expect(200);
+  const updated = await readNote(config.notesDir, notePath);
+  assert.equal(updated.data.title, '2026-10-25 月历备注');
+  assert.equal(updated.body, '新备注内容');
+});

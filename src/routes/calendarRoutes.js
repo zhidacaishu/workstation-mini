@@ -177,8 +177,12 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
           return '';
         }
         // 只替换正文，保留从普通笔记编辑器添加的 frontmatter。
+        const eol = existing?.raw.includes('\r\n') ? '\r\n' : '\n';
+        const prefix = existing ? existing.raw.slice(0, existing.raw.length - existing.body.length) : '';
+        const separator = prefix && !/[\r\n\uFEFF]$/.test(prefix) ? eol : '';
+        const bodyText = existing && eol === '\r\n' ? text.replace(/\n/g, '\r\n') : text;
         const content = existing
-          ? { raw: existing.raw.slice(0, existing.raw.length - existing.body.length) + text }
+          ? { raw: prefix + separator + bodyText }
           : { data: { title: date + ' 月历备注' }, body: text };
         const written = await writeNote(config.notesDir, notePath, content, { exclusive: !existing });
         return written.hash;

@@ -20,7 +20,10 @@
     <input id="card-front" type="text" name="front" value="<%= card.front %>" required autocomplete="off" spellcheck="false">
   </label>
   <div class="card-field card-back-field">
-    <label for="card-back">背面</label>
+    <div class="card-back-head">
+      <label for="card-back">背面</label>
+      <small>Markdown · <code>$公式$</code> · <code>{{挖空}}</code></small>
+    </div>
     <%# 宽窗口下右边是这张卡排好的样子：公式、挖空不用保存就能看到。 %>
     <div class="card-back-panes" data-preview-host>
       <textarea id="card-back" name="back" rows="10" spellcheck="false" data-md-editor data-preview="#card-preview" data-preview-kind="card" data-preview-front="#card-front" aria-controls="link-suggest"><%= card.back %></textarea>
@@ -29,7 +32,6 @@
         <div class="card-preview-back review-back" data-preview-body></div>
       </section>
     </div>
-    <small>支持 Markdown、<code>$公式$</code> 和 <code>{{挖空}}</code>。</small>
   </div>
   <label class="card-field">
     <span>卡组文件</span>
@@ -37,15 +39,14 @@
     <datalist id="deck-files">
       <% deckFiles.forEach(item => { %><option value="<%= item.file %>"><%= item.deck %></option><% }) %>
     </datalist>
-    <small>改成别的卡组文件会把这张卡挪过去，文件不存在时会新建。改正面或挪卡组，复习记录都会保留。</small>
-  </label>
-  <label class="card-check">
-    <input type="checkbox" name="suspended"<% if (card.suspended) { %> checked<% } %>>
-    <span>暂停复习<small>暂停后不再出现在复习队列里，随时可以恢复。</small></span>
   </label>
 
   <p class="notice is-warn" data-card-error role="alert" hidden></p>
   <div class="card-edit-actions">
+    <label class="card-check">
+      <input type="checkbox" name="suspended"<% if (card.suspended) { %> checked<% } %>>
+      <span>暂停复习</span>
+    </label>
     <button class="button danger card-delete" type="submit" form="card-delete-form">删除这张卡</button>
   </div>
 </form>

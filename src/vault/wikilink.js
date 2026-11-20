@@ -1,4 +1,5 @@
 const MarkdownIt = require('markdown-it');
+const { maskCode } = require('../markdownCode');
 const { maskMath } = require('../mathSyntax');
 const { toPosix, stripExtension, wikilinkTarget, basename, encodePath } = require('./paths');
 
@@ -34,47 +35,6 @@ function wikilinkFragment(heading) {
   const value = String(heading ?? '').normalize('NFC').trim();
   if (!value) return '';
   return LINE_FRAGMENT.test(value) ? value : headingFragment(value);
-}
-
-// 代码块与行内代码里的内容不算链接。写笔记时贴一段带 [[ 的代码很常见
-// （Python 的嵌套列表 `[[1,2],[3,4]]` 就是），不排除掉会凭空生成一堆死链。
-//
-// 行内代码不跨空行：Markdown 里空行结束一个段落，反引号只在段落内配对。不加这个
-// 限制的话，正文里一个落单的反引号（LaTeX 风格的 ``引号''、单独提到 ` 键）会和几段
-// 之后的另一个配上对，中间所有的双链和挖空都被当成代码屏蔽掉。
-const INLINE_CODE = /(`+)(?:(?!\r?\n[ \t]*\r?\n)[^`]|(?!\1)`)*\1/g;
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
-
-// 围栏代码块按行判定，不用正则整体匹配：Markdown 的围栏规则本身就是逐行的，
-// 而带 m 标志的正则里 `$` 会匹配到行尾，未闭合围栏的兜底分支会提前收尾，
-// 结果只屏蔽掉代码块的第一行。
-function maskFencedCode(markdown) {
-  const lines = String(markdown ?? '').split('\n');
-  let fence = '';
-
-  return lines.map(line => {
-    const blanked = line.replace(/[^\n]/g, ' ');
-    if (fence) {
-      // 闭合围栏：同种字符，且不短于开启时的长度。
-      const closing = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
-      if (closing && closing[1][0] === fence[0] && closing[1].length >= fence.length) {
-        fence = '';
-      }
-      return blanked;
-    }
-    const opening = line.match(FENCE_OPEN);
-    if (opening) {
-      fence = opening[1];
-      return blanked;
-    }
-    return line;
-  }).join('\n');
-}
-
-// 用等长空格替换，保证匹配到的偏移量仍与原文对得上——renderWikilinks 要靠
-// 这些偏移量回到原文里做替换。
-function maskCode(markdown) {
-  return maskFencedCode(markdown).replace(INLINE_CODE, match => match.replace(/[^\n]/g, ' '));
 }
 
 /**

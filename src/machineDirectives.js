@@ -8,10 +8,17 @@
  * 都按原文的行号定位。以前顺手把连续空行压成一行，指令下面的待办行号就会和原文对不上，
  * 勾选时改到别的行或者报冲突。
  */
-const DIRECTIVE_LINE = /^[ \t]*<!--[ \t]*workstation:[\w-]+:v\d+(?:[ \t]+.*)?-->[ \t]*$/gm;
+const { maskCode } = require('./markdownCode');
+const DIRECTIVE_LINE = /^ {0,3}<!--[ \t]*workstation:[\w-]+:v\d+(?:[ \t]+.*)?-->[ \t]*$/gm;
+const singleLine = new RegExp(DIRECTIVE_LINE.source);
+const isDirectiveLine = line => singleLine.test(line);
 
 function stripMachineDirectives(markdown) {
-  return String(markdown ?? '').replace(DIRECTIVE_LINE, '');
+  const text = String(markdown ?? '');
+  if (!text.includes('workstation:')) return text;
+  const masked = maskCode(text);
+  return text.replace(DIRECTIVE_LINE, (line, offset) =>
+    masked[offset + line.indexOf('<')] === '<' ? '' : line);
 }
 
-module.exports = { DIRECTIVE_LINE, stripMachineDirectives };
+module.exports = { DIRECTIVE_LINE, isDirectiveLine, stripMachineDirectives };

@@ -1,5 +1,6 @@
 const test = require('node:test');
 const { waitForApi } = require('./desktop-test-utils');
+const { updateCard } = require('../src/cards');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -403,7 +404,12 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.getByRole('link', { name: 'memory', exact: true }).waitFor();
       assert.match(await fs.readFile(deckPath, 'utf8'), /## 什么是间隔重复？\s+在逐渐延长的间隔中回忆答案。/);
       await visit('/review?deck=memory');
-      await page.locator('#review-reveal').click();
+      await create.click();
+      await form.getByRole('button', { name: '取消', exact: true }).click();
+      await form.waitFor({ state: 'detached' });
+      assert.equal(await page.locator('#reviewer').evaluate(el => el === document.activeElement), true, '复习途中取消新建卡片后焦点应回到复习区以便空格翻面');
+      await page.keyboard.press('Space');
+      await page.waitForSelector('#review-back:not([hidden])');
       await create.click();
       assert.equal(await form.getByLabel('卡组文件').inputValue(), 'memory');
       await form.getByLabel('正面').fill('另一张卡');
@@ -553,6 +559,11 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.getByRole('button', { name: '保存', exact: true }).click();
       await page.waitForURL(url => url.pathname === '/cards');
       const row = page.locator('.card-row').filter({ hasText: '题目（改）' });
+      await page.mouse.move(0, 0);
+      await row.locator('.card-row-front').focus();
+      await row.locator('.card-row-action').evaluate(action =>
+        Promise.all(action.getAnimations().map(animation => animation.finished)));
+      assert.equal(await row.locator('.card-row-action').evaluate(el => getComputedStyle(el).opacity), '1');
       assert.doesNotMatch(await row.locator('.card-state').innerText(), /新卡/, '改正面后复习记录仍在');
       const changed = await fs.readFile(deckFile, 'utf8');
       assert.match(changed, /## 题目（改）\n<!-- workstation:card:v1 /);
@@ -632,9 +643,49 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       await page.reload();
       await page.locator('#review-undo-last').waitFor();
       assert.match(await page.locator('#review-summary').textContent(), /复习了 1 张/);
-      await page.getByRole('link', { name: '再来一轮' }).click();
+      assert.equal(await page.getByRole('link', { name: '再来一轮' }).getAttribute('href'), '/review?deck=resume');
+      await page.locator('[data-nav="today"]').click();
+      await page.locator('[data-nav="review"]').click();
+      await page.waitForURL(origin + '/decks');
+      await page.goto(origin + '/review?deck=resume');
       await page.locator('#review-empty').waitFor();
       assert.match(await page.locator('#review-empty h1').textContent(), /resume/);
+    });
+    await check('未评分轮次耗尽时读取最新队列，刷新恢复尊重期间的暂停操作', async () => {
+      const solePath = path.join(vault, 'cards', 'sole.md');
+      await fs.writeFile(solePath, '## 唯一问题\n\n唯一答案\n');
+      try {
+        await visit('/review?deck=sole');
+        await page.locator('#reviewer [data-card-create]').click();
+        const create = page.getByRole('dialog', { name: '新建卡片' });
+        await create.getByLabel('正面').fill('中途新增的问题');
+        await create.getByRole('button', { name: '保存', exact: true }).click();
+        await create.waitFor({ state: 'detached' });
+        await page.locator('#review-suspend').click();
+        await page.getByText('中途新增的问题', { exact: true }).waitFor();
+        // HTML 队列已生成，恢复请求尚未读取时，模拟同一张卡在另一处被暂停。
+        const restore = '**/api/review-round';
+        await page.route(restore, async route => {
+          await updateCard(vault, { id: 'sole/中途新增的问题', suspended: true });
+          await route.continue();
+        }, { times: 1 });
+        await page.reload();
+        await page.locator('#review-empty').waitFor();
+        assert.equal(await visible('#review-done'), false, '0 张已复习时暂停唯一卡片不应显示「这一轮复习完了」');
+        assert.equal(await page.locator('#review-empty').evaluate(el => el === document.activeElement), true);
+        await page.locator('#review-empty [data-card-create]').click();
+        const emptyForm = page.getByRole('dialog', { name: '新建卡片' });
+        await emptyForm.getByLabel('正面').fill('恢复新建卡');
+        await emptyForm.getByLabel('背面').fill('恢复答案');
+        await emptyForm.getByRole('button', { name: '保存', exact: true }).click();
+        await page.locator('#reviewer:not([hidden])').waitFor();
+        assert.equal(await page.locator('#reviewer').evaluate(el => el === document.activeElement), true, '从空状态建卡重载后焦点应落在复习区');
+        await page.locator('#review-suspend').click();
+        await page.locator('#review-empty').waitFor();
+        assert.equal(await page.locator('#review-empty').evaluate(el => el === document.activeElement), true);
+      } finally {
+        await fs.rm(solePath, { force: true });
+      }
     });
     await check('侧栏恢复搜索、计划筛选和月历中实际选中的日期', async () => {
       const sidebar = key => page.locator(`[data-nav="${key}"]`).click();

@@ -25,6 +25,7 @@
   const undoLastEl = document.getElementById('review-undo-last');
   const createEl = document.querySelector('#reviewer [data-card-create]');
   let returnTo = root.dataset?.returnTo || '/review';
+  const baseReturnTo = returnTo;
   const round = window.workstationRound;
   const emptyEl = document.getElementById('review-empty');
   const deck = root.dataset.deck || '';
@@ -73,6 +74,7 @@
         id: card.id, relearn: Boolean(card.relearn), reviewCount: revisions.get(card.id)
       }))
     });
+    window.workstationNavigation?.remember?.();
   }
 
   async function start() {
@@ -110,18 +112,25 @@
         if (saved.revealed && current()?.id === saved.remaining[0]?.id) reveal();
         checkpoint();
       } catch {
-        const message = document.createElement('p');
-        message.setAttribute('role', 'alert');
-        message.textContent = '未能恢复本轮复习。';
-        const retry = document.createElement('a');
-        retry.href = window.location.href;
-        retry.textContent = '重新读取';
-        message.append(retry);
-        root.before(message);
+        showReadError('未能恢复本轮复习。', window.location.href);
       }
       return;
     }
-    if (!queue.length) return;
+    if (queue.length) startNewRound();
+  }
+
+  function showReadError(text, href) {
+    const message = document.createElement('p');
+    message.setAttribute('role', 'alert');
+    message.textContent = text;
+    const retry = document.createElement('a');
+    retry.href = href;
+    retry.textContent = '重新读取';
+    message.append(retry);
+    root.before(message);
+  }
+
+  function startNewRound() {
     if (round) {
       for (const card of queue) revisions.set(card.id, card.reviewCount);
       token = createEventId();
@@ -421,6 +430,37 @@
   undoLastEl?.addEventListener('click', undoLast);
 
   async function finish() {
+    if (reviewedCards.size === 0 && failedAnswers.size === 0 && !lastAnswer && emptyEl) {
+      // 中途建卡、暂停或其他设备改动后，以服务端此刻的同组队列决定下一张。
+      restoring = true;
+      root.hidden = true;
+      doneEl.hidden = true;
+      emptyEl.hidden = true;
+      token = '';
+      returnTo = baseReturnTo;
+      round?.write(null);
+      history.replaceState(history.state, '', baseReturnTo);
+      window.workstationNavigation?.remember?.();
+      try {
+        const { cards } = await window.workstationUI.requestJson(baseReturnTo, { cache: 'no-store' });
+        queue = cards;
+        index = 0;
+        previousSteps = 0;
+        anySynced = false;
+        syncMessage = '';
+        revisions.clear();
+        relearnedCards.clear();
+        restoring = false;
+        if (queue.length) startNewRound();
+        else emptyEl.hidden = false;
+        if (document.activeElement === document.body || root.contains(document.activeElement)) {
+          (queue.length ? root : emptyEl).focus({ preventScroll: true });
+        }
+      } catch {
+        showReadError('未能读取当前复习队列。', baseReturnTo);
+      }
+      return;
+    }
     root.hidden = true;
     doneEl.hidden = false;
     summaryEl.textContent = relearnedCards.size

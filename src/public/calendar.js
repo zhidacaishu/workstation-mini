@@ -58,7 +58,7 @@
     if (keepNote) workspace.querySelector('[aria-labelledby="plan-day-tasks-title"]').replaceWith(parts.tasks);
     else workspace.querySelector('.plan-day-detail').replaceWith(parts.detail);
     plan.refreshTasks();
-    if (!active.isConnected) {
+    if (!active?.isConnected) {
       const target = monthButtonIndex >= 0 ? document.querySelectorAll('.plan-month-nav a')[monthButtonIndex]
         : wasInDay ? workspace.querySelector('[aria-current="date"]') : null;
       target?.focus({ preventScroll: true });
@@ -68,17 +68,29 @@
     }
   }
 
+  let returningKey = '';
   function returnToRenderedEntry() {
+    if (!navigation?.currentEntry || !renderedEntry) return;
     if (navigation.currentEntry.key !== renderedEntry.key) {
-      navigation.traverseTo(renderedEntry.key).finished.catch(() => {});
+      if (returningKey === renderedEntry.key) return;
+      returningKey = renderedEntry.key;
+      const targetKey = renderedEntry.key;
+      navigation.traverseTo(targetKey).finished
+        .catch(() => {})
+        .finally(() => { if (returningKey === targetKey) returningKey = ''; });
     }
   }
 
   async function selectDate(url, traversing) {
+    if (traversing && returningKey && navigation?.currentEntry?.key === returningKey) {
+      renderedEntry = navigation.currentEntry;
+      return;
+    }
     pending?.abort();
     const request = new AbortController();
     pending = request;
-    if (traversing && url.split('#')[0] === renderedEntry.url.split('#')[0]) {
+    if (traversing && (navigation?.currentEntry?.key === renderedEntry.key
+      || url.split('#')[0] === renderedEntry.url.split('#')[0])) {
       renderedEntry = navigation.currentEntry;
       return;
     }

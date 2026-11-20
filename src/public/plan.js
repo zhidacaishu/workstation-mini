@@ -16,6 +16,8 @@
       dates.set(form, form.querySelector('[name="due"]').value);
       form.classList.remove('is-edited');
       form.dataset.busy = '0';
+      const reschedule = form.querySelector('.plan-task-reschedule');
+      if (reschedule?.open) reschedule.open = false;
     }
   };
   window.addEventListener('beforeunload', event => {
@@ -24,6 +26,17 @@
     event.preventDefault();
     event.returnValue = '';
   });
+
+  function closeReschedules(target) {
+    if (document.querySelector?.('.message-dialog[open]')) return;
+    for (const form of tasks) {
+      if (form.classList.contains('is-edited')) continue;
+      const reschedule = form.querySelector('.plan-task-reschedule');
+      if (reschedule?.open && !reschedule.contains?.(target)) reschedule.open = false;
+    }
+  }
+  document.addEventListener?.('click', event => closeReschedules(event.target));
+  document.addEventListener?.('focusin', event => closeReschedules(event.target));
 
   function refreshTasks() {
     dates.clear();
@@ -36,7 +49,18 @@
     const baseline = date.defaultValue;
     const reschedule = form.querySelector('.plan-task-reschedule');
     const summary = reschedule?.querySelector('summary');
-    if (summary) {
+    dates.set(form, baseline);
+    const refreshDate = () => {
+      const edited = date.value !== dates.get(form);
+      form.classList.toggle('is-edited', edited);
+      if (summary) summary.textContent = edited ? '待保存' : '改期';
+      // 去掉已编辑任务的 name 属性，防止切开另一条待办时被原生手风琴强制折叠丢弃未保存日期。
+      if (reschedule) {
+        if (edited) reschedule.removeAttribute('name');
+        else reschedule.setAttribute('name', 'task-reschedule');
+      }
+    };
+    if (reschedule && summary) {
       reschedule.addEventListener('keydown', event => {
         if (event.key !== 'Escape' || !reschedule.open) return;
         event.preventDefault();
@@ -45,11 +69,6 @@
         summary.focus();
       });
     }
-    dates.set(form, baseline);
-    const refreshDate = () => {
-      form.classList.toggle('is-edited', date.value !== dates.get(form));
-      if (summary) summary.textContent = date.value !== dates.get(form) ? '待保存' : '改期';
-    };
     date.addEventListener('input', refreshDate);
     date.addEventListener('change', refreshDate);
     // 用户可能在defer脚本就绪前已编辑日期，服务端value属性才是已保存的基线。

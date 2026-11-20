@@ -457,4 +457,17 @@ test('本轮重学可读到暂未到期的卡，恢复时排除已暂停、跨�
   assert.equal((await global()).body.cards[0].deck, 'two');
   await fs.rm(path.join(ctx.vaultDir, 'cards', 'two.md'));
   assert.equal((await global()).body.cards.length, 0);
+
+  const manual = { front: '手写问题', back: '手写答案', deckFile: 'manual' };
+  await request(ctx.app).post('/cards/add').send(manual).expect(200);
+  const manualDup = await request(ctx.app).post('/cards/add').send(manual).expect(409);
+  assert.equal(manualDup.body.message, '「manual」已经有一张正面和背面相同的卡片。');
+  const sourced = { front: '摘录问题', back: '摘录答案', source: 'reading/a.md', deckFile: 'manual' };
+  await request(ctx.app).post('/cards/add').send(sourced).expect(200);
+  const sourcedDup = await request(ctx.app).post('/cards/add').send(sourced).expect(409);
+  assert.equal(sourcedDup.body.message, '「manual」已经有一张正面、背面和来源相同的卡片。');
+  const allCardsPage = await request(ctx.app).get('/cards').expect(200);
+  assert.match(allCardsPage.text, /data-resume-any hidden/);
+  const deckCardsPage = await request(ctx.app).get('/cards?deck=manual').expect(200);
+  assert.match(deckCardsPage.text, /data-resume-deck="manual" hidden/);
 });

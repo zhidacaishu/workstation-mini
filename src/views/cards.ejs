@@ -13,7 +13,7 @@
     <a class="button quiet" href="/decks">返回卡组</a>
     <%- include('partials/card-create-button', { buttonClass: 'button', file: defaultFile }) %>
     <% if (deck && canReview) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习</a><% } %>
-    <a class="button" data-resume-deck="<%= deck %>" hidden>继续上轮</a>
+    <a class="button" <% if (deck) { %>data-resume-deck="<%= deck %>"<% } else { %>data-resume-any<% } %> hidden>继续上轮</a>
   </div>
 </header>
 
@@ -42,8 +42,8 @@
           <% } %>
           <span class="card-row-back"><%- ui.cardPreview(card.type === 'cloze' ? card.question : card.back) || '（背面为空）' %></span>
         </div>
-        <span class="card-state <%= card.status.tone %>"><%= card.status.label %></span>
         <% if (!deck) { %><span class="card-row-deck"><%= card.deck %></span><% } %>
+        <span class="card-state <%= card.status.tone %>"><%= card.status.label %></span>
         <% if (!readOnly) { %>
           <form class="card-row-action" action="/cards/suspend" method="post">
             <input type="hidden" name="id" value="<%= card.id %>">

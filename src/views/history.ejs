@@ -13,10 +13,7 @@
   // 没选中记录时列表铺满；选中后再分出预览栏。
 %>
 <header class="page-head">
-  <div>
-    <h1>历史与草稿</h1>
-    <p class="page-meta">只保存在本机，不随 Git 同步。</p>
-  </div>
+  <h1>历史与草稿</h1>
   <% const filter = notePath || deckPath; if (filter) { %><p class="history-filter"><span class="chip" title="<%= filter %>"><%= filter %></span><a href="/history">查看全部</a></p><% } %>
 </header>
 
@@ -93,7 +90,6 @@
             <% }) } %>
           <% }) %>
         </div>
-        <p class="history-compare-legend"><span class="diff-count is-del">－</span> <%= comparison.draft ? '现在的文件里有、草稿里删掉的' : '这个版本里有、现在没有的' %>　<span class="diff-count is-add">＋</span> <%= comparison.draft ? '草稿里新写的' : '之后新写的' %></p>
       <% } %>
     </section>
   <% } %>

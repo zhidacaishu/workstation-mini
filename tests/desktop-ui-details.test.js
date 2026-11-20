@@ -340,8 +340,18 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
       }
       const form = page.locator('[data-plan-task]').first();
       const notePath = await form.locator('[name="path"]').inputValue();
+      const second = page.locator('[data-plan-task]').nth(1);
       const changed = today.slice(0, 8) + (today.endsWith('01') ? '02' : '01');
       await form.locator('[name="due"]').fill(changed);
+      const summary = form.locator('summary');
+      await summary.click();
+      assert.equal(await summary.innerText(), '待保存');
+      assert.equal(await page.evaluate(() => window.workstationPlan.hasUnsavedChanges()), true);
+      await summary.click();
+      assert.equal(await form.locator('[name="due"]').inputValue(), changed);
+      await second.locator('.plan-task-reschedule > summary').click();
+      assert.equal(await form.locator('details').getAttribute('open'), '', '点开另一条改期时不能折叠已改未保存的任务');
+      assert.equal(await form.locator('[name="due"]').inputValue(), changed);
       await form.locator('[data-task-save]').click();
       await page.waitForFunction(() => document.querySelectorAll('[data-plan-task]').length === 1);
       assert.ok((await fs.readFile(path.join(vault, 'notes', notePath), 'utf8')).includes('@' + changed));
