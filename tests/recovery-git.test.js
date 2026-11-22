@@ -283,8 +283,9 @@ test('离线完整性检查识别部分克隆缺失的 blob，并接受已补齐
   await git('remote', 'set-url', 'origin', VALID[0]);
   const inspect = () => createGitRecovery().inspectLocalRepository(backup);
   await assert.rejects(inspect, { code: 'incomplete-repository' });
-  await git('remote', 'set-url', 'origin', url);
-  await git('checkout', 'HEAD', '--', 'note.md');
-  await git('remote', 'set-url', 'origin', VALID[0]);
+  // 直接从已知原文补入唯一缺失的 blob，不依赖各平台 checkout 是否自动抓取。
+  const { stdout: wanted } = await git('rev-parse', 'HEAD:note.md');
+  const { stdout: written } = await git('hash-object', '-w', '--no-filters', path.join(source, 'note.md'));
+  assert.equal(written.trim(), wanted.trim());
   assert.deepEqual(await inspect(), { isRepo: true });
 });
