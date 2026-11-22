@@ -18,6 +18,20 @@ function job(name, next, source = workflow) {
   return source.slice(start, end);
 }
 
+test('日常推送和 PR 只跑 Linux，桌面平台由手动输入选择', () => {
+  assert.match(workflow, /^  pull_request:$/m);
+  assert.match(workflow, /^  push:\n    branches:\n      - main$/m);
+  assert.doesNotMatch(job('regression', 'verify'), /^    if:/m);
+  assert.match(job('verify', 'verify-mac'), /^    if: github\.event_name == 'workflow_dispatch' && \(inputs\.verify_windows \|\| inputs\.build_installer\)$/m);
+  assert.match(job('verify-mac'), /^    if: github\.event_name == 'workflow_dispatch' && inputs\.verify_macos$/m);
+  for (const input of ['verify_windows', 'verify_macos', 'build_installer']) {
+    const definition = workflow.match(new RegExp('^      ' + input + ':\\n((?:        [^\\n]+\\n)+)', 'm'));
+    assert.ok(definition, '缺少手动输入 ' + input);
+    assert.match(definition[1], /^        type: boolean$/m);
+    assert.match(definition[1], /^        default: false$/m);
+  }
+});
+
 test('CI 工作流检查兼容 CRLF checkout', () => {
   const normalized = normalizeLineEndings(workflow.replace(/\n/g, '\r\n'));
 

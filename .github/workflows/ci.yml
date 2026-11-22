@@ -7,8 +7,16 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      verify_windows:
+        description: Run Windows packaging and desktop tests
+        type: boolean
+        default: false
+      verify_macos:
+        description: Run macOS packaging and desktop tests
+        type: boolean
+        default: false
       build_installer:
-        description: Build the NSIS installer
+        description: Build the NSIS installer (also runs Windows verification)
         required: false
         default: false
         type: boolean
@@ -22,18 +30,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 快速回归：几分钟内给出「逻辑有没有坏」的答案。
-  #
-  # Windows 与 macOS 安装包通过独立 Release 工作流发布；绝大多数测试是纯
-  # Node 的，跑在哪个平台上都一样；桌面 smoke test 也能在 Xvfb 下真的开出窗口来。
-  # 把它们放在 Linux 上先跑一遍，就不必为了知道「应用还能不能启动」去等下面
-  # 那两个打包 job。
-  #
-  # 注意 Linux 在 platform-policy 里既不是 win32 也不是 darwin：没有登录启动这项
-  # 能力，和 macOS 同侧。测试要按能力分支，不能写成「非 macOS 即 Windows」——
-  # 那样这个 job 会稳定挂在只有 Windows 才有的菜单项上。
-  #
-  # Windows job 仍是发布门禁 —— 原生 ABI、路径语义和安装器只有那边能验。
+  # main 推送和 PR 只做 Linux 回归。桌面平台可在此手动选择，版本标签由 Release 完整验证。
   regression:
     name: Linux 回归测试
     runs-on: ubuntu-24.04
@@ -68,6 +65,7 @@ jobs:
         run: npm test
 
   verify:
+    if: github.event_name == 'workflow_dispatch' && (inputs.verify_windows || inputs.build_installer)
     name: Windows 打包与冒烟
     runs-on: windows-latest
     timeout-minutes: 30
@@ -129,6 +127,7 @@ jobs:
   # 只出 --dir 不出 DMG：要验的东西都在 .app 里，而 hdiutil 打包又慢又容易在
   # CI 上因为磁盘镜像挂载失败而抖。
   verify-mac:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_macos
     name: macOS 打包与冒烟
     runs-on: macos-15
     timeout-minutes: 30
