@@ -31,17 +31,17 @@ const scanner = installMathSyntax(new MarkdownIt({ html: false }));
 function maskMath(source) {
   const text = String(source ?? '');
   const starts = [0];
-  for (let i = 0; i < text.length; i += 1) if (text[i] === '\n') starts.push(i + 1);
+  for (const match of text.matchAll(/\r\n?|\n/g)) starts.push(match.index + match[0].length);
   const ranges = scanner.parse(text, {}).filter(token => token.type === 'math_block')
     .map(token => [starts[token.map[0]], starts[token.map[1]] ?? text.length]);
   const blank = (value, spans) => {
     const chars = value.split('');
-    for (const [start, end] of spans) for (let i = start; i < end; i += 1) if (chars[i] !== '\n') chars[i] = ' ';
+    for (const [start, end] of spans) for (let i = start; i < end; i += 1) if (chars[i] !== '\n' && chars[i] !== '\r') chars[i] = ' ';
     return chars.join('');
   };
   const blocksMasked = blank(text, ranges);
   const rule = scanner.inline.ruler.__rules__.find(rule => rule.name === 'math_inline_dollar').fn;
-  const state = new scanner.inline.State(blocksMasked, scanner, {}, []);
+  const state = new scanner.inline.State(blocksMasked.replace(/\r/g, '\n'), scanner, {}, []);
   const inlineRanges = [];
   while (state.pos < state.posMax) {
     const start = state.pos;

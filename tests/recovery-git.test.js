@@ -230,3 +230,61 @@ test('Git stderr 只映射安全类别而不向上透传', () => {
   assert.ok(!classified.message.includes('password'));
   assert.ok(!classified.message.includes(secret));
 });
+
+test('本地恢复拒绝依赖其他 Git 对象库的备份', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-objects-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const backup = path.join(root, 'backup');
+  await run('git', ['init', backup]);
+  await fs.writeFile(path.join(backup, '.git', 'objects', 'info', 'alternates'), path.join(root, 'original', '.git', 'objects') + '\n');
+  await assert.rejects(createGitRecovery().inspectLocalRepository(backup), { code: 'shared-object-store' });
+});
+
+test('可以恢复所有对象目录都在备份中的相对引用', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-contained-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await run('git', ['init', root]);
+  const objects = path.join(root, '.git', 'objects');
+  await fs.mkdir(path.join(root, '.git', 'local objects', 'info'), { recursive: true });
+  await fs.writeFile(path.join(objects, 'info', 'alternates'), '"../local\\040objects"\n');
+  assert.deepEqual(await createGitRecovery().inspectLocalRepository(root), { isRepo: true });
+});
+
+test('本地恢复区分无 Git 的资料库、损坏的 .git 和缺失的提交对象', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-incomplete-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const git = createGitRecovery();
+  assert.deepEqual(await git.inspectLocalRepository(root), { isRepo: false });
+  await fs.mkdir(path.join(root, '.git'));
+  await assert.rejects(git.inspectLocalRepository(root), { code: 'incomplete-repository' });
+  await run('git', ['init', root]);
+  await run('git', ['-C', root, '-c', 'user.name=test', '-c', 'user.email=test@example.com',
+    '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', 'one']);
+  const { stdout } = await run('git', ['-C', root, 'rev-parse', 'HEAD']);
+  const hash = stdout.trim();
+  await fs.rm(path.join(root, '.git', 'objects', hash.slice(0, 2), hash.slice(2)));
+  await assert.rejects(git.inspectLocalRepository(root), { code: 'incomplete-repository' });
+});
+
+test('离线完整性检查识别部分克隆缺失的 blob，并接受已补齐的备份', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-partial-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, 'source');
+  const backup = path.join(root, 'backup');
+  await run('git', ['init', source]);
+  await fs.writeFile(path.join(source, 'note.md'), 'test');
+  await run('git', ['-C', source, 'add', '.']);
+  await run('git', ['-C', source, '-c', 'user.name=test', '-c', 'user.email=test@example.com',
+    '-c', 'commit.gpgsign=false', 'commit', '-m', 'one']);
+  await run('git', ['-C', source, 'config', 'uploadpack.allowFilter', 'true']);
+  const url = require('node:url').pathToFileURL(source).href;
+  await run('git', ['clone', '--filter=blob:none', '--no-checkout', url, backup]);
+  const git = (...args) => run('git', ['-C', backup, ...args]);
+  await git('remote', 'set-url', 'origin', VALID[0]);
+  const inspect = () => createGitRecovery().inspectLocalRepository(backup);
+  await assert.rejects(inspect, { code: 'incomplete-repository' });
+  await git('remote', 'set-url', 'origin', url);
+  await git('checkout', 'HEAD', '--', 'note.md');
+  await git('remote', 'set-url', 'origin', VALID[0]);
+  assert.deepEqual(await inspect(), { isRepo: true });
+});

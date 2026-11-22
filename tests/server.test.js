@@ -516,3 +516,88 @@ test('退出同步到期取消实际操作，不再无限等待同一队列', as
   await finishSync(sync, () => running, 20, { warn() {} });
   assert.equal(cancelled, true);
 });
+
+test('客户端断线后停止运行时也等待已接纳的保存及其索引', { timeout: 20000 }, async t => {
+  const { startRuntime } = require('../src/runtime');
+  const { once } = require('node:events');
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-runtime-drain-'));
+  const config = loadConfig({ vaultDir, dbPath: ':memory:', syncEnabled: false, internalToken: 'test-session' });
+  const runtime = await startRuntime(config, { logger: { log() {}, warn() {} } });
+  const release = Promise.withResolvers();
+  t.after(async () => { release.resolve(); await runtime.stop(); await fs.rm(vaultDir, { recursive: true, force: true }); });
+  await runtime.indexReady;
+  const file = path.join(config.notesDir, 'sleep.md');
+  const note = await writeNote(config.notesDir, 'sleep.md', { raw: 'old' });
+  const entered = Promise.withResolvers();
+  const rename = fs.rename;
+  t.mock.method(fs, 'rename', async (source, target) => {
+    if (target === file) { entered.resolve(); await release.promise; }
+    return rename(source, target);
+  });
+  const controller = new AbortController();
+  const pending = fetch(runtime.origin + '/save', {
+    method: 'POST', signal: controller.signal,
+    headers: { 'Content-Type': 'application/json', 'x-workstation-internal-token': config.internalToken },
+    body: JSON.stringify({ path: 'sleep.md', body: 'new', expectedHash: note.hash })
+  }).catch(() => {});
+  await entered.promise;
+  const closed = once(runtime.server, 'close');
+  controller.abort();
+  const stopped = runtime.stop();
+  await closed;
+  assert.equal(runtime.db.raw.open, true);
+  const scan = runtime.indexer.scan;
+  const indexed = Promise.withResolvers();
+  t.mock.method(runtime.indexer, 'scan', async options => {
+    const stats = await scan(options);
+    indexed.resolve(runtime.db.getNote('sleep.md')?.body_raw);
+    return stats;
+  });
+  release.resolve();
+  await Promise.all([stopped, pending]);
+  assert.equal(await fs.readFile(file, 'utf8'), 'new');
+  assert.equal(await indexed.promise, 'new');
+  assert.equal(runtime.db.raw.open, false);
+});
+
+test('历史请求断线后退出仍等旧格式卡组历史迁移完成', { timeout: 20000 }, async t => {
+  const { startRuntime } = require('../src/runtime');
+  const { once } = require('node:events');
+  const id = require('node:crypto').randomUUID();
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-migrate-stop-'));
+  const local = path.join(vaultDir, '.workstation-local');
+  await fs.mkdir(local);
+  const legacy = { id, kind: 'version', path: 'cards/d.md', raw: '## Q', at: '2026-01-01T00:00:00Z' };
+  const file = path.join(local, id + '.json');
+  await fs.writeFile(file, JSON.stringify(legacy));
+  const config = loadConfig({ vaultDir, dbPath: ':memory:', syncEnabled: false, internalToken: 'test-session' });
+  const runtime = await startRuntime(config, { logger: { log() {}, warn() {} } });
+  const release = Promise.withResolvers();
+  t.after(async () => { release.resolve(); await runtime.stop(); await fs.rm(vaultDir, { recursive: true, force: true }); });
+  await runtime.indexReady;
+  const entered = Promise.withResolvers();
+  const rename = fs.rename;
+  t.mock.method(fs, 'rename', async (source, target) => {
+    if (target.startsWith(path.join(local, 'versions') + path.sep)) {
+      entered.resolve();
+      await release.promise;
+    }
+    return rename(source, target);
+  });
+  const controller = new AbortController();
+  const request = fetch(runtime.origin + '/history', {
+    signal: controller.signal, headers: { 'x-workstation-internal-token': config.internalToken }
+  }).catch(() => {});
+  await entered.promise;
+  const closed = once(runtime.server, 'close');
+  controller.abort();
+  const stopped = runtime.stop();
+  await closed;
+  assert.equal(runtime.db.raw.open, true);
+  release.resolve();
+  await Promise.all([stopped, request]);
+  await assert.rejects(fs.stat(file), { code: 'ENOENT' });
+  const { listDeckRecords, getRecord } = require('../src/vault/history');
+  const [migrated] = await listDeckRecords(vaultDir);
+  assert.equal((await getRecord(vaultDir, migrated.id)).raw, legacy.raw);
+});

@@ -9,7 +9,7 @@ const { sortTasks, extractTasks, LINE_BREAK } = require('../tasks');
 const { toLocalDate } = require('../templates');
 const { readNote, writeNote, deleteNote } = require('../vault/note');
 const { enqueueNote } = require('../vault/note-queue');
-const { blockWhenReadOnly, httpError } = require('./http');
+const { blockWhenReadOnly, httpError, writeHandler } = require('./http');
 
 const FILTERS = new Set(['all', 'overdue', 'today', 'undated', 'deadlines', 'done']);
 const notePathFor = date => 'calendar/' + date + '.md';
@@ -197,13 +197,13 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
     } catch (error) { next(error); }
   };
 
-  router.post(['/plan/notes', '/calendar/notes'], blockWhenReadOnly(config, '不能修改月历备注。'), saveCalendarNote);
+  router.post(['/plan/notes', '/calendar/notes'], blockWhenReadOnly(config, '不能修改月历备注。'), writeHandler(saveCalendarNote));
 
   /**
    * 快速添加待办：不用先打开一篇笔记。写成一行 `- [ ] 文字 @日期`，追加到今天的月历备注里
    * —— 那是「今天随手记的东西」本来就该去的地方，之后照常在笔记里改。
    */
-  router.post('/plan/tasks', blockWhenReadOnly(config, '不能添加待办。'), async (req, res, next) => {
+  router.post('/plan/tasks', blockWhenReadOnly(config, '不能添加待办。'), writeHandler(async (req, res, next) => {
     try {
       const text = String(req.body.text ?? '').replace(/\s+/g, ' ').trim();
       if (!text) throw httpError(400, '请先写下待办内容。');
@@ -245,7 +245,7 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
         res.redirect(target + (target.includes('?') ? '&' : '?') + 'added=1');
       }
     } catch (error) { next(error); }
-  });
+  }));
 
   return router;
 }

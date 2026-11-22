@@ -280,3 +280,23 @@ test('没有可用笔记路径的草稿可命名恢复，兼容已保存的旧�
   assert.match(recovery, /name="autoPath" value="1"/);
   assert.match(recovery, />正文<\/textarea>/);
 });
+
+test('恢复草稿只清理当时载入的版本，旧客户端缺少序号时保留草稿', async t => {
+  const c = await setup(t);
+  const id = crypto.randomUUID();
+  const note = await writeNote(c.notes, 'a.md', { raw: 'original' });
+  const draft = (sequence, raw) => request(c.app).post('/api/drafts/' + id).send({ sequence, path: 'a.md', raw }).expect(200);
+  const save = (body, expectedHash, sequence) => request(c.app).post('/save').set('Accept', 'application/json')
+    .send({ path: 'a.md', recoveredFrom: id, recoveredSequence: sequence, body, expectedHash }).expect(200);
+  await draft(1, 'first');
+  const page = await request(c.app).get('/recover/' + id).expect(200);
+  const sequence = page.text.match(/name="recoveredSequence" value="(\d+)"/)[1];
+  await draft(2, 'second');
+  await save('first', note.hash, sequence);
+  assert.equal((await getRecord(c.notes, id)).raw, 'second');
+  const hash = (await readNote(c.notes, 'a.md')).hash;
+  await save('first', hash, undefined);
+  assert.equal((await getRecord(c.notes, id)).sequence, 2);
+  await save('second', hash, 2);
+  assert.equal((await listRecords(c.notes)).some(row => row.id === id), false);
+});

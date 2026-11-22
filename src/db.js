@@ -24,7 +24,8 @@ const Database = require('better-sqlite3');
 // v10：双链只去掉最后的 .md，重建含版本号等点分文件名的正向和反向链接。
 // v11：重算 Markdown 一级标题和待办日期。
 // v12：重算因围栏与行内代码边界变化而受影响的双链。
-const SCHEMA_VERSION = 12;
+// v13：旧索引缺少仅用 CR 换行的公式块之后的双链。
+const SCHEMA_VERSION = 13;
 
 const SCHEMA = `
   -- 每篇笔记一行。body_raw / title_raw 是原文缓存，供 LIKE 兜底和渲染使用；

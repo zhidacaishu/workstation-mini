@@ -284,9 +284,12 @@ function createIndexer({
     return { kind: 'updated' };
   }
 
-  function reresolveLinks(stats, touched) {
-    if (stats.added || stats.removed) {
+  // 笔记事务和链接解析分开提交。重启或扫描失败后补做解析，文件原文可能完全没变。
+  let linksNeedRepair = true;
+  function reresolveLinks(stats, touched, force = false) {
+    if (linksNeedRepair || force || stats.added || stats.removed) {
       db.resolveAllLinks(buildResolver(db.listPaths()));
+      linksNeedRepair = false;
     } else if (stats.updated) {
       db.resolveLinksFrom(touched, buildResolver(db.listPaths()));
     }
@@ -299,6 +302,7 @@ function createIndexer({
   }
 
   function failScan(scanKind, error) {
+    linksNeedRepair = true;
     publish({ phase: 'error', scanKind, fatal: fatalFor(error) });
     throw error;
   }
@@ -336,7 +340,7 @@ function createIndexer({
         }
       }
 
-      reresolveLinks(stats, touched);
+      reresolveLinks(stats, touched, force);
       failureMap = nextFailures;
       return finishScan(kind, onDisk.length, onDisk.length, stats);
     } catch (error) {

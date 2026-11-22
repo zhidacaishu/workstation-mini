@@ -8,7 +8,7 @@ const { buildIndexResolver } = require('../vault/wikilink');
 const { enqueueFile } = require('../vault/note-queue');
 const { ensureSafeFilePath, isNotePath, toPosix, wikilinkTarget, basename, withNoteExtension } = require('../vault/paths');
 const { toLocalDate } = require('../templates');
-const { httpError, blockWhenReadOnly } = require('./http');
+const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
 
 const ATTACHMENTS_DIR = 'attachments';
 const IMAGE_LIMIT = 15 * 1024 * 1024;
@@ -102,7 +102,7 @@ function createEditorRoutes({ config, db, now = () => new Date() }) {
   router.post('/api/attachments',
     blockWhenReadOnly(config, '不能添加附件。'),
     express.raw({ type: () => true, limit: IMAGE_LIMIT }),
-    async (req, res, next) => {
+    writeHandler(async (req, res, next) => {
       try {
         const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
         if (data.length === 0) throw httpError(400, '没有收到图片内容。');
@@ -133,7 +133,7 @@ function createEditorRoutes({ config, db, now = () => new Date() }) {
         if (!name) throw httpError(409, '附件文件名冲突，请稍后再试。');
         res.json({ ok: true, name, path: `${ATTACHMENTS_DIR}/${name}`, markdown: `![[${name}]]`, bytes: data.length });
       } catch (error) { next(error); }
-    });
+    }));
 
   return router;
 }

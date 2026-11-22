@@ -143,6 +143,8 @@ function safeFailure(error, stage) {
     'authentication-failed': '无法使用系统 Git 凭据访问远端。',
     'remote-not-found': 'Git 远端不存在或当前身份无权访问。',
     'invalid-remote': 'Git 远端地址不合法。',
+    'incomplete-repository': '备份的 Git 历史不完整。请从完整的本地备份或远端恢复。',
+    'shared-object-store': '备份使用了共享 Git 对象库。请先制作含完整 Git 历史的独立备份。',
     'repository-credentials': '备份含仓库级凭据配置，未继续恢复。',
     'index-failed': '无法从 Markdown 建立索引。',
     'activation-validation-failed': '恢复候选目录在激活前发生变化。',

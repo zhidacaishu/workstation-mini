@@ -31,4 +31,12 @@ function blockWhenReadOnly(config, action) {
   };
 }
 
-module.exports = { httpError, blockWhenReadOnly };
+// 跟踪业务处理函数的 Promise。客户端断线后，它仍可能在保存或提交索引。
+function writeHandler(handler) {
+  return (req, res, next) => {
+    const run = () => handler(req, res, next);
+    return req.app.locals.trackWrite ? req.app.locals.trackWrite(run) : run();
+  };
+}
+
+module.exports = { httpError, blockWhenReadOnly, writeHandler };

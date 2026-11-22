@@ -1008,3 +1008,41 @@ test('从空远端克隆后首次完整同步可以创建上游', async t => {
   assert.equal(result.ok, true, result.error);
   assert.equal(git(path.join(root, 'hub'), 'show', 'main:n.md'), '首篇');
 });
+
+test('同步只向普通的规则文件写入，遇到目录时保留原状', async t => {
+  const dir = await makeRepo();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const sync = createSync({ vaultDir: dir, logger: quietLogger });
+  for (const [name, maintain] of [['.gitignore', sync.ensureGitignore], ['.gitattributes', sync.ensureGitattributes]]) {
+    await fs.mkdir(path.join(dir, name));
+    assert.equal((await maintain()).ok, false);
+    assert.equal((await fs.lstat(path.join(dir, name))).isDirectory(), true);
+  }
+});
+
+test('同步规则文件只接受普通文件，即使指向库内的链接也会被拒绝', async t => {
+  const dir = await makeRepo();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const original = '# custom\n';
+  await fs.writeFile(path.join(dir, 'custom-rules'), original);
+  const sync = createSync({ vaultDir: dir, logger: quietLogger });
+  for (const [name, maintain] of [['.gitignore', sync.ensureGitignore], ['.gitattributes', sync.ensureGitattributes]]) {
+    try { await fs.symlink('custom-rules', path.join(dir, name), 'file'); }
+    catch (error) { if (error.code === 'EPERM') { t.skip('本机不允许创建文件链接'); return; } throw error; }
+    assert.equal((await maintain()).ok, false);
+    assert.equal(await fs.readFile(path.join(dir, 'custom-rules'), 'utf8'), original);
+  }
+});
+
+test('已有规则文件不可写时保留原文', async t => {
+  const dir = await makeRepo();
+  const file = path.join(dir, '.gitignore');
+  t.after(async () => { await fs.chmod(file, 0o600); await fs.rm(dir, { recursive: true, force: true }); });
+  await fs.writeFile(file, '# keep\n');
+  await fs.chmod(file, 0o444);
+  const canWrite = await fs.access(file, fs.constants.W_OK).then(() => true, () => false);
+  if (canWrite) return t.skip('本机仍允许当前账号写入只读文件');
+  const sync = createSync({ vaultDir: dir, logger: quietLogger });
+  assert.equal((await sync.ensureGitignore()).ok, false);
+  assert.equal(await fs.readFile(file, 'utf8'), '# keep\n');
+});

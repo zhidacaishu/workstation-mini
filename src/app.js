@@ -34,6 +34,7 @@ const BODY_LIMIT = '10mb';
 
 function createApp(config, deps) {
   const app = express();
+  app.locals.trackWrite = deps?.trackWrite;
   const noopSync = async () => ({ ok: true, skipped: '同步未配置' });
   const resolved = {
     sync: {

@@ -173,9 +173,8 @@ function versionEntries(key, names) {
 async function pruneVersions(root, key, now = Date.now()) {
   const directory = `${DIRECTORY}/versions/${key}`;
   const entries = versionEntries(key, await listDirectory(root, directory)).sort(newestFirst);
-  // 删卡前的整份卡组：KEEP_DAYS 天内全留，更早的每天只留当天最早的一份。一天里连删
-  // 多张卡时，最早那份里有当天删掉的全部卡片，其余几份是它的子集。不这样收的话，
-  // 每删一张卡就永久多一份整个卡组。
+  // 删卡前的整份卡组：KEEP_DAYS 天内全留，更早的每天只留当天最早的一份。
+  // 当天稍后新增或编辑的卡可能只存在于后续快照中。
   const earliestCardOfDay = new Map();
   for (const entry of entries) if (entry.reason === 'card') earliestCardOfDay.set(entry.day, entry.name);
   const keptDays = new Set();
@@ -274,17 +273,6 @@ async function removeDraft(root, id, sequence) {
   });
 }
 
-/** 从草稿恢复并保存成功以后，那份草稿已经用掉了：不管序号，直接删。 */
-async function discardDraft(root, id) {
-  if (!UUID.test(String(id))) return;
-  await migrated(root);
-  const relative = `${DIRECTORY}/drafts/${id}.json`;
-  await enqueueFile(root, relative, async () => {
-    try { await fs.rm(await ensureSafeFilePath(root, relative)); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
-  });
-}
-
 /**
  * 清掉很久没动过的草稿。放弃编辑留下的草稿没有别的出口，不清就只增不减，
  * 而每次打开编辑页都要把全部草稿读一遍。
@@ -360,5 +348,5 @@ module.exports = {
   listDeckRecords,
   DIRECTORY, KEEP_RECENT, KEEP_DAYS,
   DRAFT_KEEP_DAYS,
-  getRecord, listRecords, saveVersion, saveDraft, removeDraft, discardDraft, pruneVersions, pruneDrafts, noteKey
+  getRecord, listRecords, saveVersion, saveDraft, removeDraft, pruneVersions, pruneDrafts, noteKey
 };

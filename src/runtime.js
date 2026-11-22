@@ -63,10 +63,11 @@ function listen(server, port, host) {
   });
 }
 
-function closeServer(server, timeoutMs = 5_000) {
+function closeServer(server, timeoutMs = 5_000, writesDone = Promise.resolve()) {
   if (!server?.listening) return Promise.resolve();
   return new Promise((resolve, reject) => {
     let settled = false;
+    let timer;
     const finish = error => {
       if (settled) return;
       settled = true;
@@ -74,11 +75,14 @@ function closeServer(server, timeoutMs = 5_000) {
       if (error) reject(error);
       else resolve();
     };
-    const timer = setTimeout(() => {
-      server.closeAllConnections?.();
-      finish();
-    }, timeoutMs);
-    timer.unref?.();
+    writesDone.then(() => {
+      if (settled) return;
+      timer = setTimeout(() => {
+        server.closeAllConnections?.();
+        finish();
+      }, timeoutMs);
+      timer.unref?.();
+    });
     server.close(finish);
     server.closeIdleConnections?.();
   });
@@ -107,6 +111,14 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
   let syncNowQueue = Promise.resolve();
   let stopPromise;
   let stopping = false;
+  let draftCleanup;
+  const writes = new Set();
+  async function trackWrite(operation) {
+    if (stopping) throw Object.assign(new Error('应用正在停止，请稍后重试。'), { status: 503 });
+    const result = Promise.resolve().then(operation);
+    writes.add(result);
+    try { return await result; } finally { writes.delete(result); }
+  }
 
   try {
     await Promise.all([config.vaultDir, config.notesDir, config.reviewsDir, config.attachmentsDir]
@@ -149,7 +161,7 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
     }
 
     const app = createApp(config, {
-      db, indexer, search, sync, syncReviewNow, guide,
+      db, indexer, search, sync, syncReviewNow, guide, trackWrite,
       getIndexStatus: () => ({ ...indexer.getStatus(), notes: db.countNotes() })
     });
     server = http.createServer(app);
@@ -166,7 +178,7 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
 
     // 顺手清掉 30 天没动过的草稿；只读模式不产生草稿，也不该动磁盘。
     if (!config.readOnly) {
-      pruneDrafts(config.notesDir).then(removed => {
+      draftCleanup = pruneDrafts(config.notesDir).then(removed => {
         if (removed) logger.log?.(`[history] 清理了 ${removed} 份超过 30 天的草稿`);
       }).catch(error => logger.warn?.(`[history] 清理旧草稿失败：${error.message}`));
     }
@@ -235,14 +247,19 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
         async function settle(operation) {
           try { return await operation(); } catch (error) { failure ||= error; return undefined; }
         }
-        await settle(() => closeServer(server));
+        const writesDone = Promise.allSettled([...writes, draftCleanup]);
+        const closed = closeServer(server, 5_000, writesDone);
         await settle(() => finishSync(sync, async () => {
           await syncNowQueue;
           await sync.idle();
-          if (gitWritesEnabled && finalSync && !sync.getStatus().recovery) {
-            await sync.commitAndPush('科研工作台退出前提交 ' + new Date().toISOString(), { timeout: EXIT_GIT_TIMEOUT_MS });
-          }
         }, EXIT_WAIT_MS, logger));
+        await settle(() => closed);
+        await writesDone;
+        if (gitWritesEnabled && finalSync && !sync.getStatus().recovery) {
+          await settle(() => finishSync(sync, () => sync.commitAndPush(
+            '科研工作台退出前提交 ' + new Date().toISOString(), { timeout: EXIT_GIT_TIMEOUT_MS }
+          ), EXIT_WAIT_MS, logger));
+        }
         await settle(() => indexer.idle());
         await settle(() => db.close());
         if (failure) throw failure;
@@ -280,7 +297,10 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
   } catch (error) {
     if (syncTimer) clearInterval(syncTimer);
     try { watcher?.close(); } catch {}
-    try { await closeServer(server); } catch {}
+    stopping = true;
+    const writesDone = Promise.allSettled([...writes, draftCleanup]);
+    try { await closeServer(server, 5_000, writesDone); } catch {}
+    await writesDone;
     try { await sync?.idle(); } catch {}
     try { await indexer?.idle(); } catch {}
     try { db?.close(); } catch {}

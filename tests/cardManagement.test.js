@@ -19,12 +19,14 @@ async function setup(t, { readOnly = false } = {}) {
   await fs.mkdir(config.notesDir, { recursive: true });
   const db = openDatabase(':memory:');
   const indexer = createIndexer({ db, vaultDir: config.notesDir });
-  const app = createApp(config, { db, indexer, search: createSearch(db), now: () => new Date('2026-10-28T10:00:00Z') });
+  const now = () => new Date('2026-10-28T10:00:00Z');
+  const review = createReviewService({ vaultDir, device: config.device, now });
+  const app = createApp(config, { db, indexer, search: createSearch(db), now, review });
   t.after(async () => {
     db.close();
     await fs.rm(vaultDir, { recursive: true, force: true });
   });
-  return { app, vaultDir, review: app.locals?.review };
+  return { app, vaultDir, review };
 }
 
 const read = (vaultDir, file) => fs.readFile(path.join(vaultDir, 'cards', file), 'utf8');
@@ -381,4 +383,60 @@ test('缩进与围栏内的元数据示例在卡组文件和复习题面中保�
     assert.match(card.back, /<pre\b[^>]*><code\b/);
     assert.match(card.back, /workstation:card:v1/);
   }
+});
+
+test('新增带后缀的题面、删除跨卡组原卡或重建同名卡都不会转移评分', async t => {
+  const { vaultDir, hash, review, counts } = await vaultWithReviews(t);
+  const add = (deckFile, front, back) => appendCard(vaultDir, { deckFile, front, back, checkDuplicate: true });
+  await fs.mkdir(path.join(vaultDir, 'cards'));
+  await fs.writeFile(path.join(vaultDir, 'cards', 'd.md'), '## A\n\none\n\n## A\n\ntwo\n');
+  await review('d/A-2', 2);
+  await add('d', 'A-2', 'three');
+  assert.deepEqual(await counts(), { 'cards/d.md:A:one': 0, 'cards/d.md:A:two': 2, 'cards/d.md:A-2:three': 0 });
+
+  await add('a', 'Q', 'original');
+  await review('a/Q', 3);
+  await updateCard(vaultDir, { id: 'a/Q', expectedHash: await hash('a.md'), deckFile: 'z' });
+  // 模拟旧版本已经存在的、尚未把后缀写入元数据的卡。
+  await fs.writeFile(path.join(vaultDir, 'cards', 'a.md'), '## Q\n\nsecond\n');
+  await review('a/Q-2', 1);
+  await deleteCard(vaultDir, { id: 'a/Q', expectedHash: await hash('z.md') });
+  assert.equal((await counts())['cards/a.md:Q:second'], 1);
+  assert.equal((await loadAllCards(vaultDir)).find(card => card.back === 'second').id, 'a/Q-2');
+  await add('a', 'Q', 'third');
+  assert.equal((await counts())['cards/a.md:Q:third'], 0);
+});
+
+test('编辑页使用卡片正文所在快照的哈希，旧页面提交会报告冲突', async t => {
+  const { vaultDir, app, review } = await setup(t);
+  await appendCard(vaultDir, { deckFile: 'deck', front: 'Q', back: 'old' });
+  const snapshot = await review.allCards();
+  const before = await readNote(vaultDir, 'cards/deck.md');
+  t.mock.method(review, 'allCards', async () => snapshot);
+  await fs.writeFile(path.join(vaultDir, 'cards', 'deck.md'), before.raw.replace('old', 'new'));
+  const page = await request(app).get('/cards/edit').query({ id: 'deck/Q' }).expect(200);
+  const expectedHash = page.text.match(/name="expectedHash" value="([^"]+)"/)[1];
+  assert.equal(expectedHash, before.hash);
+  await request(app).post('/cards/update').send({ id: 'deck/Q', expectedHash, front: 'changed', back: 'old' }).expect(409);
+  assert.match(await read(vaultDir, 'deck.md'), /new/);
+});
+
+test('整组恢复时已移走的活卡保留身份与评分', async t => {
+  const { vaultDir, app, review } = await setup(t);
+  const hash = async file => (await readNote(vaultDir, 'cards/' + file + '.md')).hash;
+  await appendCard(vaultDir, { deckFile: 'z', front: 'Q', back: 'first' });
+  await updateCard(vaultDir, { id: 'z/Q', deckFile: 'a', expectedHash: await hash('z') });
+  await updateCard(vaultDir, { id: 'z/Q', deckFile: 'y', back: 'changed', expectedHash: await hash('a') });
+  await review.answer('z/Q', 3, 1000);
+  await appendCard(vaultDir, { deckFile: 'z', front: 'Q', back: 'retired' });
+  await review.answer('z/Q-2', 3, 1000);
+  await deleteCard(vaultDir, { id: 'z/Q-2', expectedHash: await hash('z') });
+  const { listRecords } = require('../src/vault/history');
+  const [snapshot] = await listRecords(vaultDir, 'cards/a.md');
+  await request(app).post('/history/restore-deck').type('form')
+    .send({ id: 'deck:' + snapshot.id, expectedHash: await hash('a') }).expect(302);
+  const cards = await review.withStates();
+  assert.equal(cards.find(card => card.back === 'changed').id, 'z/Q');
+  assert.equal(cards.find(card => card.back === 'changed').state.reviewCount, 1);
+  assert.equal(cards.find(card => card.back === 'first').state.reviewCount, 0);
 });

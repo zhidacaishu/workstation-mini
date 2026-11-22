@@ -11,7 +11,10 @@
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="isNew" value="<%= isNew ? '1' : '0' %>">
   <input type="hidden" name="autoPath" value="<%= autoPathMode ? '1' : '0' %>">
-  <% if (recovered && typeof recoveredFrom !== 'undefined' && recoveredFrom) { %><input type="hidden" name="recoveredFrom" value="<%= recoveredFrom %>"><% } %>
+  <% if (recovered && typeof recoveredFrom !== 'undefined' && recoveredFrom) { %>
+    <input type="hidden" name="recoveredFrom" value="<%= recoveredFrom %>">
+    <input type="hidden" name="recoveredSequence" value="<%= recoveredSequence %>">
+  <% } %>
 
   <header class="editor-head">
     <div class="editor-title">

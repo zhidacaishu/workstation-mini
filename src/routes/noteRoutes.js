@@ -5,8 +5,8 @@ const { buildIndexResolver } = require('../vault/wikilink');
 const { isSafeRelativePath, isNotePath, toPosix, sectionOf, encodePath, withNoteExtension, basename } = require('../vault/paths');
 const { readNote, writeNote, deleteNote } = require('../vault/note');
 const { enqueueNote } = require('../vault/note-queue');
-const { discardDraft } = require('../vault/history');
-const { httpError, blockWhenReadOnly } = require('./http');
+const { removeDraft } = require('../vault/history');
+const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
 
 function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
   const router = express.Router();
@@ -160,7 +160,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
 
   // 编辑器提交的是完整原文（含 frontmatter），直接落盘。
   // 正文是唯一真相，这里不做任何「智能」改写。
-  router.post('/save', guard, async (req, res, next) => {
+  router.post('/save', guard, writeHandler(async (req, res, next) => {
     try {
       // 路径可以不写 .md：这里统一补上，前端和草稿用同一条规则。
       const requestedPath = withNoteExtension(req.body.path);
@@ -210,7 +210,10 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
         return writeNote(config.notesDir, notePath, { raw: body });
       });
       // 从草稿恢复的内容保存好了，那份草稿就用掉了；不删的话编辑页会一直提示「有草稿」。
-      if (req.body.recoveredFrom) await discardDraft(config.notesDir, String(req.body.recoveredFrom)).catch(() => {});
+      const sequence = Number(req.body.recoveredSequence);
+      if (req.body.recoveredFrom && Number.isSafeInteger(sequence) && sequence > 0) {
+        await removeDraft(config.notesDir, String(req.body.recoveredFrom), sequence).catch(() => {});
+      }
       await indexer.scan({ paths: [savedPath] });
       const redirect = `/note/${encodePath(savedPath)}`;
       if ((req.get('accept') || '').includes('application/json')) {
@@ -221,9 +224,9 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
-  router.post('/delete', guard, async (req, res, next) => {
+  router.post('/delete', guard, writeHandler(async (req, res, next) => {
     try {
       const requestedPath = String(req.body.path || '').trim();
       if (!isNotePath(requestedPath)) throw httpError(400, '路径不合法。');
@@ -248,7 +251,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
   // 命令面板空查询显示最近笔记，非空查询执行全文检索。
   router.get('/api/search', (req, res) => {
@@ -271,21 +274,21 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
     });
   });
 
-  router.post('/api/reindex', async (req, res, next) => {
+  router.post('/api/reindex', writeHandler(async (req, res, next) => {
     try {
       res.json(await indexer.scan({ force: true, kind: 'full' }));
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
-  router.post('/api/index-retry', async (req, res, next) => {
+  router.post('/api/index-retry', writeHandler(async (req, res, next) => {
     try {
       res.json(await indexer.retry());
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
   return router;
 }

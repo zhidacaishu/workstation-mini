@@ -313,14 +313,14 @@ function createSync({
   async function ensureGitignoreOnce(options) {
     const denied = await beginMutation('gitignore', options);
     if (denied) return denied;
-    const gitignorePath = path.join(vaultDir, '.gitignore');
     try {
+      const gitignorePath = await ensureSafeFilePath(vaultDir, '.gitignore', { allowMissing: true });
       let existing = '';
       try {
         existing = await fs.readFile(gitignorePath, 'utf8');
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
-        await fs.writeFile(gitignorePath, renderGitignore(BASE_IGNORE_RULES), 'utf8');
+        await writeVaultText('.gitignore', renderGitignore(BASE_IGNORE_RULES), 0o666);
         return finish({ ok: true, created: true });
       }
       const rules = new Set(existing.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('#')));
@@ -337,7 +337,7 @@ function createSync({
         const rendered = missing.map(patch => patch.text.replaceAll('\n', newline)).join(newline);
         next = `${next}${lead}${gap}${rendered}`;
       }
-      await fs.writeFile(gitignorePath, next, 'utf8');
+      await writeVaultText('.gitignore', next, (await fs.lstat(gitignorePath)).mode);
 
       if (mediaUpdated !== null) {
         return finish({
@@ -362,14 +362,14 @@ function createSync({
   async function ensureGitattributesOnce(options) {
     const denied = await beginMutation('gitattributes', options);
     if (denied) return denied;
-    const attributesPath = path.join(vaultDir, '.gitattributes');
     try {
+      const attributesPath = await ensureSafeFilePath(vaultDir, '.gitattributes', { allowMissing: true });
       let existing;
       try {
         existing = await fs.readFile(attributesPath, 'utf8');
       } catch (error) {
         if (error.code !== 'ENOENT') throw error;
-        await fs.writeFile(attributesPath, VAULT_GITATTRIBUTES, 'utf8');
+        await writeVaultText('.gitattributes', VAULT_GITATTRIBUTES, 0o666);
         return finish({ ok: true, created: true });
       }
       const present = new Set(existing.split(/\r?\n/).map(line => line.trim().replace(/\s+/g, ' ')));
@@ -377,7 +377,7 @@ function createSync({
       if (missing.length === 0) return finish({ ok: true, unchanged: true });
       const newline = existing.includes('\r\n') ? '\r\n' : '\n';
       const lead = existing && !existing.endsWith('\n') ? newline : '';
-      await fs.writeFile(attributesPath, `${existing}${lead}${missing.join(newline)}${newline}`, 'utf8');
+      await writeVaultText('.gitattributes', `${existing}${lead}${missing.join(newline)}${newline}`, (await fs.lstat(attributesPath)).mode);
       return finish({ ok: true, appended: true });
     } catch (error) {
       logger.warn(`[sync] 更新 .gitattributes 失败：${error.message}`);
@@ -903,14 +903,16 @@ function createSync({
     }
   }
 
-  async function writeReviewLog(file, content) {
+  async function writeVaultText(file, content, mode = 0o600) {
     const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true, createParents: true });
     // 全部内容先落到独占临时文件；磁盘满或写入中断时保留原日志。
+    if (mode > 0o777) await fs.access(absolute, fs.constants.W_OK);
     const temporary = absolute + '.tmp-' + randomUUID();
     try {
-      const handle = await fs.open(temporary, 'wx', 0o600);
+      const handle = await fs.open(temporary, 'wx', mode & 0o777);
       try {
         await handle.writeFile(content, 'utf8');
+        if (mode > 0o777 && process.platform !== 'win32') await handle.chmod(mode & 0o777);
         await handle.sync();
       } finally { await handle.close(); }
       // 替换前再次校验，现有链接和不安全父路径一律拒绝。
@@ -939,7 +941,7 @@ function createSync({
           const missing = item.content.split(/\r?\n/).filter(line => line && !known.has(line) && isJsonLine(line));
           if (missing.length === 0) continue;
           const lead = current && !current.endsWith('\n') ? '\n' : '';
-          await writeReviewLog(item.path, `${current}${lead}${missing.join('\n')}\n`);
+          await writeVaultText(item.path, `${current}${lead}${missing.join('\n')}\n`);
           preserved.push({ path: item.path, kind: 'review', count: missing.length });
         } else if (history.delete(item.path)) {
           // 同一文件的暂存和工作区版本可能都已存入历史，界面按文件计数。
@@ -1149,7 +1151,7 @@ function createSync({
         lines.push(line);
       }
     }
-    await writeReviewLog(file, lines.length ? lines.join('\n') + '\n' : '');
+    await writeVaultText(file, lines.length ? lines.join('\n') + '\n' : '');
   }
 
   async function resolveConflictsOnce(choices, options = {}) {

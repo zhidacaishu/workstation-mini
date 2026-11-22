@@ -79,3 +79,13 @@ test('正文目录复用渲染锚点，保留标题层级并排除页标题与�
   for (const entry of entries) assert.match(html, new RegExp('<h' + entry.level + ' id="' + entry.id + '"'));
   assert.ok(!entries.some(item => /目录测试|示例不入目录/.test(item.text)));
 });
+
+test('各种换行下公式都保留原文偏移，公式后的双链可解析和点击', () => {
+  for (const newline of ['\n', '\r\n', '\r']) {
+    const raw = ['$$', '[[hidden]]', '$$', '', '🔗 [[target]]'].join(newline);
+    assert.deepEqual(parseWikilinks(raw).map(x => [x.target, x.index]), [['target', raw.indexOf('[[target]]')]]);
+    assert.match(renderMarkdown(raw, () => 'target.md'), /href="\/note\/target\.md"/);
+    const separate = ['before $one', '[[target]] two$'].join(newline);
+    assert.equal(parseWikilinks(separate).length, 1);
+  }
+});

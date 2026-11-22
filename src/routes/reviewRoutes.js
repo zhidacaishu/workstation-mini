@@ -6,9 +6,8 @@ const { renderMarkdown } = require('../markdown');
 const { buildIndexResolver } = require('../vault/wikilink');
 const { isSafeRelativePath } = require('../vault/paths');
 const { CARD_TYPES, DEFAULT_TYPE, appendCard, updateCard, deleteCard, listDeckFiles, renderClozeAnswer } = require('../cards');
-const { readNote } = require('../vault/note');
 const { toLocalDate } = require('../templates');
-const { httpError, blockWhenReadOnly } = require('./http');
+const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
 
 const isTrue = value => value === true || value === 'true' || value === '1' || value === 'on';
 
@@ -106,7 +105,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
   });
 
   // 记一次复习。只读模式同样允许。
-  router.post('/review/answer', async (req, res, next) => {
+  router.post('/review/answer', writeHandler(async (req, res, next) => {
     try {
       const eventId = String(req.body.eventId || '').trim();
       const cardId = String(req.body.cardId || '').trim();
@@ -122,16 +121,16 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
       }
       next(error);
     }
-  });
+  }));
 
   /** 撤销刚才那一次评分（只限本机日志的最后一条）。 */
-  router.post('/review/undo', async (req, res, next) => {
+  router.post('/review/undo', writeHandler(async (req, res, next) => {
     try {
       res.json(await service.undo(String(req.body.eventId || '')));
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
   /**
    * 一次复习结束后把事件日志提交推送。
@@ -139,7 +138,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
    * 只读模式也允许推送 reviews/ 下按设备分隔的追加式文件。
    * 必须先拉再推，避免其它设备的新提交导致 non-fast-forward。
    */
-  router.post('/review/sync', async (req, res, next) => {
+  router.post('/review/sync', writeHandler(async (req, res, next) => {
     try {
       if (!config.syncEnabled) {
         res.json({ ok: true, skipped: '同步未启用' });
@@ -155,7 +154,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
   router.get('/api/card-decks', async (req, res, next) => {
     try { res.json(await listDeckFiles(config.vaultDir)); }
@@ -163,7 +162,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
   });
 
   /** 手写与划词建卡都追加到卡组文件，划词建卡额外保留来源。 */
-  router.post('/cards/add', blockMarkdownWrite, async (req, res, next) => {
+  router.post('/cards/add', blockMarkdownWrite, writeHandler(async (req, res, next) => {
     try {
       const front = String(req.body.front || '').trim();
       const back = String(req.body.back || '');
@@ -187,7 +186,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
     } catch (error) {
       next(error);
     }
-  });
+  }));
 
   // ---------- 卡片管理 ----------
 
@@ -233,18 +232,17 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
       const id = String(req.query.id || '');
       const card = (await service.allCards()).find(item => item.id === id);
       if (!card) throw httpError(404, '卡片不存在或已被删除。');
-      const file = await readNote(config.vaultDir, card.path);
       res.render('card-edit', {
         title: '编辑卡片',
         card,
-        expectedHash: file.hash,
+        expectedHash: card.sourceHash,
         deckFiles: await listDeckFiles(config.vaultDir),
         returnTo: safeReturn(req.query.returnTo, `/cards?deck=${encodeURIComponent(card.deck)}`)
       });
     } catch (error) { next(error); }
   });
 
-  router.post('/cards/update', blockMarkdownWrite, async (req, res, next) => {
+  router.post('/cards/update', blockMarkdownWrite, writeHandler(async (req, res, next) => {
     try {
       const json = req.is('application/json');
       const result = await updateCard(config.vaultDir, {
@@ -261,19 +259,19 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
       if (wantsJson(req)) { res.json({ ok: true, ...result, redirect }); return; }
       res.redirect(redirect);
     } catch (error) { next(error); }
-  });
+  }));
 
   // 只切换暂停状态：复习中途和卡片列表里一键操作，不需要卡组版本号。
-  router.post('/cards/suspend', blockMarkdownWrite, async (req, res, next) => {
+  router.post('/cards/suspend', blockMarkdownWrite, writeHandler(async (req, res, next) => {
     try {
       const suspended = isTrue(req.body.suspended);
       const result = await updateCard(config.vaultDir, { id: req.body.id, suspended });
       if (wantsJson(req)) { res.json({ ok: true, suspended, ...result }); return; }
       res.redirect(safeReturn(req.body.returnTo, '/decks'));
     } catch (error) { next(error); }
-  });
+  }));
 
-  router.post('/cards/delete', blockMarkdownWrite, async (req, res, next) => {
+  router.post('/cards/delete', blockMarkdownWrite, writeHandler(async (req, res, next) => {
     try {
       const result = await deleteCard(config.vaultDir, { id: req.body.id, expectedHash: String(req.body.expectedHash || '') });
       if (wantsJson(req)) { res.json({ ok: true, ...result }); return; }
@@ -281,7 +279,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
       // 从复习页进来删掉的卡，回到复习页会重新排队，不会再出现。
       res.redirect(returnTo);
     } catch (error) { next(error); }
-  });
+  }));
 
   return router;
 }

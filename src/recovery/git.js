@@ -19,6 +19,51 @@ function externalGitDirectoryError() {
   return new RecoveryGitError('external-git-directory', '本地备份的 Git 数据不在资料库内部，未继续恢复。');
 }
 
+// Git 的双引号路径采用 C 转义，八进制表示文件名中的 UTF-8 字节。
+function alternatePath(line) {
+  if (!line.startsWith('"')) return line;
+  if (!/^"(?:[^"\\]|\\(?:[abfnrtv"\\]|[0-3][0-7]{2}))*"$/.test(line)) throw sharedStoreError();
+  const escapes = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '"': 34, '\\': 92 };
+  const parts = line.slice(1, -1).match(/[^\\]+|\\(?:[0-3][0-7]{2}|.)/g) || [];
+  const bytes = parts.map(part => {
+    if (!part.startsWith('\\')) return Buffer.from(part);
+    return Buffer.from([part.length === 2 ? escapes[part[1]] : parseInt(part.slice(1), 8)]);
+  });
+  return Buffer.concat(bytes).toString('utf8');
+}
+
+// 相对引用的对象目录可以一同复制。绝对路径在候选目录改名后也可能失效。
+async function checkLocalObjectStores(candidateDir, gitDir) {
+  const root = await fsp.realpath(candidateDir);
+  const visited = new Set();
+  async function visit(directory) {
+    const objects = await fsp.realpath(directory);
+    const relative = path.relative(root, objects);
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw sharedStoreError();
+    if (visited.has(objects)) return;
+    visited.add(objects);
+    let contents;
+    try { contents = await fsp.readFile(path.join(objects, 'info', 'alternates'), 'utf8'); }
+    catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    for (const line of contents.split(/\r?\n/)) {
+      if (!line || line.startsWith('#')) continue;
+      const alternate = alternatePath(line);
+      if (!alternate || path.isAbsolute(alternate)) throw sharedStoreError();
+      try { await visit(path.resolve(objects, alternate)); }
+      catch (error) { if (error.code === 'ENOENT') throw sharedStoreError(); throw error; }
+    }
+  }
+  await visit(path.join(gitDir, 'objects'));
+}
+
+function incompleteRepository() {
+  return new RecoveryGitError('incomplete-repository', '备份的 Git 历史不完整。请从完整的本地备份或远端恢复。');
+}
+
+function sharedStoreError() {
+  return new RecoveryGitError('shared-object-store', '无法确认 Git 对象库能随备份迁移。请先制作含完整 Git 历史的独立备份。');
+}
+
 function safeSshPath(value) {
   let decoded;
   try {
@@ -145,7 +190,7 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs 
         timeout: options.timeoutMs ?? timeoutMs,
         signal: options.signal,
         cwd: options.cwd,
-        env: { ...process.env, ...SAFE_ENV }
+        env: { ...process.env, ...SAFE_ENV, ...options.env }
       });
     } catch (error) {
       throw classifyGitError(error);
@@ -211,22 +256,25 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs 
   }
 
   async function inspectLocalRepository(candidateDir, options = {}) {
+    const expectedGitDirectory = path.resolve(candidateDir, '.git');
+    let expectedStats;
+    try { expectedStats = await fsp.lstat(expectedGitDirectory); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
     try {
       const inside = (await gitAt(candidateDir, ['rev-parse', '--is-inside-work-tree'], options)).stdout.trim();
-      if (inside !== 'true') return { isRepo: false };
+      if (inside !== 'true') {
+        if (expectedStats) throw incompleteRepository();
+        return { isRepo: false };
+      }
     } catch (error) {
-      if (error.code === 'git-failed') return { isRepo: false };
+      if (error.code === 'git-failed') {
+        if (expectedStats) throw incompleteRepository();
+        return { isRepo: false };
+      }
       throw error;
     }
 
-    const expectedGitDirectory = path.resolve(candidateDir, '.git');
-    let expectedStats;
-    try {
-      expectedStats = await fsp.lstat(expectedGitDirectory);
-    } catch {
-      throw externalGitDirectoryError();
-    }
-    if (!expectedStats.isDirectory() || expectedStats.isSymbolicLink()) {
+    if (!expectedStats?.isDirectory() || expectedStats.isSymbolicLink()) {
       throw externalGitDirectoryError();
     }
 
@@ -245,6 +293,11 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs 
       throw externalGitDirectoryError();
     }
 
+    const common = (await gitAt(candidateDir, ['rev-parse', '--git-common-dir'], options)).stdout.trim();
+    if (path.relative(expectedReal, await fsp.realpath(path.resolve(candidateDir, common))) !== '') {
+      throw externalGitDirectoryError();
+    }
+    await checkLocalObjectStores(candidateDir, expectedGitDirectory);
     const config = await gitAt(candidateDir, [
       'config', '--local', '--list', '--null'
     ], options);
@@ -258,6 +311,18 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs 
         throw new RecoveryGitError('repository-credentials', '本地备份含有仓库级凭据或传输配置，未继续恢复。');
       }
       if (/^remote\..*\.url$/i.test(key)) validateRemote(value);
+    }
+    // 部分克隆的 fsck 允许承诺对象缺失。离线遍历所有可达对象，任何缺失都不能算完整恢复。
+    const offline = { ...options, env: { GIT_NO_LAZY_FETCH: '1', GIT_ALLOW_PROTOCOL: '' } };
+    try {
+      await gitAt(candidateDir, ['fsck', '--connectivity-only', '--no-dangling'], offline);
+      const missing = await gitAt(candidateDir, [
+        'rev-list', '--all', '--reflog', '--indexed-objects', '--objects', '--quiet', '--missing=print'
+      ], offline);
+      if (/^\?/m.test(missing.stdout)) throw incompleteRepository();
+    } catch (error) {
+      if (error.code === 'git-failed' || error.code === 'remote-not-found') throw incompleteRepository();
+      throw error;
     }
     return { isRepo: true };
   }

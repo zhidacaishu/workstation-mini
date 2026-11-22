@@ -1051,3 +1051,26 @@ test('Windows 删除未入库失败文件的大小写别名会立即清除旧错
     assert.equal(ctx.db.countNotes(), 1);
   } finally { await ctx.cleanup(); }
 });
+
+test('链接解析中断后重新打开数据库，启动扫描与强制扫描均可修复反链', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-link-repair-'));
+  const notes = path.join(dir, 'notes');
+  const file = path.join(dir, 'index.db');
+  let db = openDatabase(file);
+  t.after(async () => { db.close(); await fs.rm(dir, { recursive: true, force: true }); });
+  await fs.mkdir(notes);
+  await writeNote(notes, 'a.md', { raw: '[[b]]' });
+  await writeNote(notes, 'b.md', { raw: '# B' });
+  const fail = t.mock.method(db, 'resolveAllLinks', () => { throw new Error('interrupted'); });
+  await assert.rejects(createIndexer({ db, vaultDir: notes }).scan(), /interrupted/);
+  fail.mock.restore();
+  assert.deepEqual(db.backlinks('b.md'), []);
+  db.close();
+  db = openDatabase(file);
+  const indexer = createIndexer({ db, vaultDir: notes });
+  for (const options of [{ kind: 'initial' }, { force: true }]) {
+    db.raw.exec("UPDATE links SET to_path = ''");
+    assert.equal((await indexer.scan(options)).unchanged, 2);
+    assert.deepEqual(db.backlinks('b.md').map(note => note.path), ['a.md']);
+  }
+});

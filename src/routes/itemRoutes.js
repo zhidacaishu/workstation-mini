@@ -5,14 +5,14 @@ const { WORKFLOWS, workflowOf } = require('../workflows');
 const { updateTask } = require('../taskActions');
 const { isSafeRelativePath } = require('../vault/paths');
 const { toLocalDate } = require('../templates');
-const { httpError, blockWhenReadOnly } = require('./http');
+const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
 
 function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
   const router = express.Router();
   const items = createItems({ db, notesDir: config.notesDir });
   const guard = blockWhenReadOnly(config, '不能修改条目状态。');
 
-  router.post('/tasks/update', guard, async (req, res, next) => {
+  router.post('/tasks/update', guard, writeHandler(async (req, res, next) => {
     try {
       const notePath = String(req.body.path || '');
       if (!isSafeRelativePath(notePath) || !notePath.toLowerCase().endsWith('.md')) throw httpError(400, '路径不合法。');
@@ -28,7 +28,7 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
         res.redirect(returnTo.startsWith('/plan?') ? returnTo : '/plan');
       }
     } catch (error) { next(error); }
-  });
+  }));
 
   /** 研究项目看板，旧工作流由 workflowOf 明确拒绝。 */
   router.get('/board/:workflow', (req, res, next) => {
@@ -51,7 +51,7 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
     }
   });
 
-  router.post('/board/status', guard, async (req, res, next) => {
+  router.post('/board/status', guard, writeHandler(async (req, res, next) => {
     try {
       const workflow = String(req.body.workflow || '');
       const notePath = String(req.body.path || '');
@@ -77,7 +77,7 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
     } catch (error) {
       next(/不是.*合法状态/.test(error.message) ? httpError(400, error.message) : error);
     }
-  });
+  }));
 
   return router;
 }

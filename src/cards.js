@@ -1,4 +1,5 @@
 const path = require('node:path');
+const { readEvents } = require('./review');
 const { maskCode } = require('./vault/wikilink');
 const { maskMath } = require('./mathSyntax');
 const { isDirectiveLine } = require('./machineDirectives');
@@ -271,7 +272,7 @@ function deckFileOf(cardPath) {
   return stripExtension(toPosix(cardPath).replace(/^cards\//, ''));
 }
 
-function parseCardFile(cardPath, raw, { taken } = {}) {
+function parseCardFile(cardPath, raw, { taken, sourceHash } = {}) {
   const parsed = parseFrontmatter(raw);
   const data = parsed.data || {};
   const deckFile = deckFileOf(cardPath);
@@ -295,6 +296,7 @@ function parseCardFile(cardPath, raw, { taken } = {}) {
       id: ids[index],
       legacyId: legacyIds[index],
       blockIndex: index,
+      sourceHash,
       suspended: Boolean(card.meta.suspended),
       pinned: Boolean(card.meta.id),
       deckFile,
@@ -317,6 +319,16 @@ async function listCardFiles(vaultDir) {
   return files.map(file => `${CARDS_DIR}/${file}`);
 }
 
+function allocateDeckIds(files) {
+  // 所有文件共用一次身份分配，固定身份优先；后缀也全局预留。
+  const entries = files.flatMap(({ file, blocks }) => blocks.map(block => ({ file, block })));
+  const ids = assignIds(
+    entries.map(({ file, block }) => block.meta.id || cardId(file, block.idFront ?? block.front)),
+    entries.map(({ block }) => Boolean(block.meta.id))
+  );
+  return { entries, ids };
+}
+
 /**
  * 读出全部卡组，并算出「哪个固定 id 归哪个文件」：同一个固定 id 出现在两个文件里
  * （挪卡组中途中断、整块复制粘贴）时，排在前面的文件拥有它，另一份加后缀，
@@ -326,28 +338,23 @@ async function loadDeckState(vaultDir, { onError = () => {} } = {}) {
   const files = [];
   for (const file of await listCardFiles(vaultDir)) {
     try {
-      const { raw } = await readNote(vaultDir, file);
-      files.push({ file, raw, blocks: splitCards(parseFrontmatter(raw).content) });
+      const { raw, hash } = await readNote(vaultDir, file);
+      files.push({ file, raw, hash, blocks: splitCards(parseFrontmatter(raw).content) });
     } catch (error) {
       onError({ path: file, message: error.message });
     }
   }
-  // 所有文件共用一次身份分配，固定身份优先；后缀也全局预留。
-  const entries = files.flatMap(({ file, blocks }) => blocks.map(block => ({ file, block })));
-  const ids = assignIds(
-    entries.map(({ file, block }) => block.meta.id || cardId(file, block.idFront ?? block.front)),
-    entries.map(({ block }) => Boolean(block.meta.id))
-  );
+  const { entries, ids } = allocateDeckIds(files);
   const takenFor = file => new Set(ids.filter((_, index) => entries[index].file !== file));
   const cards = [];
-  for (const { file, raw } of files) {
+  for (const { file, raw, hash } of files) {
     try {
-      cards.push(...parseCardFile(file, raw, { taken: takenFor(file) }));
+      cards.push(...parseCardFile(file, raw, { taken: takenFor(file), sourceHash: hash }));
     } catch (error) {
       onError({ path: file, message: error.message });
     }
   }
-  return { cards, takenFor };
+  return { cards, takenFor, files };
 }
 
 async function loadAllCards(vaultDir, options = {}) {
@@ -533,7 +540,47 @@ async function locateCard(vaultDir, id) {
   const state = await loadDeckState(vaultDir);
   const card = state.cards.find(item => item.id === id);
   if (!card) throw httpFailure(404, '卡片不存在或已被删除，请刷新后重试。');
-  return { card, takenFor: state.takenFor };
+  return { card, state };
+}
+
+// 老资料库里还会有未固定的后缀。用变更后的全库重新分配一次，只把会漂移的
+// 其他文件中的旧身份固定下来。先写这些元数据，中断重试时原卡仍在。
+async function protectPeerIds(vaultDir, state, replacements) {
+  const planned = new Map(state.files.map(deck => [deck.file, { ...deck, blocks: deck.blocks.map(block => ({ ...block })) }]));
+  for (const [file, raw] of replacements) {
+    planned.set(file, { file, raw, blocks: splitCards(parseFrontmatter(raw).content) });
+  }
+  const peers = new Map();
+  for (const card of state.cards) {
+    if (!replacements.has(card.path)) peers.set(planned.get(card.path).blocks[card.blockIndex], card);
+  }
+  const files = [...planned.values()].sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
+  const changed = new Set();
+  for (;;) {
+    const { entries, ids } = allocateDeckIds(files);
+    let pinned = 0;
+    for (const [i, { file, block }] of entries.entries()) {
+      const want = peers.get(block);
+      if (!want || ids[i] === want.id || block.meta.id === want.id) continue;
+      block.meta = { ...block.meta, id: want.id, legacy: want.legacyId };
+      const peer = planned.get(file);
+      peer.raw = setCardMeta(peer.raw, want.blockIndex, block.meta);
+      changed.add(peer);
+      pinned++;
+    }
+    if (pinned === 0) {
+      if (entries.some(({ block }, i) => peers.has(block) && peers.get(block).id !== ids[i])) {
+        throw httpFailure(409, '卡组里的身份冲突，请检查重复的固定 ID。');
+      }
+      break;
+    }
+  }
+  for (const { file, raw, hash } of changed) {
+    await enqueueFile(vaultDir, file, async () => {
+      if ((await readNote(vaultDir, file)).hash !== hash) throw httpFailure(409, '关联卡组已更改，请刷新后重试。');
+      await writeNote(vaultDir, file, { raw });
+    });
+  }
 }
 
 /** 在锁里重新读一遍文件，按 id 找到那张卡；外部改动让它不见了就报冲突。 */
@@ -549,7 +596,12 @@ async function readDeck(vaultDir, cardPath, taken, id) {
  *
  * 只追加、不重排：卡片文件是给人读的 Markdown，程序不该擅自改动别的部分。
  */
-async function appendCard(vaultDir, {
+async function appendCard(vaultDir, input) {
+  await fsp.mkdir(vaultDir, { recursive: true });
+  return enqueueFile(vaultDir, CARDS_DIR, () => appendCardLocked(vaultDir, input));
+}
+
+async function appendCardLocked(vaultDir, {
   deckFile = 'inbox', front, back = '', source = '', type = DEFAULT_TYPE, checkDuplicate = false
 }) {
   // 正面必须是一行。卡片格式里它就是那个 `## 标题`，多行的话只有第一行算正面，
@@ -569,24 +621,35 @@ async function appendCard(vaultDir, {
     error.status = 400;
     throw error;
   }
-  await fsp.mkdir(vaultDir, { recursive: true });
   await ensureSafeFilePath(vaultDir, relative, { allowMissing: true, createParents: true });
 
   const sourceLine = source ? `来自 [[${wikilinkTarget(source)}]]` : '';
   const backText = [protectCardSeparators(trimBack(back)), sourceLine].filter(Boolean).join('\n');
-  const lines = cardLines(renderHeading(trimmedFront), backText, {});
+  const heading = renderHeading(trimmedFront);
   const resolvedType = CARD_TYPES.includes(type) ? type : DEFAULT_TYPE;
 
   // 交互建卡要在同一把库级锁内查重并追加，两次并发保存即使选了不同文件也能识别。
-  const locks = checkDuplicate ? [CARDS_DIR, relative] : [relative];
-  return enqueueFiles(vaultDir, locks, async () => {
+  return enqueueFile(vaultDir, relative, async () => {
+    const { cards } = await loadDeckState(vaultDir);
     if (checkDuplicate) {
-      const duplicate = (await loadAllCards(vaultDir)).find(card => card.front === trimmedFront && card.back === backText);
+      const duplicate = cards.find(card => card.front === trimmedFront && card.back === backText);
       if (duplicate) return { duplicate: true, deck: duplicate.deck };
     }
     let existing;
     try { existing = await readNote(vaultDir, relative); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const [natural] = parseCardFile(relative, heading);
+    const history = (await readEvents(vaultDir)).map(event => event.cardId);
+    const occupied = new Set([...cards.flatMap(card => [card.id, card.legacyId]), ...history]);
+    const [id] = assignIds([natural.id], [false], occupied);
+    // 旧日志用「卡组/正面」拼接，跨文件的斜杠歧义仍须交给 migrateEvents 判断。
+    const legacyTaken = new Set(cards.filter(card => card.path === relative || card.id === natural.id)
+      .map(card => card.legacyId));
+    const liveAliases = new Set(cards.map(card => card.legacyId));
+    for (const retired of history) if (!liveAliases.has(retired)) legacyTaken.add(retired);
+    const [legacy] = assignIds([natural.legacyId], [false], legacyTaken);
+    const meta = id === natural.id && legacy === natural.legacyId ? {} : { id, legacy };
+    const lines = cardLines(heading, backText, meta);
     const raw = existing
       ? appendCardLines(existing.raw, lines)
       : stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(relative), type: resolvedType });
@@ -605,9 +668,14 @@ async function appendCard(vaultDir, {
  * 覆盖外部编辑；只切换暂停状态时可以不传，因为那只改元数据行，而且是在锁里重新
  * 读文件、按 id 找到卡之后才改的。
  */
-async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFile, suspended }) {
+function updateCard(vaultDir, input) {
+  return enqueueFile(vaultDir, CARDS_DIR, () => updateCardLocked(vaultDir, input));
+}
+
+async function updateCardLocked(vaultDir, { id, expectedHash = '', front, back, deckFile, suspended }) {
   const wantedId = String(id ?? '');
-  const { card: located, takenFor } = await locateCard(vaultDir, wantedId);
+  const { card: located, state } = await locateCard(vaultDir, wantedId);
+  const { takenFor } = state;
   const source = located.path;
   let target = deckFile === undefined || deckFile === '' ? source : await resolveDeckPath(vaultDir, deckFile);
   // 只差大小写、Unicode 写法不同的路径在不区分大小写的磁盘上是同一个文件：
@@ -641,6 +709,7 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
         ? setCardMeta(note.raw, index, meta)
         : replaceCard(note.raw, index, renderCardLines({ front: nextFront, back: nextBack, meta, heading }));
       const raw = preserveIds(source, edited, sourceTaken, keepIds);
+      await protectPeerIds(vaultDir, state, new Map([[source, raw]]));
       const written = await writeNote(vaultDir, source, { raw });
       return { id: card.id, path: source, hash: written.hash };
     }
@@ -660,6 +729,7 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
       ? appendCardLines(existing.raw, lines)
       : stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(target), type: DEFAULT_TYPE });
     const targetRaw = preserveIds(target, combined, targetTaken, [...before, card]);
+    await protectPeerIds(vaultDir, state, new Map([[source, sourceRaw], [target, targetRaw]]));
     await writeNote(vaultDir, target, { raw: targetRaw }, { exclusive: !existing });
 
     // 目标写好以后重新读一遍源文件再删：不拿挪动前读到的旧内容覆盖回去。
@@ -673,9 +743,14 @@ async function updateCard(vaultDir, { id, expectedHash = '', front, back, deckFi
   });
 }
 
-async function deleteCard(vaultDir, { id, expectedHash = '' }) {
+function deleteCard(vaultDir, input) {
+  return enqueueFile(vaultDir, CARDS_DIR, () => deleteCardLocked(vaultDir, input));
+}
+
+async function deleteCardLocked(vaultDir, { id, expectedHash = '' }) {
   const wantedId = String(id ?? '');
-  const { card: located, takenFor } = await locateCard(vaultDir, wantedId);
+  const { card: located, state } = await locateCard(vaultDir, wantedId);
+  const { takenFor } = state;
   const source = located.path;
   if (!expectedHash) throw httpFailure(409, '缺少卡组版本，请刷新后重试。');
   return enqueueFile(vaultDir, source, async () => {
@@ -685,9 +760,56 @@ async function deleteCard(vaultDir, { id, expectedHash = '' }) {
     if (!card) throw httpFailure(409, '卡片已被移动或删除，请刷新后重试。');
     const remaining = cards.filter((_, position) => position !== index).map(item => ({ id: item.id, legacyId: item.legacyId }));
     const raw = preserveIds(source, replaceCard(note.raw, index, null), taken, remaining);
+    await protectPeerIds(vaultDir, state, new Map([[source, raw]]));
     // 删卡前的整份卡组单独记成 card：60 天内全留，更早的每天留最早一份（见 history.js）。
     const written = await writeNote(vaultDir, source, { raw }, { versionReason: 'card' });
     return { path: source, hash: written.hash };
+  });
+}
+
+async function restoreDeck(vaultDir, file, snapshot, expectedHash) {
+  if (!file.startsWith(CARDS_DIR + '/') || !isSafeRelativePath(file)) throw httpFailure(400, '卡组路径不合法。');
+  return enqueueFiles(vaultDir, [CARDS_DIR, file], async () => {
+    let version = 'missing';
+    try { version = (await readNote(vaultDir, file, { tolerateInvalid: true })).hash; }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (version !== expectedHash) throw httpFailure(409, '卡组版本无法确认或已更改，请刷新预览后再恢复。');
+
+    const state = await loadDeckState(vaultDir);
+    const taken = state.takenFor(file);
+    // 快照可能包含后来移往别处的卡；恢复出的副本不能接管仍在使用的 ID。
+    const original = parseCardFile(file, snapshot);
+    const blocks = deckParts(snapshot).blocks;
+    const peers = state.cards.filter(card => card.path !== file);
+    const legacyTaken = new Set(peers.map(card => card.legacyId));
+    const occupied = new Set([...taken, ...legacyTaken, ...original.flatMap(card => [card.id, card.legacyId])]);
+    for (const event of await readEvents(vaultDir)) occupied.add(event.cardId);
+    let raw = snapshot;
+    const expected = [];
+    for (const card of original) {
+      const block = blocks[card.blockIndex];
+      let { id, legacyId } = card;
+      if (taken.has(id)) {
+        [id] = assignIds([id], [false], occupied);
+        legacyId = id;
+      } else if (legacyTaken.has(legacyId)) {
+        [legacyId] = assignIds([legacyId], [false], occupied);
+      }
+      occupied.add(id);
+      occupied.add(legacyId);
+      expected.push({ id, legacyId });
+      if (id !== card.id || legacyId !== card.legacyId) {
+        raw = setCardMeta(raw, card.blockIndex, { ...block.meta, id, legacy: legacyId });
+      }
+    }
+    raw = preserveIds(file, raw, taken, expected);
+    await protectPeerIds(vaultDir, state, new Map([[file, raw]]));
+    try {
+      await writeNote(vaultDir, file, { raw }, { exclusive: version === 'missing' });
+    } catch (error) {
+      if (error.code === 'EEXIST') throw httpFailure(409, '同名卡组已创建，请刷新预览后再恢复。');
+      throw error;
+    }
   });
 }
 
@@ -717,6 +839,7 @@ module.exports = {
   loadAllCards,
   updateCard,
   deleteCard,
+  restoreDeck,
   listDeckFiles,
   renderCardLines,
   resolveDeckPath

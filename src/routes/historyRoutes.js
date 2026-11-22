@@ -1,12 +1,12 @@
 const express = require('express');
 const crypto = require('node:crypto');
 const { listRecords, listDeckRecords, getRecord, saveDraft, removeDraft } = require('../vault/history');
-const { readNote, writeNote, parseFrontmatter, resolveTitle, hashContent } = require('../vault/note');
-const { enqueueFile } = require('../vault/note-queue');
+const { readNote, parseFrontmatter, resolveTitle, hashContent } = require('../vault/note');
+const { restoreDeck } = require('../cards');
 const fs = require('node:fs/promises');
 const { isSafeRelativePath, isNotePath, basename, ensureSafeFilePath } = require('../vault/paths');
 const { compareText } = require('../lineDiff');
-const { blockWhenReadOnly, httpError } = require('./http');
+const { blockWhenReadOnly, httpError, writeHandler } = require('./http');
 
 const DECK_PREFIX = 'deck:';
 const HISTORY_PAGE = 100;
@@ -18,7 +18,7 @@ const DIFF_MAX_BYTES = 2 * 1024 * 1024;
 function createHistoryRoutes({ config, db }) {
   const router = express.Router();
   const guard = blockWhenReadOnly(config, '不能恢复笔记或保存草稿。');
-  router.get('/api/drafts', async (req, res, next) => {
+  router.get('/api/drafts', writeHandler(async (req, res, next) => {
     try {
       // 只回答「这一篇有几份草稿」。路径为空（还没起名的新笔记）不能退化成「全部草稿」，
       // 否则别的笔记有草稿时，空白的新建页也会提示「发现 N 份未保存草稿」。
@@ -27,7 +27,7 @@ function createHistoryRoutes({ config, db }) {
       const records = await listRecords(config.notesDir, notePath);
       res.json({ count: records.filter(record => record.kind === 'draft').length });
     } catch (error) { next(error); }
-  });
+  }));
   // 卡组文件（cards/）不在 notes/ 里，旧版本存在资料库根目录那份本机历史里。
   // 两边的记录放在同一页：卡组记录的 id 带 deck: 前缀，恢复时直接写回卡组文件。
   async function deckRecords(deckPath = '') {
@@ -104,7 +104,7 @@ function createHistoryRoutes({ config, db }) {
     return raw === null ? 'missing' : hashContent(raw);
   }
 
-  router.get('/history', async (req, res, next) => {
+  router.get('/history', writeHandler(async (req, res, next) => {
     try {
       const notePath = String(req.query.path || '');
       const deckPath = String(req.query.deck || '');
@@ -129,27 +129,16 @@ function createHistoryRoutes({ config, db }) {
         page, hasMore: all.length > page * HISTORY_PAGE, total: all.length
       });
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
-  });
-  router.post('/history/restore-deck', guard, async (req, res, next) => {
+  }));
+  router.post('/history/restore-deck', guard, writeHandler(async (req, res, next) => {
     try {
       const record = await findRecord(String(req.body?.id || ''));
       if (record.source !== 'deck') throw httpError(400, '这条记录不是卡组版本。');
-      await enqueueFile(config.vaultDir, record.path, async () => {
-        const expected = req.body.expectedHash;
-        if (!expected || expected !== deckVersion(await currentRaw(record))) {
-          throw httpError(409, '卡组版本无法确认或已更改，请刷新预览后再恢复。');
-        }
-        try {
-          await writeNote(config.vaultDir, record.path, { raw: record.raw }, { exclusive: expected === 'missing' });
-        } catch (error) {
-          if (error.code === 'EEXIST') throw httpError(409, '同名卡组已创建，请刷新预览后再恢复。');
-          throw error;
-        }
-      });
+      await restoreDeck(config.vaultDir, record.path, record.raw, req.body.expectedHash);
       res.redirect('/cards');
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
-  });
-  router.get('/recover/:id', guard, async (req, res, next) => {
+  }));
+  router.get('/recover/:id', guard, writeHandler(async (req, res, next) => {
     try {
       const record = await getRecord(config.notesDir, req.params.id);
       const unnamed = needsPath(record);
@@ -164,6 +153,7 @@ function createHistoryRoutes({ config, db }) {
         expectedHash: current?.hash || '', isNew: !current,
         draftId: crypto.randomUUID(), recovered: true, autoPath: unnamed,
         folder: unnamed && record.folder && isNotePath(record.folder + '/x.md') ? record.folder : 'inbox',
+        recoveredSequence: record.sequence,
         recoveredFrom: record.kind === 'draft' ? record.id : '',
         editorWarning: current
           ? '已载入恢复内容，尚未覆盖当前文件。请核对后保存；当前版本会保留在历史中。'
@@ -171,17 +161,17 @@ function createHistoryRoutes({ config, db }) {
             : '已载入恢复内容，尚未写入笔记。保存后将重新创建文件。'
       });
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
-  });
-  router.post('/api/drafts/:id', guard, async (req, res, next) => {
+  }));
+  router.post('/api/drafts/:id', guard, writeHandler(async (req, res, next) => {
     try { res.json({ ok: true, ...await saveDraft(config.notesDir, req.params.id, req.body) }); }
     catch (error) { next(error); }
-  });
-  router.delete('/api/drafts/:id', guard, async (req, res, next) => {
+  }));
+  router.delete('/api/drafts/:id', guard, writeHandler(async (req, res, next) => {
     try {
       await removeDraft(config.notesDir, req.params.id, Number(req.body.sequence));
       res.json({ ok: true });
     } catch (error) { next(error); }
-  });
+  }));
   return router;
 }
 module.exports = { createHistoryRoutes };
