@@ -467,15 +467,112 @@ test('同步冲突：在设置窗口里逐个选边，解决后自动推送', { 
 
     // 没采用的那一边能在历史页找回，并且看得到和现在差在哪里。
     await page.goto(origin + '/history');
-    assert.equal(await page.locator('.history-kind.is-kept', { hasText: '冲突未采用' }).count(), 2);
+    assert.equal(await page.locator('.history-kind.is-kept', { hasText: '冲突未采用' }).count(), 4);
     await page.locator('.history-list a', { hasText: '甲' }).first().click();
     await page.waitForSelector('.history-diff');
-    assert.match(await page.locator('.history-diff .diff-row.is-del').first().textContent(), /第一行（笔记本）/);
+    assert.match((await page.locator('.history-diff .diff-row.is-del').allTextContents()).join('\n'), /第一行（笔记本）/);
     // 正文里的索引也跟上了。
     await page.goto(origin + '/note/inbox/a.md');
     assert.match(await page.locator('.prose').textContent(), /第一行（实验室）/);
   } finally {
     await close(app);
     await fs.rm(root, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test('系统询问退出时等待笔记或卡片保存，放弃或保存失败按选择处理', { timeout: 90000 }, async t => {
+  for (const scenario of ['note', 'card', 'discard', 'failure', 'settings-and-card', 'unresponsive-save']) {
+    await t.test(scenario, async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-session-end-'));
+      const userData = path.join(root, 'user');
+      const vault = path.join(root, 'vault');
+      const card = ['card', 'discard', 'settings-and-card'].includes(scenario);
+      const file = path.join(vault, card ? 'cards/deck.md' : 'notes/inbox/a.md');
+      let app;
+      try {
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        const initial = card ? '## Q\n\n旧答案\n' : '# 旧稿\n';
+        await fs.writeFile(file, initial);
+        await writeSettings(userData, { vaultDir: vault, device: 'session', syncEnabled: false });
+        const launched = await launch(userData);
+        app = launched.app;
+        const { page, origin } = launched;
+        await page.goto(origin + (card ? '/cards/edit?id=deck%2FQ' : '/edit/inbox/a.md'));
+        const area = page.locator(card ? '[name="back"]' : '[name="body"]');
+        await area.fill('关机前的编辑');
+        if (scenario === 'settings-and-card') {
+          const opened = app.waitForEvent('window');
+          await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById('show-settings').click());
+          const settings = await opened;
+          await settings.locator('[name="device"]').fill('updated-device');
+        }
+        if (scenario === 'failure') {
+          const { noteKey } = require('../src/vault/history');
+          await fs.mkdir(path.join(vault, 'notes', '.workstation-local', 'versions', noteKey('inbox/a.md'), 'path.json'), { recursive: true });
+        }
+        if (scenario === 'unresponsive-save') {
+          await page.evaluate(() => { window.workstationSaveForSessionEnd = () => new Promise(() => {}); });
+        }
+        async function ask() {
+          const opened = app.waitForEvent('window');
+          const prevented = await app.evaluate(({ BrowserWindow }) => {
+            const main = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith('http:'));
+            let vetoed = false;
+            main.emit('query-session-end', { preventDefault() { vetoed = true; } });
+            return vetoed;
+          });
+          assert.equal(prevented, true);
+          const dialog = await opened;
+          await dialog.getByText('系统即将结束会话，还有未保存的更改').waitFor();
+          return dialog;
+        }
+        if (scenario === 'note') {
+          const dialog = await ask();
+          await dialog.getByRole('button', { name: '返回编辑' }).click();
+          assert.equal(await area.inputValue(), '关机前的编辑');
+          assert.equal(await fs.readFile(file, 'utf8'), initial);
+        }
+        const dialog = await ask();
+        if (scenario === 'failure') {
+          await dialog.getByRole('button', { name: '保存并退出' }).click();
+          await page.getByText('保存失败：本机历史未能保存，请检查磁盘后重试。').waitFor();
+          assert.equal(await area.inputValue(), '关机前的编辑');
+          assert.equal(await fs.readFile(file, 'utf8'), initial);
+        } else if (scenario === 'unresponsive-save') {
+          const notified = app.waitForEvent('window', { timeout: 30000 });
+          await dialog.getByRole('button', { name: '保存并退出' }).click();
+          const notice = await notified;
+          await notice.getByText('保存尚未确认，工作台将保持打开').waitFor();
+          await notice.getByRole('button', { name: '返回窗口' }).click();
+          assert.equal(await area.inputValue(), '关机前的编辑');
+          const retried = await ask();
+          const closed = app.waitForEvent('close', { timeout: 12000 });
+          await retried.getByRole('button', { name: '放弃修改并退出' }).click();
+          await closed;
+          app = null;
+          assert.equal(await fs.readFile(file, 'utf8'), initial);
+        } else {
+          const secondPrompt = scenario === 'settings-and-card' ? app.waitForEvent('window') : null;
+          const closed = app.waitForEvent('close', { timeout: 18000 });
+          await dialog.getByRole('button', { name: scenario === 'discard' ? '放弃修改并退出' : '保存并退出' }).click();
+          if (secondPrompt) {
+            const settingsDialog = await secondPrompt;
+            await settingsDialog.getByRole('button', { name: '保存并退出' }).click();
+          }
+          await closed;
+          if (scenario === 'settings-and-card') {
+            const saved = JSON.parse(await fs.readFile(path.join(userData, 'workstation-data', 'settings.json'), 'utf8'));
+            assert.equal(saved.device, 'updated-device');
+          }
+          app = null;
+          const raw = await fs.readFile(file, 'utf8');
+          if (scenario === 'discard') assert.equal(raw, initial);
+          else assert.match(raw, /关机前的编辑/);
+        }
+      } finally {
+        await close(app);
+        await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      }
+    });
   }
 });

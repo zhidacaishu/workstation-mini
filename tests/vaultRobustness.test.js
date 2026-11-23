@@ -442,3 +442,33 @@ test('取消排期会去掉这一行里所有的日期标记', async () => {
     assert.equal(second, '- [ ] 乙 `@2026-01-01` ', '行内代码里的日期不是标记，不动');
   } finally { env.cleanup(); }
 });
+
+test('历史版本落盘失败时保存接口保留旧笔记，恢复存储后可用同一版本重试', async t => {
+  const env = makeVault();
+  const { app, db } = makeApp(env);
+  t.after(() => { db.close(); env.cleanup(); });
+  const file = 'inbox/a.md';
+  const previous = await writeNote(env.notesDir, file, { raw: '旧稿' });
+  const fsp = require('node:fs/promises');
+  const open = fsp.open;
+  const save = () => request(app).post('/save').set(JSON_ACCEPT)
+    .type('form').send({ path: file, expectedHash: previous.hash, body: '新稿' });
+  for (const code of ['EIO', 'ENOENT']) {
+    const mock = t.mock.method(fsp, 'open', async (target, ...rest) => {
+      const handle = await open.call(fsp, target, ...rest);
+      if (/-save-.*\.json\.tmp-/.test(target)) {
+        handle.sync = async () => { throw Object.assign(new Error('模拟落盘错误'), { code }); };
+      }
+      return handle;
+    });
+    const response = await save().expect(500);
+    assert.match(response.body.message, /历史未能保存.*重试/);
+    assert.equal((await readNote(env.notesDir, file)).raw, '旧稿');
+    assert.equal((await history.listRecords(env.notesDir, file)).length, 0);
+    mock.mock.restore();
+  }
+  await save().expect(200);
+  assert.equal((await readNote(env.notesDir, file)).raw, '新稿');
+  const [version] = await history.listRecords(env.notesDir, file);
+  assert.equal((await history.getRecord(env.notesDir, version.id)).raw, '旧稿');
+});

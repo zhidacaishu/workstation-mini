@@ -186,6 +186,7 @@ function createApp(config, deps) {
     const corrupt = status >= 500 && Boolean(resolved.db?.reportError?.(error));
     const message = corrupt
       ? '索引数据库已损坏，请重启应用，启动时会自动重建。'
+      : error.code === 'HISTORY_WRITE_FAILED' ? '本机历史未能保存，请检查磁盘后重试。'
       : status >= 500 ? '应用内部错误，请稍后重试。' : error.message;
 
     if (wantsJson(req)) {

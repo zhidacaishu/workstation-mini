@@ -201,7 +201,7 @@ function conflictDiff(diff) {
 }
 
 function showConflicts(files) {
-  const signature = JSON.stringify(files.map(file => [file.path, file.remote, file.local, file.current, file.auto, file.diff?.added, file.diff?.removed]));
+  const signature = JSON.stringify(files.map(file => [file.path, file.remote, file.local, file.current, file.markerLine, file.auto, file.diff?.added, file.diff?.removed]));
   conflictFiles = files;
   const known = new Set(files.map(file => file.path));
   for (const path of [...conflictChoices.keys()]) if (!known.has(path)) conflictChoices.delete(path);
@@ -224,6 +224,7 @@ function showConflicts(files) {
         conflictOption(file, index, 'local', file.local ? '用本机的' : '跟本机一样删掉')
       );
       if (file.current) options.append(conflictOption(file, index, 'current', '用现在文件里的内容（已经手工改好）'));
+      if (file.markerLine) item.append(element('p', 'conflict-legend', `第 ${file.markerLine} 行还有冲突标记。`));
       item.append(options);
       if (file.diff) item.append(conflictDiff(file.diff));
       return item;
@@ -430,8 +431,14 @@ async function handleExternalChange() {
 form.addEventListener('input', updateDirtyState);
 form.addEventListener('change', updateDirtyState);
 
-form.addEventListener('submit', async event => {
+form.addEventListener('submit', event => {
   event.preventDefault();
+  return saveSettings();
+});
+
+window.workstationSaveForSessionEnd = () => form.reportValidity() && saveSettings();
+
+async function saveSettings() {
   if (!isDirty() || activeOperation) return;
 
   const update = collect();
@@ -459,10 +466,11 @@ form.addEventListener('submit', async event => {
       pendingExternalChange = false;
       handleExternalChange();
     }
+    return !isDirty();
   } catch (error) {
     failOperation(error);
   }
-});
+}
 
 async function chooseDirectory(button) {
   if (activeOperation) return;
@@ -530,8 +538,11 @@ resolveButton?.addEventListener('click', async () => {
   try {
     const result = await api.resolveGitConflicts(choices);
     if (result.ok === false) throw new Error(result.error || '冲突没有解决。');
-    const kept = Array.isArray(result.preserved) ? result.preserved.length : 0;
-    const tail = kept ? `没采用的 ${kept} 个文件版本已存进「历史与草稿」。` : '';
+    const preserved = result.preserved || [];
+    const notes = preserved.filter(item => item.kind === 'history').length;
+    const copies = preserved.filter(item => item.kind === 'file');
+    const tail = (notes ? `${notes} 个文件的版本已存进「历史与草稿」。` : '')
+      + (copies.length ? `现场副本：${copies.map(item => item.backupPath).join('、')}。` : '');
     settleOperation(result.more
       ? `这一处已经解决；后面的本机提交还有冲突，请继续选。${tail}`
       : `冲突已解决，正在把结果同步上去。${tail}`);

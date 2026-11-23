@@ -1,12 +1,13 @@
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
-const os = require('node:os');
+const { isUtf8 } = require('node:buffer');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const { compareText } = require('./lineDiff');
 const { randomUUID } = require('node:crypto');
 const { ensureSafeFilePath } = require('./vault/paths');
 const { replaceFile } = require('./vault/atomic');
+const { saveConflictCopy } = require('./vault/history');
 
 const { isRegularFile } = require('./review');
 
@@ -103,9 +104,6 @@ const PRESERVE_MAX_BYTES = 16 * 1024 * 1024;
 // 冲突列表里给人看的两边差异：只比文本，文件太大或差得太多就不比。
 const CONFLICT_DIFF_MAX_BYTES = 512 * 1024;
 const CONFLICT_DIFF_MAX_ROWS = 300;
-// 只认 <<<<<<< 和 >>>>>>> 行：单独一行的 ======= 也是 Markdown 标题下划线，不能当冲突标记。
-// 冲突块的头尾任一行还在，就说明没改完。
-const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |\r?$)/m;
 // 「Unable to create '…/index.lock': File exists.」：另一个 Git 正在运行，或者上次被中途杀掉。
 function lockFileError(error) {
   const match = /Unable to create '([^'\n]+\.lock)': File exists/.exec(String(error?.stderr || ''));
@@ -116,27 +114,6 @@ const CONFLICT_TEXT_FILE = /\.(md|markdown|txt|jsonl|json|ya?ml|csv|tex|bib)$/i;
 // 只能请用户在终端里登录一次，之后凭据管理器或 ssh-agent 会记住。
 const AUTH_REQUIRED = /terminal prompts disabled|could not read (?:Username|Password)|Authentication failed|Permission denied \(publickey|Host key verification failed|Too many authentication failures|interactivity|GCM_INTERACTIVE/i;
 const AUTH_HINT = '远端需要登录或确认主机，后台同步不会弹出登录窗口。请在终端里进入资料库目录运行一次 git fetch，按提示完成登录或确认后再同步。';
-
-/**
- * 把带冲突标记的文本拆回两边各自看到的内容（diff3 的共同祖先段丢掉）。
- * 标记不成对时返回 null。标签（HEAD、提交号）不进结果，所以两份标签不同的
- * 冲突文本也能比较是不是同一次合并的原样输出。
- */
-function conflictProjections(text) {
-  const ours = [];
-  const theirs = [];
-  let state = 'both';
-  for (const line of text.split(/(?<=\n)/)) {
-    const bare = line.replace(/\r?\n$/, '');
-    if (state === 'both' && /^<{7}(?: |$)/.test(bare)) { state = 'ours'; continue; }
-    if (state === 'ours' && /^\|{7}(?: |$)/.test(bare)) { state = 'base'; continue; }
-    if ((state === 'ours' || state === 'base') && bare === '=======') { state = 'theirs'; continue; }
-    if (state === 'theirs' && /^>{7}(?: |$)/.test(bare)) { state = 'both'; continue; }
-    if (state === 'both' || state === 'ours') ours.push(line);
-    if (state === 'both' || state === 'theirs') theirs.push(line);
-  }
-  return state === 'both' ? { ours: ours.join(''), theirs: theirs.join('') } : null;
-}
 
 function createSync({
   vaultDir,
@@ -638,13 +615,12 @@ function createSync({
 
   // 空远端的 clone 或尚未 fetch 的分支可能只有配置，还没有本地跟踪引用。
   async function untrackedDestination(branch, options) {
-    const read = async key => {
-      try { return (await git(['config', '--get', `branch.${branch}.${key}`], options)).stdout.trim(); }
-      catch (error) { if (error.code === 1) return ''; throw error; }
-    };
-    const remote = await read('remote');
-    const destination = await read('merge');
-    if (!remote && !destination) return { remote: await defaultRemote(options), destination: `refs/heads/${branch}` };
+    const remote = await configValue(`branch.${branch}.remote`, options);
+    const destination = await configValue(`branch.${branch}.merge`, options);
+    if (!destination) {
+      const pushRemote = await configuredPushRemote(branch, options);
+      return { remote: remote || pushRemote || await defaultRemote(options), destination: `refs/heads/${branch}` };
+    }
     if (!remote || !destination.startsWith('refs/heads/')) throw new Error('当前上游分支配置无法安全解析。');
     await git(['remote', 'get-url', remote], options);
     return { remote, destination };
@@ -836,6 +812,26 @@ function createSync({
         }
       }
 
+      // 复习只可推已经核验过的提交。用户指定了推送规则时，还须确认 Git
+      // 算出的推送目标与刚核验的上游一致，否则交给完整同步处理。
+      if (await hasPushPolicy(target.branch, target.remote, options, target.setUpstream && target.destination === `refs/heads/${target.branch}`)) {
+        const localRef = `refs/heads/${target.branch}`;
+        const pushRemote = await configuredPushRemote(target.branch, options)
+          || await configValue(`branch.${target.branch}.remote`, options) || await defaultRemote(options);
+        const blocked = `Git 推送设置未允许复习同步从本机 ${target.branch} 推到 ${target.remote}/${target.destination.slice('refs/heads/'.length)}`;
+        if (pushRemote !== target.remote) throw new Error(blocked + '，请核对推送目标。');
+        // 让 Git 自己解析 HEAD、通配符及 matching 等规则。预检无写入且不运行 pre-push 钩子。
+        // 实际推送仍只发送已核验的 SHA，并用 lease 防止远端在预检后发生变化。
+        let preview;
+        try { preview = (await git(['push', '--dry-run', '--porcelain', '--no-verify', '--no-follow-tags'], options)).stdout; }
+        catch (error) { throw new Error(blocked + '。\n' + String(error.stderr || error.message).trim(), { cause: error }); }
+        const sources = [localRef, 'HEAD', validated.tip];
+        const allowed = preview.split(/\r?\n/).some(row => {
+          const [flag, refspec] = row.split('\t');
+          return [' ', '*', '=', '+'].includes(flag) && sources.some(source => refspec === `${source}:${target.destination}`);
+        });
+        if (!allowed) throw new Error(blocked + '，请核对分支和推送设置。');
+      }
       await beforeReviewPush({
         base: validated.base,
         tip: validated.tip,
@@ -843,7 +839,7 @@ function createSync({
         destination: target.destination
       });
       await git([
-        'push',
+        'push', '--no-follow-tags',
         `--force-with-lease=${target.destination}:${validated.base}`,
         target.remote,
         `${validated.tip}:${target.destination}`
@@ -889,16 +885,25 @@ function createSync({
       if (!(await hasRemote(options))) return finish({ ok: true, committed, pushed: false });
       if (!(await hasHead(options))) return finish({ ok: true, committed: false, pushed: false });
 
-      // 有上游时交给 git 按 tracking 和推送配置推（远端不一定叫 origin）。只有一种情况
-      // 显式写出目标：本地 main 跟踪 origin/master 这类名字不同的上游、用户又没配任何
-      // 推送规则时，push.default=simple 下的裸 git push 每一轮都会拒绝。
       const upstream = await hasUpstream(options);
-      const renamed = upstream ? await renamedUpstreamTarget(branch, options) : null;
-      if (upstream && !renamed) {
-        await git(['push'], options);
+      if (upstream) {
+        const remote = await configValue(`branch.${branch}.remote`, options);
+        const destination = await configValue(`branch.${branch}.merge`, options);
+        const named = destination.startsWith('refs/heads/') && destination !== `refs/heads/${branch}`
+          && (await git(['remote'], options)).stdout.split(/\r?\n/).includes(remote);
+        if (named && !await hasPushPolicy(branch, remote, options)) {
+          await git(['push', remote, `HEAD:${destination}`], options);
+        } else {
+          try { await git(['push'], options); }
+          catch (error) {
+            if (!named) throw error;
+            throw new Error(`推送失败（本机分支 ${branch}，上游 ${remote}/${destination.slice('refs/heads/'.length)}）。\n${String(error.stderr || error.message).trim()}`, { cause: error });
+          }
+        }
       } else {
-        const { remote, destination } = renamed || await untrackedDestination(branch, options);
-        await git(['push', ...(upstream ? [] : ['-u']), remote, `HEAD:${destination}`], options);
+        const { remote, destination } = await untrackedDestination(branch, options);
+        if (await hasPushPolicy(branch, remote, options, destination === `refs/heads/${branch}`)) await git(['push'], options);
+        else await git(['push', '-u', remote, `HEAD:${destination}`], options);
       }
       return finish({ ok: true, committed, pushed: true });
     } catch (error) {
@@ -909,26 +914,22 @@ function createSync({
     }
   }
 
-  /**
-   * 上游分支和本地分支不同名、而且用户没配任何推送规则时，返回要显式推到的
-   * { remote, destination }；其余情况返回 null，照旧裸 git push。
-   * 用户配了 push.default、remote.<名>.push、pushRemote / pushDefault（三角工作流），
-   * 上游是本仓库里的分支（remote = .）或直接写成地址，都交给 git 自己按配置推。
-   */
-  async function renamedUpstreamTarget(branch, options) {
-    const read = async key => {
-      try { return (await git(['config', '--get', key], options)).stdout.trim(); }
-      catch (error) { if (error?.code === 1) return ''; throw error; }
-    };
-    const remote = await read(`branch.${branch}.remote`);
-    const destination = await read(`branch.${branch}.merge`);
-    if (!remote || destination === `refs/heads/${branch}` || !destination.startsWith('refs/heads/')) return null;
-    const remotes = (await git(['remote'], options)).stdout.split('\n').map(name => name.trim());
-    if (!remotes.includes(remote)) return null;
-    const pushDefault = await read('push.default');
-    if (pushDefault && pushDefault !== 'simple') return null;
-    if (await read(`remote.${remote}.push`) || await read(`branch.${branch}.pushRemote`) || await read('remote.pushDefault')) return null;
-    return { remote, destination };
+  async function configValue(key, options) {
+    try { return (await git(['config', '--get', key], options)).stdout.trim(); }
+    catch (error) { if (error.code === 1) return ''; throw error; }
+  }
+
+  async function configuredPushRemote(branch, options) {
+    return await configValue(`branch.${branch}.pushRemote`, options) || await configValue('remote.pushDefault', options);
+  }
+
+  async function hasPushPolicy(branch, remote, options, bootstrapSameName = false) {
+    const keys = ['push.default', `remote.${remote}.push`, `branch.${branch}.pushRemote`, 'remote.pushDefault'];
+    const values = await Promise.all(keys.map(key => configValue(key, options)));
+    const [mode, ...routes] = values;
+    // 首次建立同名上游仍支持显式的 simple/current。已有推送目标始终以 Git 配置为准。
+    if (bootstrapSameName && ['simple', 'current'].includes(mode.toLowerCase())) return routes.some(Boolean);
+    return values.some(Boolean);
   }
 
   function commitAndPush(message, options) {
@@ -1167,41 +1168,28 @@ function createSync({
     return entries;
   }
 
+  // 单独的等号行也是 Markdown 标题。首尾或 diff3 祖先标记的长度由文件属性决定。
+  async function conflictMarkerLine(file, text, options) {
+    const attribute = await git(['check-attr', '-z', 'conflict-marker-size', '--', file], options);
+    const configured = Number.parseInt(attribute.stdout.split('\0')[2], 10);
+    const size = configured > 0 ? configured : 7;
+    for (const match of text.matchAll(/^(<+|>+|\|+)(?=[ \t]|\r?$)/gm)) {
+      if (match[1].length >= size) return text.slice(0, match.index).split(/\r\n?|\n/).length;
+    }
+    return 0;
+  }
+
+  // UTF-8 解码会悄悄替换无效字节，无法从这样的历史记录恢复原件。
+  function decodeText(bytes) {
+    if (!isUtf8(bytes)) throw userError('文件包含无效的 UTF-8 字节，无法完整保存文本历史。请用 Git 工具处理。');
+    return bytes.toString('utf8');
+  }
+
   async function blobText(sha, limit, options) {
     if (!sha) return null;
     const size = Number((await git(['cat-file', '-s', sha], options)).stdout.trim());
     if (!Number.isFinite(size) || size > limit) return null;
-    return (await git(['cat-file', 'blob', sha], options)).stdout;
-  }
-
-  /**
-   * 现在文件里的内容是不是 Git 留下的冲突原样、用户一个字没动：重新合并一遍两边，
-   * 拆开比较。原样的不必另存（两边各自已经存了）；判断不了的一律当作改过。
-   */
-  async function untouchedConflictText(current, stages, options) {
-    const projected = conflictProjections(current);
-    if (!projected) return false;
-    const [base, ours, theirs] = await Promise.all([1, 2, 3].map(stage => blobText(stages[stage], PRESERVE_MAX_BYTES, options)));
-    if (ours === null || theirs === null) return false;
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-merge-'));
-    try {
-      const files = ['ours', 'base', 'theirs'].map(name => path.join(directory, name));
-      await Promise.all([fs.writeFile(files[0], ours), fs.writeFile(files[1], base ?? ''), fs.writeFile(files[2], theirs)]);
-      let merged;
-      try {
-        merged = (await git(['merge-file', '-p', ...files], options)).stdout;
-      } catch (error) {
-        // 退出码是冲突块数；负数或更大的才是真出错。
-        if (!Number.isInteger(error?.code) || error.code < 1 || error.code > 127 || typeof error.stdout !== 'string') return false;
-        merged = error.stdout;
-      }
-      const regenerated = conflictProjections(merged);
-      return Boolean(regenerated) && regenerated.ours === projected.ours && regenerated.theirs === projected.theirs;
-    } catch {
-      return false;
-    } finally {
-      await fs.rm(directory, { recursive: true, force: true });
-    }
+    return decodeText((await git(['cat-file', 'blob', sha], { ...options, encoding: 'buffer' })).stdout);
   }
 
   async function worktreeText(file, limit) {
@@ -1209,7 +1197,7 @@ function createSync({
       const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
       const stat = await fs.lstat(absolute);
       if (!stat.isFile() || stat.size > limit) return null;
-      return await fs.readFile(absolute, 'utf8');
+      return decodeText(await fs.readFile(absolute));
     } catch {
       return null;
     }
@@ -1250,7 +1238,8 @@ function createSync({
         // 已经在编辑器里手工合并好（文件里没有冲突标记了）的，可以直接保留现在的内容。
         if (item.remote && item.local) {
           const current = await worktreeText(file, PRESERVE_MAX_BYTES);
-          item.current = current !== null && !CONFLICT_MARKER.test(current);
+          item.markerLine = current === null ? 0 : await conflictMarkerLine(file, current, options);
+          item.current = current !== null && !item.markerLine;
           try {
             const [remote, local] = await Promise.all([
               blobText(stages[sides.remote], CONFLICT_DIFF_MAX_BYTES, options),
@@ -1344,12 +1333,13 @@ function createSync({
           const current = await worktreeText(file, PRESERVE_MAX_BYTES);
           if (choice === 'current') {
             if (current === null) throw userError(`「${file}」现在不在资料库里，不能按现在的内容保留。`);
-            if (CONFLICT_MARKER.test(current)) throw userError(`「${file}」里还有冲突标记（<<<<<<<），请先改好，或者选远端、本机其中一边。`);
+            const line = await conflictMarkerLine(file, current, options);
+            if (line) throw userError(`「${file}」第 ${line} 行还有冲突标记，请先处理后再继续。`);
           }
           const keep = choice === 'current' ? null : stages[sides[choice]];
           const drop = stages[sides[choice === 'remote' ? 'local' : 'remote']];
           // 没采用的那一边、以及手工改到一半的现有内容，先存进本机历史再覆盖。
-          if (/\.md$/i.test(file)) {
+          if (/^(?:notes|cards)\//.test(file) && /\.md$/i.test(file)) {
             if (Object.values(stages.modes).some(mode => mode !== '100644' && mode !== '100755')) {
               throw userError('「' + file + '」包含非普通文件，未覆盖；请用 Git 工具处理。');
             }
@@ -1367,23 +1357,21 @@ function createSync({
               return content;
             };
             const kept = choice === 'current' ? current : await requiredBlob(keep);
-            const discarded = choice === 'current'
+            const otherVersions = choice === 'current'
               ? [await requiredBlob(stages[2]), await requiredBlob(stages[3])]
               : [await requiredBlob(drop)];
-            // 现在文件里的内容（可能已经手工合并了一部分）也会被覆盖，先存一份；
-            // 只有确认是 Git 留下的原样冲突文本时才不存。
-            if (choice !== 'current' && current !== null
-              && !(CONFLICT_MARKER.test(current) && await untouchedConflictText(current, stages, options))) {
-              discarded.push(current);
-            }
-            const saved = new Set();
-            for (const content of discarded) {
-              if (content === null || content === kept || saved.has(content)) continue;
-              saved.add(content);
-              if (await preserveDiscarded({ path: file, content, reason: 'conflict' })) {
-                if (!preserved.some(item => item.path === file)) preserved.push({ path: file, kind: 'history' });
+            const snapshots = new Set(otherVersions.filter(content => content !== null && content !== kept));
+            // 保留编辑器里看到的完整现场，即使它与所选的一边相同。
+            if (choice !== 'current' && current !== null) snapshots.add(current);
+            for (const content of snapshots) {
+              if (!await preserveDiscarded({ path: file, content, reason: 'conflict' })) {
+                throw userError(`「${file}」未能存入本机历史，未覆盖。请用 Git 工具处理。`);
               }
+              if (!preserved.some(item => item.path === file)) preserved.push({ path: file, kind: 'history' });
             }
+          } else if (choice !== 'current') {
+            const backupPath = await saveConflictCopy(vaultDir, file);
+            if (backupPath) preserved.push({ path: file, kind: 'file', backupPath });
           }
           if (choice === 'current') {
             await git(['add', '--', file], literal);

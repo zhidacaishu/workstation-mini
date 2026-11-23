@@ -1105,7 +1105,9 @@ test('本地分支跟踪名字不同的上游分支（main → origin/master）�
   git(dir, 'branch', '-q', '-u', 'origin/master');
   await writeNote(dir, 'notes/b.md', { body: 'b' });
 
-  const result = await createSync({ vaultDir: dir, logger: quietLogger }).cycle('改名上游');
+  // 这个场景要求没有显式推送策略，隔离开发机和 CI 的全局配置。
+  const env = { GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const result = await createSync({ vaultDir: dir, logger: quietLogger }).cycle('改名上游', { env });
   assert.equal(result.ok, true, result.error);
   assert.match(git(bare, 'log', '--oneline', 'master'), /改名上游/);
   assert.throws(() => git(bare, 'rev-parse', '--verify', '--quiet', 'refs/heads/main'), '不该在远端另建 main');
@@ -1234,4 +1236,76 @@ test('远端要登录时不弹窗，失败信息告诉用户在终端里登录�
     server.close();
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('用户显式设置 simple 时，完整同步、退出提交和复习同步都尊重异名上游保护', async t => {
+  const dir = await makeRepo();
+  const remote = await bareRemote('published');
+  t.after(async () => { for (const target of [dir, remote]) await fs.rm(target, { recursive: true, force: true }); });
+  await fs.writeFile(path.join(dir, 'seed.md'), 'seed');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'init');
+  git(dir, 'remote', 'add', 'origin', remote);
+  git(dir, 'push', '-qu', 'origin', 'HEAD:refs/heads/published');
+  git(dir, 'config', 'push.default', 'simple');
+  const before = git(remote, 'rev-parse', 'published');
+  const sync = createSync({ vaultDir: dir, logger: quietLogger, reviewSyncEnabled: true });
+  await fs.mkdir(path.join(dir, 'reviews'));
+  await fs.writeFile(path.join(dir, 'reviews', '2026-11-phone.jsonl'), '{"event_id":"local"}\n');
+  const review = await sync.syncReviewLogs('phone', 'review');
+  assert.equal(review.committed, true);
+  assert.equal(review.ok, false);
+  assert.match(review.error, /推送设置/);
+  await fs.writeFile(path.join(dir, 'more.md'), 'work');
+  for (const result of [await sync.cycle('cycle'), await sync.commitAndPush('exit')]) {
+    assert.equal(result.ok, false);
+    assert.match(result.error, /本机分支 main，上游 origin\/published/);
+  }
+  assert.equal(git(remote, 'rev-parse', 'published'), before);
+  assert.equal(git(remote, 'for-each-ref', '--format=%(refname:short)', 'refs/heads').trim(), 'published');
+
+  git(dir, 'config', 'push.default', 'upstream');
+  assert.equal((await sync.commitAndPush('allowed')).pushed, true);
+  assert.equal(git(remote, 'rev-parse', 'published'), git(dir, 'rev-parse', 'HEAD'));
+});
+
+test('无上游的多个远端中，完整同步和退出推送均采用配置的默认推送远端', async t => {
+  const dir = await makeRepo();
+  const publish = await bareRemote();
+  const unused = await bareRemote();
+  t.after(async () => { for (const target of [dir, publish, unused]) await fs.rm(target, { recursive: true, force: true }); });
+  git(dir, 'remote', 'add', 'publish', publish);
+  git(dir, 'remote', 'add', 'unused', unused);
+  git(dir, 'config', 'remote.pushDefault', 'publish');
+  git(dir, 'config', 'push.default', 'current');
+  const sync = createSync({ vaultDir: dir, logger: quietLogger });
+  await fs.writeFile(path.join(dir, 'one.txt'), 'one');
+  const first = await sync.cycle('首次同步');
+  assert.equal(first.ok, true, first.error);
+  await fs.writeFile(path.join(dir, 'one.txt'), 'two');
+  const next = await sync.commitAndPush('退出');
+  assert.equal(next.ok, true, next.error);
+  assert.equal(git(publish, 'rev-parse', 'main'), git(dir, 'rev-parse', 'HEAD'));
+  assert.equal(git(unused, 'for-each-ref', 'refs/heads'), '');
+});
+
+test('复习同步接受 Git 显式配置的 HEAD 推送规则，且只更新已经核验的分支', async t => {
+  const dir = await makeRepo();
+  const remote = await bareRemote();
+  t.after(async () => { for (const target of [dir, remote]) await fs.rm(target, { recursive: true, force: true }); });
+  git(dir, 'remote', 'add', 'origin', remote);
+  git(dir, 'commit', '--allow-empty', '-qm', 'init');
+  // 远端已有相同历史，但本机还没有设置跟踪关系。
+  git(dir, 'push', '-q', 'origin', 'main');
+  git(dir, 'config', 'remote.origin.push', 'HEAD:refs/heads/main');
+  git(dir, 'config', 'push.followTags', 'true');
+  git(dir, 'tag', '-a', 'local-only', '-m', '本机标签');
+  const sync = createSync({ vaultDir: dir, logger: quietLogger, reviewSyncEnabled: true });
+  await fs.mkdir(path.join(dir, 'reviews'));
+  await fs.writeFile(path.join(dir, 'reviews', '2026-11-phone.jsonl'), '{"event_id":"local"}\n');
+  const result = await sync.syncReviewLogs('phone', 'review');
+  assert.equal(result.ok, true, result.error);
+  assert.equal(result.pushed, true);
+  assert.equal(git(remote, 'rev-parse', 'main'), git(dir, 'rev-parse', 'HEAD'));
+  assert.equal(git(remote, 'tag', '--list'), '');
 });

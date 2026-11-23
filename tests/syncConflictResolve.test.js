@@ -130,9 +130,10 @@ test('全部用远端：正文是远端的，本机那份进历史，复习记�
     assert.deepEqual(result.preserved.map(item => item.path).sort(), ['notes/gone.md', 'notes/x.md']);
 
     const kept = await historyOf(env, 'x.md');
-    assert.equal(kept.length, 1);
-    assert.equal(kept[0].reason, 'conflict');
-    assert.equal(kept[0].raw, LOCAL_X);
+    assert.equal(kept.length, 2);
+    assert.ok(kept.every(record => record.reason === 'conflict'));
+    assert.ok(kept.some(record => record.raw === LOCAL_X));
+    assert.ok(kept.some(record => record.raw.includes('<<<<<<<')));
     assert.equal((await historyOf(env, 'gone.md'))[0].raw, '# 要删的\n\n本机改过\n');
 
     assert.equal(git(env.B, 'status', '--porcelain'), '');
@@ -155,8 +156,9 @@ test('全部用本机：正文是本机的，远端那份进历史，被远端�
     assert.equal(read(env.B, 'notes/x.md'), LOCAL_X);
     assert.equal(read(env.B, 'notes/gone.md'), '# 要删的\n\n本机改过\n');
     const kept = await historyOf(env, 'x.md');
-    assert.deepEqual(kept.map(record => [record.reason, record.raw]), [['conflict', REMOTE_X]]);
-    assert.equal((await historyOf(env, 'gone.md')).length, 0, '远端那边是删除，没有内容可存');
+    assert.ok(kept.some(record => record.raw === REMOTE_X));
+    assert.ok(kept.some(record => record.raw.includes('<<<<<<<')));
+    assert.equal((await historyOf(env, 'gone.md'))[0].raw, read(env.B, 'notes/gone.md'));
     assert.equal((await sync.cycle('再同步')).ok, true);
     // 另一台设备拉下来就是本机选的结果。
     git(env.A, 'pull', '--rebase');
@@ -333,7 +335,9 @@ test('在外面手工 merge 留下的冲突：远端、本机不会认反', asyn
     assert.equal(result.ok, true, result.error);
     assert.equal(result.continued, 'merge');
     assert.equal(read(env.B, 'notes/x.md'), REMOTE_X);
-    assert.deepEqual((await historyOf(env, 'x.md')).map(record => record.raw), [LOCAL_X]);
+    const history = await historyOf(env, 'x.md');
+    assert.ok(history.some(record => record.raw === LOCAL_X));
+    assert.ok(history.some(record => record.raw.includes('<<<<<<<')));
     assert.equal((await sync.cycle('再同步')).ok, true);
   } finally { await env.cleanup(); }
 });
@@ -513,5 +517,72 @@ test('Git 路径里的字面反斜杠不映射成其他文件，不覆盖无关�
     assert.equal(abort.ok, false);
     assert.match(abort.error, /反斜杠/);
     assert.equal(read(env.B, literal), before);
+  } finally { await env.cleanup(); }
+});
+
+test('diff3 祖先区的手工批注完整保留，自定义长度的残留标记指向实际行号', async () => {
+  const env = twoDevices({ 'notes/x.md': '# X\n\n第一行\n第二行\n第三行\n', '.gitattributes': '*.md conflict-marker-size=5\n' });
+  try {
+    git(env.B, 'config', 'merge.conflictStyle', 'diff3');
+    commit(env.A, { 'notes/x.md': REMOTE_X }, 'remote', { push: true });
+    commit(env.B, { 'notes/x.md': LOCAL_X }, 'local');
+    const sync = syncFor(env);
+    await sync.cycle('同步');
+    const file = 'notes/x.md';
+    const working = read(env.B, file).replace(/^(\|{5}[^\n]*\n)/m, '$1手工批注\n');
+    assert.match(working, /手工批注/);
+    const partial = working.replace(/^(?:<{5}|>{5})[^\n]*\n/gm, '');
+    write(env.B, { [file]: partial });
+    const line = partial.split('\n').findIndex(row => row.startsWith('|||||')) + 1;
+    const listed = (await sync.listConflicts()).files[0];
+    assert.equal(listed.current, false);
+    assert.equal(listed.markerLine, line);
+    const rejected = await sync.resolveConflicts({ [file]: 'current' });
+    assert.equal(rejected.ok, false);
+    assert.ok(rejected.error.includes('第 ' + line + ' 行'));
+    assert.match(git(env.B, 'ls-files', '-u'), /notes\/x.md/);
+    write(env.B, { [file]: working });
+    const result = await sync.resolveConflicts({ [file]: 'remote' });
+    assert.equal(result.ok, true, result.error);
+    assert.ok((await historyOf(env, 'x.md')).some(record => record.raw === working));
+  } finally { await env.cleanup(); }
+});
+
+test('附件选边前保存工作区的完整原始字节，副本不进 Git', async () => {
+  const file = 'attachments/picture.png';
+  const env = twoDevices({ [file]: Buffer.from([0, 2, 3]) });
+  try {
+    commit(env.A, { [file]: Buffer.from([0, 9, 4]) }, 'remote', { push: true });
+    commit(env.B, { [file]: Buffer.from([0, 8, 5]) }, 'local');
+    const sync = syncFor(env);
+    await sync.cycle('同步');
+    write(env.B, { '.workstation-local/.gitignore': '# 用户已有的规则\n' });
+    const edited = Buffer.from([0, 0xfe, 0xff, 0, 1]);
+    write(env.B, { [file]: edited });
+    const result = await sync.resolveConflicts({ [file]: 'remote' });
+    assert.equal(result.ok, true, result.error);
+    assert.deepEqual(fs.readFileSync(path.join(env.B, result.preserved[0].backupPath)), edited);
+    assert.deepEqual(fs.readFileSync(path.join(env.B, file)), Buffer.from([0, 9, 4]));
+    assert.equal(git(env.B, 'ls-files', '.workstation-local/git-conflicts'), '');
+  } finally { await env.cleanup(); }
+});
+
+test('工作区或某一边含非 UTF-8 的笔记时，拒绝有损备份，冲突和原始字节仍在', async () => {
+  const file = 'notes/x.md';
+  const bytes = Buffer.from([0xff, 0xfe, 0x30]);
+  const env = twoDevices();
+  try {
+    commit(env.A, { [file]: REMOTE_X }, 'remote', { push: true });
+    commit(env.B, { [file]: bytes }, 'local');
+    const sync = syncFor(env);
+    assert.equal((await sync.cycle('同步')).recovery.kind, 'rebase');
+    for (const content of [bytes, Buffer.from('# 临时编辑')]) {
+      write(env.B, { [file]: content });
+      const result = await sync.resolveConflicts({ [file]: 'remote' });
+      assert.equal(result.ok, false);
+      assert.match(result.error, /安全备份|UTF-8/);
+      assert.deepEqual(fs.readFileSync(path.join(env.B, file)), content);
+      assert.match(git(env.B, 'ls-files', '-u'), /notes\/x.md/);
+    }
   } finally { await env.cleanup(); }
 });

@@ -2,25 +2,29 @@
 // 以前「退出」和「保存设置」会一直挂在这里，只能强杀。
 const VETO_CHECK_TIMEOUT_MS = 3000;
 
-async function windowVetoesUnload(window, { timeoutMs = VETO_CHECK_TIMEOUT_MS } = {}) {
+async function waitForWindowResponse(response, timeoutMs, onTimeout) {
+  let timer;
+  try {
+    return await Promise.race([response, new Promise(resolve => { timer = setTimeout(() => resolve(onTimeout), timeoutMs); })]);
+  } finally { clearTimeout(timer); }
+}
+
+async function windowVetoesUnload(window, { timeoutMs = VETO_CHECK_TIMEOUT_MS, vetoOnTimeout = false } = {}) {
   if (!window || window.isDestroyed()) return false;
   const contents = window.webContents;
   // 渲染进程已经崩溃：页面上不会再有能保存的东西，不让它挡住退出。
   if (contents?.isCrashed?.()) return false;
-  let timer;
   try {
     const check = contents.executeJavaScript(`(() => {
       const event = new Event('beforeunload', { cancelable: true });
       return !window.dispatchEvent(event) || event.defaultPrevented || event.returnValue !== true;
     })()`);
-    // 卡死的页面回答不了，当成不拦：不然退出永远没有反应。
-    const vetoed = await Promise.race([check, new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); })]);
+    // 普通退出允许跳过无响应页面，系统询问退出时仍由用户决定。
+    const vetoed = await waitForWindowResponse(check, timeoutMs, vetoOnTimeout);
     return window.isDestroyed() || window.webContents?.isDestroyed?.() ? false : vetoed;
   } catch (error) {
     if (window.isDestroyed() || window.webContents?.isDestroyed?.()) return false;
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -45,28 +49,25 @@ function createQuitCoordinator({ getWindows, onAccepted, onCancelled = () => {},
     return acceptedPromise;
   }
 
-  function activeWindows() {
-    return getWindows().filter(window => window && !window.isDestroyed());
-  }
-
   function reveal(window) {
     if (window.isMinimized?.()) window.restore();
     window.show();
     window.focus();
   }
 
-  function request() {
+  function request({ confirmDiscard: confirmWindow = confirmDiscard, vetoOnTimeout = false, windows = getWindows() } = {}) {
     if (acceptedPromise) return acceptedPromise;
     if (requestPromise) return requestPromise;
 
     state = 'deciding';
     requestPromise = (async () => {
-      for (const window of activeWindows()) {
-        const vetoed = await windowVetoesUnload(window);
+      for (const window of windows) {
+        if (!window || window.isDestroyed()) continue;
+        const vetoed = await windowVetoesUnload(window, { vetoOnTimeout });
         if (acceptedPromise) return acceptedPromise;
         if (vetoed) {
           reveal(window);
-          const discard = await confirmDiscard?.(window);
+          const discard = await confirmWindow?.(window);
           if (acceptedPromise) return acceptedPromise;
           if (discard) continue;
           state = 'idle';
@@ -87,11 +88,10 @@ function createQuitCoordinator({ getWindows, onAccepted, onCancelled = () => {},
 
   return {
     request,
-    // 系统要结束会话（Windows 关机、重启、注销）：不再问页面，直接走退出流程；
-    // 页面上的草稿已经自动保存。正在问用户的那次裁决随之作废。
+    // 系统已经发出不可取消的 session-end，直接执行剩余的退出清理。
     forceAccept: accept,
     isAccepted: () => state === 'accepted'
   };
 }
 
-module.exports = { createQuitCoordinator, windowVetoesUnload, VETO_CHECK_TIMEOUT_MS };
+module.exports = { createQuitCoordinator, windowVetoesUnload, waitForWindowResponse, VETO_CHECK_TIMEOUT_MS };

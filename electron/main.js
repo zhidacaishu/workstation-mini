@@ -28,7 +28,7 @@ const { createRuntimeConfig, pruneStaleIndexes, removeLegacyVaultIndex } = requi
 const { validateSettingsUpdate, validateConflictChoices } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
 const { checkVaultChange } = require('./vault-change');
-const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
+const { createQuitCoordinator, windowVetoesUnload, waitForWindowResponse } = require('./quit-coordinator');
 const { createLeaveGuard } = require('./leave-guard');
 const { showAppMessage, focusMessage } = require('./message-window');
 const { createPlatformPolicy, INSET_CHROME_ARGUMENT } = require('./platform-policy');
@@ -432,15 +432,6 @@ async function createMainWindow({ hidden = false } = {}) {
     window.on('closed', () => {
       if (mainWindow === window) mainWindow = null;
     });
-    // Windows 关机、重启、注销时不发 before-quit：没有这两个处理，退出前的写入等待、
-    // 最后一次提交和关闭索引库都不会执行，同步可能停在半路。只在 Windows 上触发。
-    window.on('query-session-end', event => {
-      if (quitReady) return;
-      // 推迟结束会话，等保存和退出前同步做完；应用退出后系统继续关机。
-      event.preventDefault();
-      endSession();
-    });
-    window.on('session-end', () => endSession());
     // 切回窗口时补一次对账，接住外部编辑器的改动（文件监听在部分平台会漏事件）。
     // 来回切窗口很频繁，15 秒内只扫一次；后台对账不会在界面上弹索引横幅。
     let lastFocusRescan = 0;
@@ -970,6 +961,28 @@ async function finishQuit() {
   return { ok: true };
 }
 
+async function confirmSessionEnd(window) {
+  if (focusMessage(window)) return false;
+  const url = new URL(window.webContents.getURL());
+  const editor = window === mainWindow && url.origin === runtime?.origin
+    && /^\/(?:new|edit|recover|cards\/edit)(?:\/|$)/.test(url.pathname);
+  const canSave = editor || window === settingsWindow;
+  const choice = await showAppMessage(window, {
+    message: '系统即将结束会话，还有未保存的更改',
+    detail: canSave ? '保存成功后工作台才会退出。' : '请返回窗口完成保存，或放弃本次修改。',
+    buttons: canSave ? ['保存并退出', '放弃修改并退出', '返回编辑'] : ['返回窗口保存', '放弃修改并退出'],
+    defaultId: 0, cancelId: canSave ? 2 : 0
+  });
+  if (choice === 1) return true;
+  if (choice !== 0 || !canSave || window.isDestroyed()) return false;
+  const timedOut = Symbol();
+  const saved = await waitForWindowResponse(window.webContents.executeJavaScript('window.workstationSaveForSessionEnd?.()'), 20000, timedOut);
+  if (saved === timedOut && !window.isDestroyed()) {
+    await showAppMessage(window, { message: '保存尚未确认，工作台将保持打开', detail: '请回到窗口检查保存状态，再决定是否退出。', buttons: ['返回窗口'] });
+  }
+  return saved === true && !await windowVetoesUnload(window, { vetoOnTimeout: true });
+}
+
 function endSession() {
   if (quitReady || !quitCoordinator) return;
   quitCoordinator.forceAccept().catch(showFatalError);
@@ -1288,6 +1301,17 @@ if (!gotLock) {
   });
   app.on('second-instance', () => showMainWindow());
   if (platformPolicy.restoreOnActivate) app.on('activate', () => showMainWindow());
+  // query-session-end 可以推迟，session-end 则代表系统已经决定结束会话。
+  // 设置或恢复可能是唯一打开的窗口。多个窗口收到消息时共用同一次退出裁决。
+  app.on('browser-window-created', (_event, window) => {
+    window.on('query-session-end', event => {
+      if (quitReady) return;
+      event.preventDefault();
+      // 保存设置可能重启主窗口，先让用户处理主窗口里的编辑。
+      quitCoordinator.request({ windows: [mainWindow, recoveryWindow, settingsWindow], confirmDiscard: confirmSessionEnd, vetoOnTimeout: true }).catch(showFatalError);
+    });
+    window.on('session-end', () => endSession());
+  });
   app.on('before-quit', event => {
     if (quitReady) return;
     event.preventDefault();

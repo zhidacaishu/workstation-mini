@@ -1,124 +1,86 @@
 # Workstation Mini
 
-Workstation Mini 是科研与实习准备的精简版本地知识工作台，面向需要长期记住知识、讲清研究项目并持续练习的 AI 研究者。
+English · [简体中文](README.zh-CN.md)
 
-它只围绕四件事：记录知识、快速找回、安排下一步、间隔复习。Markdown 是资料真源，SQLite 只做可重建索引，FSRS 复习事件保存在 JSONL 中。资料可以脱离应用用普通编辑器打开。
+Workstation Mini is a local-first desktop app for research notes, tasks, and spaced repetition. Keep an experiment log, link it to related notes, turn a finding into a flashcard, and schedule the next experiment. Notes and card decks are Markdown files you can open in another editor. Review events are stored as JSON Lines, and the app rebuilds its SQLite search index from the vault.
 
-## 保留的能力
+The desktop interface is in Simplified Chinese. The Chinese labels below match the buttons and pages in the app.
 
-- Markdown 知识笔记、全文搜索、双链与反链；新建时先写标题，默认存进 `inbox/`
-- 普通卡、挖空卡、划词建卡和 FSRS 间隔重复；应用内改卡、删卡、暂停和挪卡组，「忘了」的卡本轮末尾重学
-- 轻量研究项目与实验记录（数据、参数、seed、commit、结果、结论、下一步）
-- 统一计划工作区：待办列表、到期筛选、月历与当天备注；阅读页直接勾选待办；历史/草稿恢复
-- 本地优先、可重建索引、原子写入、Git 文本同步与冲突保护
-- 资料库健康诊断：只读查看索引、复习日志和 Git 状态，辅助排障
+## Install and open a vault
 
-## 新手指引
+Download the installer and, optionally, `SHA256SUMS.txt` to verify it. Windows x64 uses the `-setup.exe` installer. Apple Silicon Macs use the `-mac-arm64.dmg` disk image. The Windows installer is unsigned. The Mac app uses an ad-hoc signature and has not been notarized by Apple. Install updates manually from [GitHub Releases](https://github.com/zhidacaishu/workstation-mini/releases/latest).
 
-首次打开工作台时显示约一分钟的界面导览：一个欢迎页，加上六站高亮说明——遮罩上挖空侧栏里的真实入口（搜索、笔记、研究项目与计划、复习、历史与健康、底部的指南/设置/新建），旁边一张小卡片讲清用途。支持上一步、下一步、方向键翻页，Esc 或「以后再说」跳过；跳过和看完都不再自动弹出。导览只讲「东西在哪」，不改动笔记或设置，也不会在编辑、新建或复习页自动打断。
+This README describes the current `main` branch. To check which changes are in your installer, use its release notes. Changes awaiting release are listed under **未发布** in the [changelog](CHANGELOG.md).
 
-今日页在新资料库里显示「开始使用」清单：写下第一篇笔记、把一件事写进计划、做第一张复习卡片、完成第一次复习。每一步是否完成直接看资料库里有没有对应的笔记、待办、卡片和复习记录，不另存进度，所以打开一个用了很久的资料库时会直接全部打勾、不再出现。清单只给出下一步和对应入口，可以隐藏；只读模式下不显示。
+1. On first launch, create a vault (**创建新资料库**), open an existing one (**打开现有资料库**), or restore one (**从备份恢复**). Recovery accepts a Git repository or a local backup and verifies it before switching.
+2. Open **新建** and enter a title. A new note normally goes in `notes/inbox/`. The app proposes a unique filename, which you can change before saving.
+3. Add a task to the note, then open **计划** to find it in the list or on the calendar. Checking it off or changing its due date updates the original Markdown line.
+4. Open **复习** to create your first flashcard. You can also select text on a note’s reading page and turn the selection into a card.
 
-侧栏左下角的问号打开上手指南（`/guide`，命令面板里也能搜到）：完整的上手清单、笔记与公式、搜索与快捷键、待办与计划、卡片与复习、Git 版本记录、出错与恢复几节速查，以及「重新看界面导览」。导览进度与清单是否隐藏保存在本机应用配置目录，跨页面和应用重启保留，不写入资料库；旧版八步指引已看完或跳过的用户升级后不会再被打断。
+The question mark in the sidebar opens the built-in guide (**上手指南**). It includes a short tour, a first-use checklist, and a Git setup guide tailored to your vault.
 
-Git 一节会只读探测当前资料库：是否安装了 Git、是否已是仓库、有没有提交身份、有没有远端、自动同步是否开启，只列出还缺的那几条终端命令（按实际资料库路径生成，可一键复制），再引导到设置的「同步」启用自动同步。没有远端也会生成本地提交；配置好远端和凭据后才会推送。指引不执行 Git 命令，也不会替用户开启同步。本地版本历史与 Git 提交彼此独立。
+## Notes, research, and review
 
-## 笔记、卡片与待办
+| To do this | Use |
+| --- | --- |
+| Find a note or follow an idea | Open search with `Ctrl+K` or `⌘K`. Type `[[` in the editor to link another note. The reading view shows its outline and backlinks. |
+| Record an experiment | Create a research project and record the dataset, parameters, seed, commit, result, and next step. The project board and Today page surface the next action. |
+| Track a deadline | Write a Markdown task such as `- [ ] Run the ablation @2026-12-01`. Undated tasks appear under **计划 → 未安排**. Daily calendar notes live in `notes/calendar/YYYY-MM-DD.md`. |
+| Add an image or equation | Paste or drop a PNG, JPEG, GIF, or WebP image up to 15 MB. The editor saves it in `attachments/` and inserts a link. Inline and display math render offline with bundled KaTeX. |
+| Review a finding | Use a level-two heading for the front of a card and the text below for its back. Wrap a phrase in `{{double braces}}` to make a cloze. FSRS schedules the next review from your rating. |
 
-新建笔记先填标题：路径默认是 `inbox/标题.md`，跟着标题自动变化，重名时依次用「标题 2」「标题 3」；手动改了「保存到」之后就不再跟随。标题与正文第一行的 `# 标题`（研究项目则是 frontmatter 的 `title:`）双向同步。从「研究项目」或看板分栏新建时，目录换成对应栏目；从未建的 `[[双链]]` 新建时直接用链接里的路径。路径没写扩展名时自动补 `.md`。
+For example, save the following as `cards/experiments.md` to make a card:
 
-笔记里指向 `attachments/`、`audio/` 下图片、音频、视频的链接（包括 `![[录音.mp3]]`），点击后用系统默认应用打开。
+```markdown
+## Why record the random seed?
 
-编辑框里：回车自动续列表、待办和引用，空项再回车结束；Tab / Shift+Tab 缩进（先按 Esc 再按 Tab 把焦点移出编辑框）；输入 `[[` 弹出笔记补全；粘贴或拖入图片（PNG、JPEG、GIF、WebP，单张不超过 15 MB）会存进 `attachments/`，文件名是当时的时间，并在光标处写入 `![[文件名]]`。窗口宽度不小于 1180 px 时，工具栏的「预览」可以打开右侧实时预览，开关记在本机。代码块按 ` ```语言 ` 标注的语言高亮，没标的不猜。
-
-计划页列表视图和今日页顶部的输入框可以直接添加待办，写进今天的月历备注 `calendar/日期.md`。
-
-「笔记」列表每页 50 篇，可以翻页；按分区筛选时「共 N 篇」只数这个分区。月历备注不出现在今日页的「最近的笔记」里。
-
-卡片仍然写在 `cards/*.md` 里：`##` 标题是正面，正文是背面。「复习」页点卡组名或「全部卡片」可以逐张查看、修改正面和背面、挪到别的卡组、删除，或者暂停复习；复习过程中也能直接编辑或暂停当前这张。改正面或挪卡组时，应用会在这张卡下面写一行 `<!-- workstation:card:v1 {...} -->` 固定它的身份，复习记录不会因此丢失；暂停也记在这一行里，不另存数据。修改只改动这张卡所在的几行，并且校验卡组文件的版本，外部改过时提示刷新。复习时选「忘了」的卡会排到这一轮末尾再出现一次，结束时统计本轮重学了几张；评分照常记入复习日志。
-
-复习时评完分可以「撤销上一张」（按钮或 `Z` 键），只能撤最后一次评分，撤销后回到那张卡重新评。撤销也追加到复习日志，原评分保留但不再计入排期；多台设备同步合并后仍然有效（各设备均需使用支持撤销事件的版本）。挖空卡翻面后在题面原位显示答案并高亮。
-
-笔记阅读页里的 `- [ ] 待办 @日期` 是真正的勾选框，勾上即写回原文那一行，日期标签显示年份（跨年时）、「今天」和「逾期」。今日页只列今天到期和已经逾期的待办，最多五条，其余从「还有 N 条」进入计划页；没有到期的事时显示接下来的三条。没写日期的待办只在计划页的「未安排」里。
-
-## 数据放在哪
-
-| 内容 | 位置 | 是否随 Git 同步 |
-| --- | --- | --- |
-| 笔记、卡组、复习日志 | 资料库里的 `notes/`、`cards/`、`reviews/` | 是 |
-| 本机版本历史与草稿 | 资料库里的 `.workstation-local/` | 否 |
-| 搜索索引（SQLite） | 应用数据目录 `workstation-data/index/`，每个资料库一份 | 否 |
-| 设置、指引进度 | 应用数据目录 | 否 |
-
-- 每篇笔记的历史按笔记分目录存放：最近 20 个普通保存的版本全部保留，更早的在 60 天内每天（按本机日期）留最后一份，再早的在下次保存这篇笔记时清理；删除笔记前留下的副本、中止 Git 操作前的快照和解决冲突时没采用的那一边都不参与清理。清理失败（文件被占用）不影响保存，下次再清。旧版平铺的历史记录在第一次查看或保存时自动迁移。
-- 卡组文件修改或删除前的版本也存在本机历史里，「历史与草稿」中标着「卡组」，可以整份恢复到原位置。删除卡片前的那份标为「删卡前」：60 天内全部保留，更早的每天留最早一份。因此，当天稍后新增或编辑再删除的卡片，超过 60 天后可能无法找回。
-- 在「历史与草稿」里选中一个版本，默认显示它和现在的内容差在哪些行（增、删分别着色，没变的大段折叠），可以切回全文；文件超过 2 MB 或改动超过 2000 行时直接显示全文。解决同步冲突时没采用的那一边也在这里，标为「冲突未采用」。
-- 放弃编辑留下的草稿超过 30 天没动会在启动时清理。
-- 索引以前放在资料库根目录的 `workstation.db`，资料库放在云盘里时容易被同步搅坏。现在索引在应用数据目录里，每个资料库一份。资料库里的旧 `workstation.db`（以及 `-wal`、`-shm`）超过 3 天没被改动过时，打开资料库会自动删掉；3 天内还在变的说明有旧版本在用，不动它。90 天没打开过的资料库的索引会自动清理，需要时再重建。
-- 设备名用来给复习日志分文件（`reviews/YYYY-MM-设备名.jsonl`），不能留空。新安装时由主机名加一段随机后缀生成并写入设置，之后改主机名也不会变；从旧版本升级的设备沿用原来按主机名得到的名字，复习日志继续写同一个文件。可以在「设置」里修改，多台设备不要用同一个名字。
-- 笔记属性区（frontmatter）只认 YAML。`---js`、`---json` 等其它写法不会被执行，阅读页显示原文和「修复」入口。卡组文件和笔记都兼容 CRLF 换行。
-
-## Git 同步
-
-资料库目录必须就是 Git 工作树的根目录（支持普通仓库和 linked worktree）。如果资料库只是另一个仓库里的普通子目录，应用会跳过同步，避免提交或推送资料库之外的文件；可在资料库目录单独运行 `git init` 建立自己的仓库。未使用 Git 时，本地笔记、历史与复习照常可用。
-
-同步默认关闭，在「设置 → 同步」开启。有远端时每一轮：先把本机修改提交，再 `fetch`、`rebase`（不用 autostash），最后推送；没有远端时只做本地提交。启动时的拉取在后台进行，窗口不等它；退出时最多等 20 秒。Git 不会弹出登录框（`GIT_TERMINAL_PROMPT=0`，Git Credential Manager 设为不交互；没有自己配置 ssh 命令时 SSH 用 `BatchMode`，不问口令和主机指纹）。远端需要登录时同步失败并提示在终端里运行一次 `git fetch` 完成登录，之后凭据管理器或 ssh-agent 会记住。本地 Git 命令 60 秒超时；`fetch` 和 `push` 要传附件，总上限放宽到 30 分钟，网速长时间过低时提前放弃，不会让同步一直挂着。变基期间应用暂停写入笔记和复习评分，变基完成后再写，避免两边互相覆盖。
-
-每次复习结束还会单独同步一次复习记录，同样不用 autostash：远端有新提交、本机又有未提交的笔记修改时，这一次只在本机提交复习记录，等下一轮完整同步一起拉取和推送。
-
-两台设备修改同一个文件并产生 Git 冲突时，同步立即停止，保留 Git 冲突现场，不自动选择任何一端，也不继续推送。打开「设置 → Git 同步」，冲突文件会逐个列出来：每个文件选「用远端的」或「用本机的」（一边删了文件时是「跟它一样删掉」），可以展开看两边差在哪些行；如果已经在编辑器里把冲突标记手工改掉了，还可以选「用现在文件里的内容」。全部选好后点「按选择解决并继续同步」，应用完成变基并在后台同步一轮；本机有好几个提交没推时可能要再选一次。选了某一边时，如果现在的文件已经手工改过（哪怕只改了一部分），改过的内容也先存进历史再覆盖。没采用的那一边存进「历史与草稿」，标为「冲突未采用」，随时能找回；复习记录两边都保留，不用选。也可以「中止当前 Git 操作」回到同步前的状态，或者照旧在资料库目录用 `git status`、`git add`、`git rebase --continue` 手工处理。cherry-pick、revert 这类不是同步留下的状态分不清哪边是远端，不能在应用里选。
-
-中止 Git 操作前，会先将未提交（包括已暂存）的笔记、卡组与复习日志快照写入本机 `.workstation-local/git-abort/`，笔记和卡组同时存入「历史与草稿」。任何备份写入失败都会停止中止操作；Git 中止后补回复习日志失败时会明确报错，完整快照仍保留在本机。
-
-开启同步后，应用会在资料库根目录维护 `.gitattributes`（和 `.gitignore` 一样，只补上缺的规则，不动你自己写的），让 `*.md`、`*.jsonl` 在 Mac 与 Windows 之间统一用 LF 换行，避免 Git for Windows 的 `core.autocrlf` 把卡组改成 CRLF。
-
-多台设备请尽量一起升级：旧版本同步时仍可能把冲突标记写进笔记；同一卡组里有正面相同的卡时，新旧版本算出的卡片 ID 也可能不一样，混用时这几张卡的复习记录会对不上。
-
-## 数学公式
-
-笔记阅读和复习卡片支持本地 KaTeX 渲染：行内写 $\log x$，块公式使用独占行的 $$ 包围；支持分数、矩阵、分段函数和 aligned 多行推导。CSS 与字体随应用安装，断网可用。编辑页保留 Markdown 原文，错误公式显示源码，超宽块公式在自身区域滚动。
-
-代码块、行内代码与转义美元符号不参与公式渲染。行内公式须在同一行，定界符内侧不要留空格；金额等普通文字中的美元符号可写成 \$，避免歧义。当前不提供公式自动交叉引用或公式内局部挖空。
-
-普通挖空继续使用 {{答案}}；挖空整个公式可写成 {{ $\frac{a}{b}$ }}。数学区域内部的双层大括号按 LaTeX 分组解释，不识别为挖空。划词建卡保留所选公式的 TeX 源码，部分选中一个公式也会保存整个公式；多行选区自动放入卡片背面，正面标题可在保存前修改。
-
-## 精简边界
-
-Mini 不包含错题本与外部写作检查器、Zotero 同步、PDF 解析与问资料库、独立日记、历年今日和多套回顾页、知识图谱、自动知识质量分析、自动相似建议、影子跟读、字幕与转写、博客 MDX 发布、独立投稿与教材进度看板。原始项目保持不变；本目录是独立项目。
-
-计划工作区（`/plan`）提供列表／月历切换：列表可查看逾期、今天到期、未安排、截止事项和已完成任务；月历可直接完成或修改待办的到期日期、查看项目期限，并编辑当天备注。日期表示截止日，不是执行时间。备注保存于 `notes/calendar/YYYY-MM-DD.md`，任务仍写回原 Markdown，不创建第二份日程数据。不包含重复日程或提醒。
-
-Mini 不负责替代完整日程管理、提醒、IDE、实验追踪平台或通用 AI 助手。项目笔记可以链接外部运行记录、代码仓库和论文来源。
-
-不提供内置 AI 调用、API key 配置或笔记模板选择器。`/tasks`、`/calendar`、`/deadlines` 仅作为统一计划页的兼容入口，不维护独立页面。资料库恢复保留 Git 克隆、本地备份复制、索引验证和安全切换，不提供远程大文件补齐；本地备份内已有的普通文件仍会一并复制。
-
-界面仅面向 Electron 桌面窗口，不提供移动端适配。研究项目不再解析旧审稿意见、导出回复稿或显示习题完成度；复习保留实际队列与评分，不提供未来负荷预测。已有 Markdown 字段和复习事件保持不变。
-
-## 界面与桌面体验
-
-主窗口、设置与资料库恢复窗口统一采用「石墨」视觉：窄图标侧栏、石墨灰底与冰蓝强调色，深色与浅色两套主题完整对应，可在设置里选择跟随系统、浅色或深色；逾期统一用琥珀色且同时写明文字。界面字体随应用打包（西文 Geist / Geist Mono，中文思源黑体 Noto Sans SC，均为 OFL 许可），Mac 与 Windows 观感一致，不依赖在线字体服务；等宽字体只用于代码、文件路径、commit 与 frontmatter 字段名，编辑区用正文字体，日期和计数用正文字体的等宽数字。颜色、字号（9 档）、圆角（6 档）、控件高度和动效都定义在 `src/public/tokens.css`，三个窗口共用，组件样式只引用这些变量。在 macOS 上窗口不显示系统标题栏，红绿灯直接嵌在侧栏顶部；Windows 和 Linux 保留系统标题栏，菜单栏默认收起，按 Alt 出现。第一次启动先显示欢迎页，从「创建新资料库 / 打开现有资料库 / 从备份恢复」三个起点里选一个，选了恢复才进入分步骤的恢复界面。
-
-界面不设顶部工具栏：侧栏的「搜索」唤起命令面板（⌘K / Ctrl K，`/` 在资料库页聚焦搜索框），角标只提示逾期待办与到期卡片。今日页只放一个最该推进的研究项目、最近的笔记，以及「今天需要处理」：第一行是这一轮要复习的卡片，下面是今天到期和逾期的待办（勾选即完成）；新资料库在最上面多一张可隐藏的上手清单；笔记阅读页把 `- [ ] 待办 @日期` 显示为可直接勾选的勾选框与日期标签，没写别名的 `[[双链]]` 显示目标笔记标题（原文不变）；笔记阅读页随窗口宽度展开，不设正文最大行宽，保留左右边距，正文右侧通过「目录 / 反向链接」切换，多级标题目录支持点击跳转、当前章节高亮和独立滚动，空笔记不预留侧栏；主页面使用全部可用宽度并共用页头基准，列表按内容延伸，首页、看板、阅读侧栏与月历随窗口调整分栏；编辑器和复习卡片同时使用剩余高度；历史列表在选中记录后再分出预览栏；研究看板以标题为主，数据集为辅助信息，下一步与截止日分别排布；计划支持列表与月历，月历高度随窗口调整，日期侧栏只保留「到期」「备注」等必要标签。保留可见键盘焦点、保存快捷键和减少动效支持。编辑页、卡片编辑页和设置有未保存的修改时，离开页面、关闭窗口、退出或应用新设置前都会弹出跟随应用主题的确认框；离开时编辑器里的内容会先存成本机草稿。主窗口最小宽度为 900px，设置窗口为 760px。
-
-主窗口、设置和首次使用／恢复窗口在开发模式和安装版中均使用项目图标；Windows 使用多尺寸 ICO，macOS 开发模式同时设置 Dock 图标。托盘仍使用系统原生菜单，Windows 左侧的图标／勾选预留区域属于系统布局，不由应用 CSS 调整。
-
-## 开发与验证
-
-需要 Node.js 22.12.0 或更新版本。
-
-```bash
-npm ci
-npm run dev          # 启动 Electron 开发窗口；npm start 等价
-npm test             # 核心回归，包含资料库恢复与激活验证
-npm run test:desktop # 使用临时资料库运行真实桌面交互测试
+It lets another run reproduce the same sequence of random choices.
 ```
 
-better-sqlite3 自带 N-API 预编译文件，安装依赖时不需要 Python 或 VS 构建工具；请用上述测试脚本运行测试，而不是直接用系统 Node.js 执行依赖 SQLite 的测试。桌面测试覆盖设置/恢复入口、草稿跨重启恢复、待办更新和已删除笔记恢复、卡片管理与复习中的编辑/暂停、阅读页勾选待办、按标题新建笔记，以及主题切换时的未保存编辑保护，不使用实际资料库。布局回归在明暗主题下检查 900／1100／1440px 窗口中的长卡组、历史长路径和操作按钮；主页面另外验证 900／1440／1920／2560px 下的全宽边距、历史预览分栏，以及编辑与复习区的剩余高度。设置窗口从 760px、恢复窗口从 900px 起检查底栏对齐、最后一个控件的可达性、长错误信息换行及恢复残留提示中的按钮高度。
+During review, press **Space** to reveal the answer, **1–4** to rate it, or **Z** to undo the last rating. A card rated **忘了** returns at the end of the session. Editing a card’s front, moving it to another deck, or pausing it preserves its review identity.
 
-纯逻辑和配置检查统一由 `npm test` 执行；`test:desktop` 只运行真实窗口用例，按文件串行执行，避免原生窗口争抢焦点。布局断言照常执行，成功用例的验收截图仅在设置 `WORKSTATION_VISUAL_OUTPUT` 输出目录时生成，失败截图仍自动保留并在日志中输出位置。
+## Files and local history
 
-本地 UI 验收截图、测试日志与临时资料库应放在系统临时目录或仓库 `tmp/` 中，不提交到版本库。
+| Content | Location |
+| --- | --- |
+| Notes and research projects | `notes/` in the vault |
+| Card decks and review events | `cards/*.md` and `reviews/YYYY-MM-DEVICE.jsonl` |
+| Images, audio, and other linked media | `attachments/` and `audio/` |
+| Note versions and editor drafts | `notes/.workstation-local/` |
+| Deck history and Git conflict or abort snapshots | `.workstation-local/` at the vault root |
+| Search index | One index per vault under `workstation-data/index/` in the app data directory |
 
-打包：Windows 用 `npm run desktop:build`（NSIS 安装器），macOS 用 `npm run desktop:build:mac`（Apple Silicon，ad-hoc 签名）。应用主体按白名单仅包含 `electron/`、`src/`、应用元数据和运行依赖，运行时图标另外随包分发；本地 `tmp/`、`dist/`、测试脚本和旧安装包不进入应用主体。安装包只带本平台的 SQLite 预编译文件。Mini 不做自动更新；推送版本标签（如 v0.2.0）后，Release 工作流会运行回归测试、构建 Windows x64 与 macOS arm64 安装包并验证打包应用，再发布到 GitHub Releases。Windows 安装包未配置代码签名，macOS 使用 ad-hoc 签名且未经 Apple 公证。打包配置里 `publish` 为空，不会生成更新清单。打包后的应用用 Electron fuses 关闭了 `ELECTRON_RUN_AS_NODE` 和 `NODE_OPTIONS`，只从 asar 加载应用代码，所以不能再拿安装好的应用当 Node 运行脚本；开发和测试使用 `node_modules` 里未加固的 Electron。
+Before overwriting an edited note, the app saves its previous contents in local history. If the history write fails, the original stays on disk and your new text stays in the editor. Check disk space and write access, then retry. Open **历史与草稿** to compare versions, restore a note or deck, or recover a draft. Local history captures individual saves, so it can contain intermediate versions between Git commits.
 
-首页建议只记录：今天要复习什么、哪道题还不会、当前项目下一步是什么。卡片用于主动回忆；开放题、项目追问和真实代码练习用于检验迁移能力，不把“看答案觉得熟悉”当作掌握。
+For each note, the latest 20 ordinary saves are kept. Older saves are reduced to one per local day within the past 60 days. Deletion and conflict snapshots have separate retention rules. Local history and drafts stay on the device. When Windows asks the app to close for shutdown, restart, or sign-out, you can save unsaved note, card, and settings edits, discard them, or return to editing.
+
+## Optional Git sync
+
+Use the **vault’s own Git working-tree root** as the vault directory. Linked worktrees are supported. In **上手指南 → Git**, the app checks your Git installation, repository, commit identity, and remote and shows the setup commands still needed. Automatic sync is off on a fresh installation. Enable it in **设置 → Git 同步**. Give each device a distinct name so each writes its own review log.
+
+A full sync commits changes that Git tracks or would add, fetches remote changes, rebases if needed, and pushes. Review the vault’s `.gitignore` before enabling sync. With a local repository and no remote, the app can still make local commits. Configure credentials in your terminal if a background fetch needs authentication.
+
+- **Push rules.** Full sync respects explicit Git push settings. For example, with `push.default=simple`, a local `main` tracking `origin/published` on the same remote stops at the push step and reports the two branch names. Review-only sync checks the destination and outgoing commits before sending review records. If the remote branch advances after that check, the push stops.
+- **Conflicting edits.** In **设置 → Git 同步**, compare the two sides and choose the local version, the remote version, or a manually merged file. Before replacing a note or deck, the app saves the complete working copy and discarded text versions in local history. This includes edits made in the common-ancestor section of a three-way conflict. Other files are copied byte for byte to `.workstation-local/git-conflicts/`. A failed backup stops the overwrite. If the manual result still contains a conflict marker, the app shows its line number.
+- **Recovery.** You can continue a merge or rebase from Settings, abort it, or resolve it with Git in the vault directory. Before an abort, the app saves pending note, deck, and review-log changes under `.workstation-local/git-abort/`. Open **资料库健康** to inspect the index, review logs, and Git status.
+
+## Development and verification
+
+Install Node.js **22.12.0 or later**, then run these commands from the repository root:
+
+```sh
+npm ci
+npm run dev
+```
+
+| Command | What it runs |
+| --- | --- |
+| `npm test` | Core regression suite, including storage, indexing, Git sync, and vault recovery |
+| `npm run test:desktop` | Electron interaction tests with temporary vaults |
+| `npm run desktop:build` | Windows x64 NSIS installer |
+| `npm run desktop:build:mac` | Apple Silicon macOS disk image |
+| `npm run verify-mac-package` | Architecture, native binaries, resources, and signature checks for the packaged Mac app |
+
+Pushes to `main` and pull requests run the Linux regression suite. For platform-specific checks, run the **CI** workflow manually and select Windows or macOS. A version tag matching `package.json` triggers the release workflow. It publishes installers and checksums after the Linux regressions and the Windows and macOS packaging and desktop tests pass.
+
+For more on editor shortcuts, history retention, or the scope of the Mini edition, see the [Chinese user guide](README.zh-CN.md) and [feature scope](docs/MINI-SCOPE.md).

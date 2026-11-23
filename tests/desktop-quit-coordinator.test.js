@@ -198,11 +198,21 @@ test('正在问「仍要退出吗」时系统结束会话：不等回答，用�
   assert.equal(accepted, 1);
 });
 
-test('Windows 关机、重启、注销时主窗口接住会话结束事件并走退出流程', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
-  assert.match(main, /window\.on\('query-session-end', event => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?endSession\(\);/);
-  assert.match(main, /window\.on\('session-end', \(\) => endSession\(\)\);/);
-  assert.match(main, /function endSession\(\) \{[\s\S]*?quitCoordinator\.forceAccept\(\)/);
+test('系统询问阶段遇到未保存内容允许返回，重复通知只询问一次', async () => {
+  const dirty = stubWindow({ veto: true });
+  const answer = deferred();
+  let prompts = 0, accepted = 0;
+  const coordinator = createQuitCoordinator({
+    getWindows: () => [dirty], onAccepted: () => { accepted++; }
+  });
+  const options = { vetoOnTimeout: true, confirmDiscard: () => { prompts++; return answer.promise; } };
+  const first = coordinator.request(options);
+  const second = coordinator.request(options);
+  answer.resolve(false);
+  assert.deepEqual(await first, { cancelled: true });
+  await second;
+  assert.equal(prompts, 1);
+  assert.equal(accepted, 0);
+  await coordinator.request({ confirmDiscard: () => true });
+  assert.equal(accepted, 1);
 });

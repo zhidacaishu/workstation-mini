@@ -1,4 +1,5 @@
 const fs = require('node:fs/promises');
+const { createReadStream } = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { ensureSafeFilePath, toPosix, isSafeRelativePath, isNotePath } = require('./paths');
@@ -86,13 +87,38 @@ async function writeJson(root, relative, value) {
     const handle = await fs.open(temporary, 'wx', 0o600);
     try {
       await handle.writeFile(JSON.stringify(value), 'utf8');
-      await handle.sync().catch(() => {});
+      await handle.sync();
     } finally {
       await handle.close();
     }
     await ensureSafeFilePath(root, relative, { allowMissing: true });
     await replaceFile(temporary, file);
   } finally { await fs.rm(temporary, { force: true }); }
+}
+
+// 附件及其它文件不能放进 Markdown 版本列表。按原始字节保存，保留相对路径供找回。
+async function saveConflictCopy(root, relative) {
+  let source;
+  try { source = await ensureSafeFilePath(root, relative); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  await prepare(root);
+  const directory = `${DIRECTORY}/git-conflicts/${crypto.randomUUID()}`;
+  // 自定义的上级 .gitignore 可能没有排除副本。每个新目录自己忽略全部内容。
+  const ignore = await ensureSafeFilePath(root, directory + '/.gitignore', { allowMissing: true, createParents: true });
+  await fs.writeFile(ignore, '*\n', { flag: 'wx', mode: 0o600 });
+  const copy = `${directory}/files/${relative}`;
+  const target = await ensureSafeFilePath(root, copy, { allowMissing: true, createParents: true });
+  const handle = await fs.open(target, 'wx', 0o600);
+  try {
+    try {
+      await handle.writeFile(createReadStream(source));
+      await handle.sync();
+    } finally { await handle.close(); }
+  } catch (error) {
+    await fs.rm(target, { force: true });
+    throw error;
+  }
+  return copy;
 }
 
 async function readJson(root, relative) {
@@ -252,7 +278,11 @@ const VERSION_REASONS = new Set(['save', 'delete', 'abort', 'conflict', 'card'])
 async function saveVersion(root, notePath, raw, reason) {
   // 原因写进文件名；不认识的写法列不出来，等于白存。
   if (!VERSION_REASONS.has(reason)) reason = 'save';
-  return storeVersion(root, { path: notePath, raw, reason, at: new Date().toISOString() }, crypto.randomUUID());
+  try {
+    return await storeVersion(root, { path: notePath, raw, reason, at: new Date().toISOString() }, crypto.randomUUID());
+  } catch (cause) {
+    throw Object.assign(new Error('本机历史未能保存，请检查磁盘后重试。', { cause }), { code: 'HISTORY_WRITE_FAILED' });
+  }
 }
 
 async function versionsOf(root, key) {
@@ -400,7 +430,7 @@ async function listDeckRecords(vaultDir, file = '') {
 }
 
 module.exports = {
-  listDeckRecords,
+  saveConflictCopy, listDeckRecords,
   DIRECTORY, KEEP_RECENT, KEEP_DAYS,
   DRAFT_KEEP_DAYS,
   getRecord, listRecords, saveVersion, saveDraft, removeDraft, pruneVersions, pruneDrafts, noteKey
