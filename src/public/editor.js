@@ -218,8 +218,24 @@
     }
   }
 
+  /**
+   * 补全框还对得上光标吗：没有选中文字、光标仍在 [[ 之后，中间也还是一段能补全的文字。
+   * 对得上时返回 [[ 到光标之间的文字，否则返回 null。
+   */
+  function suggestQueryAt(area) {
+    if (!suggest || suggest.area !== area) return null;
+    const position = area.selectionStart;
+    if (position !== area.selectionEnd || position < suggest.from) return null;
+    if (area.value.slice(suggest.from - 2, suggest.from) !== '[[') return null;
+    const typed = area.value.slice(suggest.from, position);
+    return /[\]\n|#]/.test(typed) ? null : typed;
+  }
+
   function suggestKey(event) {
     if (!suggest || popup?.hidden) return false;
+    // 补全框弹出后用方向键、Home、End 挪过光标：这一次的补全已经不对了，
+    // 回车、Tab 照常起作用，不能把 [[ 到新光标之间的文字整段替换掉。
+    if (suggestQueryAt(suggest.area) !== suggest.query) { closeSuggest(); return false; }
     const count = suggest.items.length;
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSuggest(); return true; }
     if (!count) return false;
@@ -474,6 +490,12 @@
 
     area.addEventListener('input', () => updateSuggest(area));
     area.addEventListener('click', () => { if (suggest) updateSuggest(area); });
+    // 键盘挪动光标不触发 input：松开按键时看一眼，光标已经不在弹出时那段文字的末尾就关掉
+    // （按新位置重算的话，End 会把后面的字也算进查询，回车照样整段替换）。接着打字会重新弹出。
+    area.addEventListener('keyup', event => {
+      if (!suggest || event.isComposing) return;
+      if (suggestQueryAt(area) !== suggest.query) closeSuggest();
+    });
     area.addEventListener('blur', closeSuggest);
     area.addEventListener('scroll', () => { if (suggest) renderSuggest(); }, { passive: true });
 

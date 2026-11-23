@@ -4,7 +4,7 @@ const hljs = require('highlight.js/lib/core');
 const katex = require('katex');
 const { installMathSyntax, maskMath } = require('./mathSyntax');
 
-const { maskCode, headingFragment, wikilinkFragment } = require('./vault/wikilink');
+const { maskCode, headingFragment, wikilinkFragment, wikilinkParts } = require('./vault/wikilink');
 const { toPosix, wikilinkTarget, encodePath } = require('./vault/paths');
 const { stripMachineDirectives } = require('./machineDirectives');
 const { isValidDateString } = require('./dates');
@@ -108,8 +108,9 @@ installMathSyntax(md, (content, displayMode, env) => {
       macros: env.mathMacros || (env.mathMacros = {})
     });
     if (!displayMode) html = '<inline-math>' + html + '</inline-math>';
-  } catch (error) {
-    if (!(error instanceof katex.ParseError)) throw error;
+  } catch {
+    // 语法错误之外，嵌套太深的公式会让 KaTeX 栈溢出（RangeError）：同样只显示源码，
+    // 不能让一条公式把整篇笔记变成 500。
     html = '<code class="math-error" title="公式暂无法渲染，请检查语法">' + md.utils.escapeHtml(source) + '</code>';
   }
   const tag = displayMode ? 'div' : 'span';
@@ -331,8 +332,14 @@ md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
 
 // 显示文字要放进 Markdown 的链接语法里，所以得转义 Markdown 的特殊字符，
 // 否则一个标题里的 `]` 会把链接语法截断。
+// `|` 也要转义：双链放在表格里时，标题里的竖线会把单元格拆开。
 function escapeMarkdownText(value) {
-  return String(value).replace(/([\\`*_{}[\]()#+\-.!])/g, '\\$1');
+  return String(value).replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1');
+}
+
+// 生成的链接目标里，encodeURIComponent 不编码的括号会提前结束 Markdown 的 (...)。
+function markdownDestination(href) {
+  return String(href).replace(/[()]/g, character => (character === '(' ? '%28' : '%29'));
 }
 
 /**
@@ -346,7 +353,9 @@ function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true
   const replacements = [];
 
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {
-    const literal = match[1].trim();
+    const parts = wikilinkParts(match);
+    const literal = parts.target.trim();
+    const section = parts.heading;
     const display = escapeMarkdownText((match[3] || '').trim() || literal);
 
     // 附件嵌入按文件类型渲染，笔记目标交给双链解析器。
@@ -355,11 +364,11 @@ function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true
     // 或者把指向笔记的链接变成一张坏图。
     const start = isEmbed ? match.index - 1 : match.index;
     if (isEmbed && IMAGE_EXTENSION.test(literal)) {
-      replacements.push({ start, end: match.index + match[0].length, text: `![${display}](${resolveResourceHref(literal, notePath)})` });
+      replacements.push({ start, end: match.index + match[0].length, text: `![${display}](${markdownDestination(resolveResourceHref(literal, notePath))})` });
       continue;
     }
     if (isEmbed && AV_EXTENSION.test(literal)) {
-      replacements.push({ start, end: match.index + match[0].length, text: `[${display}](${resolveResourceHref(literal, notePath)})` });
+      replacements.push({ start, end: match.index + match[0].length, text: `[${display}](${markdownDestination(resolveResourceHref(literal, notePath))})` });
       continue;
     }
     if (isEmbed && /\.[a-z0-9]{2,5}$/i.test(literal) && !/\.md$/i.test(literal)) {
@@ -371,13 +380,15 @@ function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true
     const target = wikilinkTarget(literal);
     if (!target) continue;
 
-    const fragment = wikilinkFragment(match[2]);
+    const fragment = wikilinkFragment(section);
     const resolved = resolve(target);
     // 没写别名的 [[路径]] 显示目标笔记的标题而不是文件路径；指向小节时带上小节名。
+    // 属性区里的标题可以是多行字符串（title: |）：换行折成空格，否则插进正文后
+    // 后面每一行的行号都错位，阅读页勾选待办会写到别的行上。
     const title = resolved && !match[3] && typeof resolve.titleOf === 'function'
-      ? String(resolve.titleOf(resolved) || '').trim()
+      ? String(resolve.titleOf(resolved) || '').replace(/\s+/g, ' ').trim()
       : '';
-    const heading = (match[2] || '').trim();
+    const heading = (section || '').trim();
     const label = title ? escapeMarkdownText(heading ? `${title} › ${heading}` : title) : display;
     const href = resolved
       ? `/note/${encodePath(resolved)}${fragment ? `#${encodeURIComponent(fragment)}` : ''}`
@@ -391,7 +402,7 @@ function replaceWikilinks(markdown, resolve, notePath = '', { linkMissing = true
     replacements.push({
       start,
       end: match.index + match[0].length,
-      text: `[${label}](${href})`
+      text: `[${label}](${markdownDestination(href)})`
     });
   }
 

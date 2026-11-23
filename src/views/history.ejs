@@ -75,11 +75,13 @@
         </div>
       <% } else if (comparison.state === 'same') { %>
         <p class="history-compare-note">和现在的内容完全一样。</p>
+      <% } else if (comparison.state === 'line-endings') { %>
+        <p class="history-compare-note">文字和现在一样，只差换行符（Windows 与 Mac 的换行写法，或末尾有没有空行）。</p>
       <% } else if (comparison.state === 'missing') { %>
         <p class="history-compare-note">这个文件现在不存在，下面是当时的全文。</p>
       <% } %>
       <% if (showFull) { %>
-        <pre class="history-preview"><%= selected.raw %></pre>
+        <pre class="history-preview"><%= /^[\r\n]/.test(selected.raw) ? '\n' : '' %><%= selected.raw %></pre>
       <% } else { %>
         <div class="history-preview history-diff" role="group" aria-label="逐行改动">
           <% comparison.hunks.forEach(hunk => { %>

@@ -51,7 +51,8 @@
   <div class="editor-panes" data-preview-host>
     <label class="editor-body">
       <span class="visually-hidden">正文</span>
-      <textarea name="body" rows="12" spellcheck="false" placeholder="写下正文，输入 [[ 关联笔记，支持直接粘贴图片…" data-md-editor data-upload="1" data-preview="#editor-preview" aria-controls="link-suggest"><%= body %></textarea>
+      <%# HTML 会吞掉 <textarea> 开标签后紧跟的一个换行：原文以换行开头时补一个，否则保存后少一行。 %>
+      <textarea name="body" rows="12" spellcheck="false" placeholder="写下正文，输入 [[ 关联笔记，支持直接粘贴图片…" data-md-editor data-upload="1" data-preview="#editor-preview" aria-controls="link-suggest"><%= /^[\r\n]/.test(body) ? '\n' : '' %><%= body %></textarea>
     </label>
     <section id="editor-preview" class="editor-preview prose" aria-label="预览" hidden></section>
   </div>

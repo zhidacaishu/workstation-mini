@@ -30,7 +30,11 @@ function createResourceRoutes({ config }) {
       res.set('Content-Security-Policy', "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'");
       // dotfiles: 'allow'：send 默认检查绝对路径的每一段，资料库放在 ~/.notes 这类
       // 点目录下时所有附件都会 404。附件自身的相对路径上面已经排除了点开头的段。
-      res.sendFile(absolute, { dotfiles: 'allow' }, error => { if (error) next(error); });
+      res.sendFile(absolute, { dotfiles: 'allow' }, error => {
+        // 页面在附件传到一半时离开（切页、预览重绘）：连接已断，没有可回的了。
+        if (!error || res.headersSent || error.code === 'ECONNABORTED' || error.code === 'ECONNRESET') return;
+        next(error);
+      });
     };
   }
   router.get('/attachments/*resourcePath', serve('attachments'));

@@ -162,11 +162,20 @@ function createApp(config, deps) {
     res.status(404).render('error', { title: '找不到页面', message });
   });
 
-  app.use((error, req, res, next) => { // eslint-disable-line no-unused-vars
+  app.use((error, req, res, next) => {
+    // 响应已经开始发了，不能再渲染错误页（会抛 ERR_HTTP_HEADERS_SENT 打到主进程）；
+    // 交给 Express 默认处理，它只断开这个连接。
+    if (res.headersSent) {
+      next(error);
+      return;
+    }
     // 请求体解析阶段的错误（body-parser）：给中文说明，不露英文原文。
     if (error.type === 'entity.too.large') {
       error.status = 413;
-      error.message = '内容超过 10MB，没有保存。请把大段内容拆到几篇笔记里。';
+      // 贴图走单独的 15 MB 上限（editorRoutes），别拿笔记的 10MB 提示去说一张图片。
+      error.message = req.path === '/api/attachments'
+        ? `图片超过 ${Math.round((error.limit || 0) / 1024 / 1024)} MB，没有保存。请先压缩或缩小后再贴。`
+        : '内容超过 10MB，没有保存。请把大段内容拆到几篇笔记里。';
     } else if (error.type === 'entity.parse.failed' || error.type === 'encoding.unsupported' || error.type === 'charset.unsupported') {
       error.status = 400;
       error.message = '请求格式不正确，没有保存。';

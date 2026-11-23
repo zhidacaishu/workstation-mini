@@ -96,7 +96,7 @@
           <form class="calendar-note-form" action="/plan/notes" method="post" data-calendar-form>
             <input type="hidden" name="date" value="<%= selected %>"><input type="hidden" name="month" value="<%= month %>"><input type="hidden" name="expectedHash" value="<%= selectedNote?.hash || '' %>">
             <label id="plan-note-label" for="calendar-note">备注</label>
-            <textarea id="calendar-note" name="text" rows="4"><%= selectedNote?.body || '' %></textarea>
+            <textarea id="calendar-note" name="text" rows="4"><%= /^[\r\n]/.test(selectedNote?.body || '') ? '\n' : '' %><%= selectedNote?.body || '' %></textarea>
             <div class="plan-note-actions"><button class="button primary small" type="submit" aria-label="保存备注">保存</button><p class="calendar-note-status" data-calendar-status role="status" aria-live="polite"></p></div>
           </form>
         <% } %>

@@ -44,7 +44,7 @@ function createHistoryRoutes({ config, db }) {
       const parsed = parseFrontmatter(record.raw);
       return record.source === 'deck'
         ? String(parsed.data?.deck || '').trim()
-        : resolveTitle(parsed.data, parsed.content, record.path);
+        : resolveTitle(parsed.data, parsed.content, record.path, parsed.matter);
     } catch {
       return '';
     }
@@ -95,7 +95,9 @@ function createHistoryRoutes({ config, db }) {
     const draft = record.kind === 'draft';
     const result = draft ? compareText(current, record.raw) : compareText(record.raw, current);
     if (result.tooLarge) return { state: 'unavailable' };
-    if (!result.changed) return { state: 'same' };
+    // 逐行对比不看换行符；原文不一样时（CRLF/LF、末尾换行）不能说「完全一样」，
+    // 恢复这一版仍会改动文件。
+    if (!result.changed) return { state: record.raw === current ? 'same' : 'line-endings' };
     return { state: 'diff', draft, ...result };
   }
 

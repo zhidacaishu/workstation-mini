@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
 const request = require('supertest');
 
 const { createApp } = require('../src/app');
@@ -195,4 +196,33 @@ test('KaTeX 样式及引用字体均由本地服务提供', async t => {
     assert.ok(url.startsWith('fonts/'));
     await request(app).get('/static/katex/' + url).expect(200);
   }
+});
+
+test('附件传到一半页面离开时不抛未捕获异常，服务照常响应', async t => {
+  const { app, config } = await setup(t);
+  await fs.mkdir(path.join(config.vaultDir, 'attachments'), { recursive: true });
+  await fs.writeFile(path.join(config.vaultDir, 'attachments', 'big.mp4'), Buffer.alloc(32 * 1024 * 1024));
+  const uncaught = [];
+  const onUncaught = error => uncaught.push(error);
+  process.on('uncaughtException', onUncaught);
+  const server = await new Promise(resolve => { const listening = app.listen(0, '127.0.0.1', () => resolve(listening)); });
+  t.after(() => {
+    process.removeListener('uncaughtException', onUncaught);
+    server.closeAllConnections?.();
+    return new Promise(resolve => server.close(resolve));
+  });
+  const { port } = server.address();
+
+  await new Promise((resolve, reject) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/attachments/big.mp4' }, res => {
+      assert.equal(res.statusCode, 200);
+      res.once('data', () => { req.destroy(); resolve(); });
+    });
+    req.on('error', error => { if (error.code !== 'ECONNRESET') reject(error); });
+  });
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  assert.deepEqual(uncaught.map(error => error.code || error.message), []);
+  const after = await fetch(`http://127.0.0.1:${port}/attachments/missing.png`);
+  assert.equal(after.status, 404);
 });

@@ -38,6 +38,18 @@ function wikilinkFragment(heading) {
 }
 
 /**
+ * 拆出双链的目标和小节。表格里 Obsidian 写成 [[目标\|别名]]：竖线前的反斜杠是转义，
+ * 不属于目标（或小节）。阅读页渲染和反链索引共用，两边认的目标一致。
+ */
+function wikilinkParts(match) {
+  const tableEscaped = match[3] !== undefined && /\\$/.test(match[2] ?? match[1]);
+  return {
+    target: tableEscaped && match[2] === undefined ? match[1].slice(0, -1) : match[1],
+    heading: tableEscaped && match[2] !== undefined ? match[2].slice(0, -1) : match[2]
+  };
+}
+
+/**
  * 从 Markdown 正文里解析出所有 wikilink。
  * 返回 [{ target, heading, display, index }]，target 使用双链写法并归一为正斜杠。
  */
@@ -48,13 +60,14 @@ function parseWikilinks(markdown) {
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {
     // `![[图.png]]`、`![[录音.mp3]]` 嵌入的是附件，不是笔记：不算链接，否则每个附件都成了「待建」笔记。
     // `![[笔记]]` 和 `![[笔记.md]]` 仍按普通双链处理，和阅读页的渲染一致。
-    const raw = toPosix(match[1].trim());
+    const parts = wikilinkParts(match);
+    const raw = toPosix(parts.target.trim());
     if (match.index > 0 && masked[match.index - 1] === '!' && /\.[^./]+$/.test(raw) && !/\.md$/i.test(raw)) continue;
     const target = wikilinkTarget(raw);
     if (!target) continue;
     links.push({
       target,
-      heading: (match[2] || '').trim(),
+      heading: (parts.heading || '').trim(),
       display: (match[3] || '').trim(),
       index: match.index
     });
@@ -114,13 +127,14 @@ function renderWikilinks(markdown, resolve, escapeHtml) {
   for (const match of masked.matchAll(WIKILINK_PATTERN)) {
     // `![[图.png]]`、`![[录音.mp3]]` 嵌入的是附件，不是笔记：不算链接，否则每个附件都成了「待建」笔记。
     // `![[笔记]]` 和 `![[笔记.md]]` 仍按普通双链处理，和阅读页的渲染一致。
-    const raw = toPosix(match[1].trim());
+    const parts = wikilinkParts(match);
+    const raw = toPosix(parts.target.trim());
     if (match.index > 0 && masked[match.index - 1] === '!' && /\.[^./]+$/.test(raw) && !/\.md$/i.test(raw)) continue;
     const target = wikilinkTarget(raw);
     if (!target) continue;
-    const display = (match[3] || '').trim() || match[1].trim();
+    const display = (match[3] || '').trim() || parts.target.trim();
     const resolved = resolve(target);
-    const fragment = wikilinkFragment(match[2]);
+    const fragment = wikilinkFragment(parts.heading);
     const anchor = fragment ? `#${encodeURIComponent(fragment)}` : '';
     const html = resolved
       ? `<a class="wikilink" href="/note/${encodePath(resolved)}${anchor}">${escapeHtml(display)}</a>`
@@ -141,6 +155,7 @@ function renderWikilinks(markdown, resolve, escapeHtml) {
 
 module.exports = {
   parseWikilinks,
+  wikilinkParts,
   buildResolver,
   buildIndexResolver,
   renderWikilinks,

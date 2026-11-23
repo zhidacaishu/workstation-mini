@@ -73,7 +73,9 @@ const miniCoreTests = [
   'recovery-exclusive-rename.test.js',
   'recovery-git.test.js',
   'recovery-journal.test.js',
-  'testNetwork.test.js'
+  'testNetwork.test.js',
+  'renderingFixes.test.js',
+  'editorSuggestClient.test.js'
 ];
 // 原生窗口共享桌面焦点，按文件串行执行；纯逻辑/配置测试只在核心集跑一次。
 const desktopTests = [

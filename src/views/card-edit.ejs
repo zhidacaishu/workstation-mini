@@ -26,7 +26,7 @@
     </div>
     <%# 宽窗口下右边是这张卡排好的样子：公式、挖空不用保存就能看到。 %>
     <div class="card-back-panes" data-preview-host>
-      <textarea id="card-back" name="back" rows="10" spellcheck="false" data-md-editor data-preview="#card-preview" data-preview-kind="card" data-preview-front="#card-front" aria-controls="link-suggest"><%= card.back %></textarea>
+      <textarea id="card-back" name="back" rows="10" spellcheck="false" data-md-editor data-preview="#card-preview" data-preview-kind="card" data-preview-front="#card-front" aria-controls="link-suggest"><%= /^[\r\n]/.test(card.back) ? '\n' : '' %><%= card.back %></textarea>
       <section id="card-preview" class="card-preview" aria-label="预览" hidden>
         <div class="card-preview-front" data-preview-front></div>
         <div class="card-preview-back review-back" data-preview-body></div>

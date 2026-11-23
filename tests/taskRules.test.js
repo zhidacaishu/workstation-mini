@@ -17,6 +17,16 @@ test('缩进代码块和 $$ 公式块里的 `- [ ]` 不算待办，阅读页也�
   assert.deepEqual(toggles(renderMarkdown(body, () => '', { taskToggle: true })), [9]);
 });
 
+test('双链目标的标题是多行字符串时，后面待办勾选框的行号不错位', () => {
+  const body = '参见 [[a]]\n\n- [ ] 第一条\n- [ ] 第二条\n';
+  const resolve = target => (target === 'a' ? 'a.md' : '');
+  resolve.titleOf = () => '第一行\n第二行\n';
+  const html = renderMarkdown(body, resolve, { taskToggle: true });
+  assert.deepEqual(extractTasks(body).map(task => task.line), [3, 4]);
+  assert.deepEqual(toggles(html), [3, 4]);
+  assert.match(html, />第一行 第二行</);
+});
+
 test('落单的反引号不会把后面几段的待办藏起来', () => {
   const body = '键盘左上角的 ` 键。\n\n- [ ] 写周报\n- [ ] 跑实验\n\n最后执行 `ls`。\n';
   assert.deepEqual(extractTasks(body).map(task => task.title), ['写周报', '跑实验']);

@@ -62,7 +62,7 @@
         <p><%= parseError %></p>
         <% if (!readOnly) { %><a class="button small" href="/edit/<%= encodePath(note.path) %>">打开编辑器修复</a><% } %>
       </section>
-      <pre class="note-raw"><%= note.raw %></pre>
+      <pre class="note-raw"><%= /^[\r\n]/.test(note.raw) ? '\n' : '' %><%= note.raw %></pre>
     <% } else { %>
       <div class="prose" data-note-hash="<%= note.hash %>"><%- html %></div>
     <% } %>
