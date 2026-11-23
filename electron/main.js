@@ -27,6 +27,7 @@ const { createGuideStore } = require('./guide-store');
 const { createRuntimeConfig, pruneStaleIndexes, removeLegacyVaultIndex } = require('./runtime-config');
 const { validateSettingsUpdate, validateConflictChoices } = require('./settings-validation');
 const { resolveVaultDir } = require('./vault-resolution');
+const { checkVaultChange } = require('./vault-change');
 const { createQuitCoordinator, windowVetoesUnload } = require('./quit-coordinator');
 const { createLeaveGuard } = require('./leave-guard');
 const { showAppMessage, focusMessage } = require('./message-window');
@@ -115,6 +116,10 @@ let quitReady = false;
 let quitCoordinator;
 let revealOnReady = false;
 let restartQueue = Promise.resolve();
+// 设置文件损坏后用户选了「重新选择资料库」：启动时不自动认约定位置。
+let chooseVaultExplicitly = false;
+// 设置窗口里用「选择」按钮挑过的资料库目录：可以是对话框里刚新建的空目录。
+const pickedVaultDirs = new Set();
 let settingsRevision = 0;
 let runtimeGeneration = 0;
 let unsubscribeSyncStatus = () => {};
@@ -254,7 +259,8 @@ function chooseInitialVault() {
     conventionalVaultDir: defaultVaultDir(),
     pathExists: target => fs.existsSync(target),
     askMissingVault,
-    promptForDirectory: promptForVaultDir
+    promptForDirectory: promptForVaultDir,
+    chooseExplicitly: chooseVaultExplicitly
   });
 }
 
@@ -426,6 +432,15 @@ async function createMainWindow({ hidden = false } = {}) {
     window.on('closed', () => {
       if (mainWindow === window) mainWindow = null;
     });
+    // Windows 关机、重启、注销时不发 before-quit：没有这两个处理，退出前的写入等待、
+    // 最后一次提交和关闭索引库都不会执行，同步可能停在半路。只在 Windows 上触发。
+    window.on('query-session-end', event => {
+      if (quitReady) return;
+      // 推迟结束会话，等保存和退出前同步做完；应用退出后系统继续关机。
+      event.preventDefault();
+      endSession();
+    });
+    window.on('session-end', () => endSession());
     // 切回窗口时补一次对账，接住外部编辑器的改动（文件监听在部分平台会漏事件）。
     // 来回切窗口很频繁，15 秒内只扫一次；后台对账不会在界面上弹索引横幅。
     let lastFocusRescan = 0;
@@ -809,6 +824,10 @@ async function replaceRuntime(nextSettings, previousSettings, { unloadChecked = 
     return { cancelled: true, reason: '主窗口有未保存的编辑或附件任务。' };
   }
   const previousRuntime = runtime;
+  // 失败回滚后设置回到原样，revision 也要回到设置窗口手里那一版：否则用户改好
+  // 再存一次，必然被当成「设置已在其它位置更新」。整个替换在重启队列里串行，
+  // 这期间不会有别的设置写入。
+  const revisionBefore = settingsRevision;
   const showMainAfterRestart = !previousRuntime
     || Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
@@ -848,6 +867,7 @@ async function replaceRuntime(nextSettings, previousSettings, { unloadChecked = 
       settings = previousSettings;
       rollbackErrors.push(rollbackError);
     }
+    settingsRevision = revisionBefore;
     try {
       applyLoginItemSetting();
     } catch (rollbackError) {
@@ -950,6 +970,11 @@ async function finishQuit() {
   return { ok: true };
 }
 
+function endSession() {
+  if (quitReady || !quitCoordinator) return;
+  quitCoordinator.forceAccept().catch(showFatalError);
+}
+
 function quitApplication() {
   if (focusMessage()) return Promise.resolve({ cancelled: true });
   return quitCoordinator.request();
@@ -1015,6 +1040,12 @@ function registerIpc() {
       };
       validateSettingsUpdate(supportedUpdate, previous);
       const next = configStore.applyUpdate(previous, supportedUpdate);
+      // 手打的路径写错时不能悄悄建出一个空资料库切过去。
+      await checkVaultChange({
+        previousVaultDir: previous.vaultDir,
+        nextVaultDir: next.vaultDir,
+        pickedDirs: pickedVaultDirs
+      });
       // 只换外观时不必重启内部服务，也不打断主窗口里正在进行的编辑。
       if (onlyThemeChanged(previous, next)) {
         writeSettings(next);
@@ -1044,7 +1075,9 @@ function registerIpc() {
       defaultPath: settings[field] || settings.vaultDir || app.getPath('home'),
       properties: ['openDirectory', 'createDirectory']
     });
-    return result.canceled ? '' : result.filePaths[0];
+    if (result.canceled) return '';
+    if (field === 'vaultDir') pickedVaultDirs.add(result.filePaths[0]);
+    return result.filePaths[0];
   });
 
   ipcMain.handle('settings:sync-now', async event => {
@@ -1279,7 +1312,10 @@ if (!gotLock) {
           message: '设置文件损坏，已从上一版备份恢复',
           detail: `备份里的资料库是：\n${settings.vaultDir}\n\n损坏的文件已改名保存在：\n${loadIssue.corruptPath}`
         });
-        if (choice === 1) settings = { ...settings, vaultDir: '' };
+        if (choice === 1) {
+          settings = { ...settings, vaultDir: '' };
+          chooseVaultExplicitly = true;
+        }
       } else if (loadIssue.kind === 'reset') {
         await showAppMessage(null, {
           buttons: ['好'],
@@ -1325,10 +1361,16 @@ if (!gotLock) {
     }
 
     try {
-      setRuntime(await startConfiguredRuntime(settings));
-      await createMainWindow({ hidden: platformPolicy.isHiddenStartup(process.argv) && !revealOnReady });
+      // 排进重启队列：启动途中（建索引、大资料库）用户点了退出，finishQuit 会等运行时
+      // 起来再把它停掉，不会留一个没人停的运行时和半截的 Git 子进程。
+      await enqueueRestart(async () => {
+        setRuntime(await startConfiguredRuntime(settings));
+        await createMainWindow({ hidden: platformPolicy.isHiddenStartup(process.argv) && !revealOnReady });
+      });
       refreshMenus();
     } catch (error) {
+      // 启动途中退出：运行时由 finishQuit 停，这里不再弹错误、不再开设置窗口。
+      if (quitting) return;
       try {
         await runtime?.stop();
       } catch (cleanupError) {

@@ -24,3 +24,10 @@ test('附件前缀下的不安全路径不打开', () => {
     assert.deepEqual(resourceTarget(`${origin}${pathname}`, origin), { invalid: true }, pathname);
   }
 });
+
+test('编码过的斜杠不能把 .. 和点目录夹带进一个路径段', () => {
+  for (const pathname of ['/attachments/a%2F..%2F..%2F.git%2Fx.png', '/attachments/a%2F.workstation-local%2Fx.png',
+    '/attachments/a%2Fb.png', '/media/sub%2F..%2F..%2Fnotes%2Fx.mp3']) {
+    assert.deepEqual(resourceTarget(`${origin}${pathname}`, origin), { invalid: true }, pathname);
+  }
+});

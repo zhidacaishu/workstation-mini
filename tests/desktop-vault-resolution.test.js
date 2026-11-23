@@ -120,3 +120,71 @@ test('已保存路径的首尾空白不影响判断', async () => {
   const fixture = scripted({ existing: [SAVED] });
   assert.deepEqual(await resolve(fixture, { savedVaultDir: `  ${SAVED}  ` }), { vaultDir: SAVED });
 });
+
+test('用户明确要重新选择资料库时不认约定位置，进入首次启动的选择流程', async () => {
+  const fixture = scripted({ existing: [CONVENTIONAL] });
+  assert.deepEqual(await resolve(fixture, { savedVaultDir: '', chooseExplicitly: true }), { firstRun: true });
+  assert.deepEqual(fixture.asked, []);
+});
+
+test('设置文件损坏后选「重新选择资料库」会让启动流程走明确的选择', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  assert.match(main, /if \(choice === 1\) \{[\s\S]*?chooseVaultExplicitly = true;/);
+  assert.match(main, /chooseExplicitly: chooseVaultExplicitly/);
+});
+
+// ---------- 设置里换资料库 ----------
+
+test('设置里手打的资料库路径不存在或不是资料库时拒绝，不会悄悄建一个空库', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { checkVaultChange } = require('../electron/vault-change');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-vault-change-'));
+  try {
+    const current = path.join(root, 'current');
+    const vault = path.join(root, 'vault');
+    const empty = path.join(root, 'empty');
+    fs.mkdirSync(path.join(current, 'notes'), { recursive: true });
+    fs.mkdirSync(path.join(vault, 'notes'), { recursive: true });
+    fs.mkdirSync(empty);
+    fs.writeFileSync(path.join(root, 'file.txt'), 'x');
+    const check = (nextVaultDir, pickedDirs) => checkVaultChange({ previousVaultDir: current, nextVaultDir, pickedDirs });
+
+    await assert.rejects(check(path.join(root, 'typo')), /资料库目录不存在/);
+    await assert.rejects(check(path.join(root, 'file.txt')), /不是目录/);
+    await assert.rejects(check(empty), /不像资料库/);
+    await check(vault);
+    await check(empty, new Set([empty]));
+    // 正常用法不能被误拒：资料库是指向云盘的符号链接、.git 是文件（worktree）、还没有 notes/。
+    const worktree = path.join(root, 'worktree');
+    fs.mkdirSync(worktree);
+    fs.writeFileSync(path.join(worktree, '.git'), 'gitdir: /elsewhere/.git/worktrees/x\n');
+    await check(worktree);
+    const cardsOnly = path.join(root, 'cards-only');
+    fs.mkdirSync(path.join(cardsOnly, 'cards'), { recursive: true });
+    await check(cardsOnly);
+    if (process.platform !== 'win32') {
+      const link = path.join(root, 'linked-vault');
+      fs.symlinkSync(vault, link);
+      await check(link);
+    }
+    // 路径没变（哪怕资料库暂时不在）时不挡别的设置。
+    await checkVaultChange({ previousVaultDir: path.join(root, 'gone'), nextVaultDir: path.join(root, 'gone') + path.sep });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('保存设置换资料库前先检查目录，选择框挑过的目录可以是新建的空目录', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  const save = main.slice(main.indexOf("ipcMain.handle('settings:save'"), main.indexOf("ipcMain.handle('settings:choose-directory'"));
+  assert.match(save, /await checkVaultChange\(\{[\s\S]*?pickedDirs: pickedVaultDirs/);
+  assert.ok(save.indexOf('checkVaultChange') < save.indexOf('replaceRuntime(next, previous)'));
+  const choose = main.slice(main.indexOf("ipcMain.handle('settings:choose-directory'"));
+  assert.match(choose.slice(0, 800), /pickedVaultDirs\.add\(/);
+});

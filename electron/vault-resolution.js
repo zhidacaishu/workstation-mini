@@ -49,6 +49,8 @@ async function resolveMissingVault(missingPath, { pathExists, askMissingVault, p
  * @param {(missingPath: string) => Promise<'retry'|'choose'|'restore'|'quit'>} options.askMissingVault
  * @param {(purpose: 'replace') => Promise<string>} options.promptForDirectory
  *        返回选中的目录；用户取消时返回空串
+ * @param {boolean} [options.chooseExplicitly] 用户明确说了要重新选择（比如设置文件损坏后
+ *        选「重新选择资料库」）：不再自动认约定位置，直接进入首次启动的选择流程
  * @returns {Promise<{vaultDir: string} | {firstRun: true} | {restore: true, missingVaultDir: string} | {quit: true}>}
  */
 async function resolveVaultDir({
@@ -56,7 +58,8 @@ async function resolveVaultDir({
   conventionalVaultDir = '',
   pathExists,
   askMissingVault,
-  promptForDirectory
+  promptForDirectory,
+  chooseExplicitly = false
 }) {
   const saved = cleanPath(savedVaultDir);
   if (saved) {
@@ -65,8 +68,9 @@ async function resolveVaultDir({
   }
 
   // 还没保存过任何资料库：认一下约定位置，认不到就进入明确的首次启动流程。
+  // 用户刚说过要重新选，就不能替他认约定位置。
   const conventional = cleanPath(conventionalVaultDir);
-  if (conventional && pathExists(conventional)) return { vaultDir: conventional };
+  if (!chooseExplicitly && conventional && pathExists(conventional)) return { vaultDir: conventional };
 
   return { firstRun: true };
 }

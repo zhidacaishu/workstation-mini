@@ -160,3 +160,49 @@ test('离开确认：测试运行时按约定回答，不弹框', async () => {
   assert.equal(await real({}, 'settings'), true);
   assert.deepEqual(asked[0], ['放弃修改', '继续编辑']);
 });
+
+test('系统结束会话时不问页面直接退出，退出流程只跑一次', async () => {
+  const veto = stubWindow({ veto: true });
+  let accepted = 0;
+  const coordinator = createQuitCoordinator({
+    getWindows: () => [veto],
+    onAccepted: async () => { accepted += 1; return { ok: true }; },
+    confirmDiscard: () => { throw new Error('结束会话时不该再问'); }
+  });
+
+  const forced = coordinator.forceAccept();
+  assert.equal(coordinator.isAccepted(), true);
+  assert.deepEqual(await forced, { ok: true });
+  assert.deepEqual(await coordinator.forceAccept(), { ok: true });
+  assert.deepEqual(await coordinator.request(), { ok: true });
+  assert.equal(accepted, 1);
+  assert.deepEqual(veto.calls, []);
+});
+
+test('正在问「仍要退出吗」时系统结束会话：不等回答，用户之后的选择也不会再退出一次', async () => {
+  const veto = stubWindow({ veto: true });
+  const answer = deferred();
+  let accepted = 0;
+  const coordinator = createQuitCoordinator({
+    getWindows: () => [veto],
+    onAccepted: async () => { accepted += 1; return { ok: true }; },
+    confirmDiscard: () => answer.promise
+  });
+
+  const asking = coordinator.request();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(await coordinator.forceAccept(), { ok: true });
+  answer.resolve(false);
+  assert.deepEqual(await asking, { ok: true });
+  assert.equal(coordinator.isAccepted(), true);
+  assert.equal(accepted, 1);
+});
+
+test('Windows 关机、重启、注销时主窗口接住会话结束事件并走退出流程', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  assert.match(main, /window\.on\('query-session-end', event => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?endSession\(\);/);
+  assert.match(main, /window\.on\('session-end', \(\) => endSession\(\)\);/);
+  assert.match(main, /function endSession\(\) \{[\s\S]*?quitCoordinator\.forceAccept\(\)/);
+});

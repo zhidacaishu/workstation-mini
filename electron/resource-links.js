@@ -23,7 +23,8 @@ function resourceTarget(value, origin) {
   } catch {
     return { invalid: true };
   }
-  const unsafe = segment => !segment || segment.startsWith('.') || /[\\\0:]/.test(segment);
+  // 先拆再解码：%2F 解出来的斜杠会把 a/../../.git 塞进一个段里，所以解码后的段也不许带斜杠。
+  const unsafe = segment => !segment || segment.startsWith('.') || /[/\\\0:]/.test(segment);
   if (segments.length === 0 || segments.some(unsafe)) return { invalid: true };
   const relative = `${RESOURCE_PREFIXES[prefix]}/${segments.join('/')}`;
   if (!RESOURCE_EXTENSION.test(relative)) return null;

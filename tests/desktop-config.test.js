@@ -275,3 +275,25 @@ test('资料库里旧版本留下的 workstation.db：几天没动过就清掉�
     await fs.rm(vault, { recursive: true, force: true });
   }
 });
+
+test('换资料库失败回滚后 revision 回到设置窗口看到的那一版，下次保存不误报冲突', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  const replace = main.slice(main.indexOf('async function replaceRuntime('), main.indexOf('function enqueueRestart('));
+  assert.match(replace, /const revisionBefore = settingsRevision;/);
+  const rollback = replace.slice(replace.indexOf('} catch (error) {'));
+  assert.ok(rollback.indexOf('writeSettings(previousSettings)') > -1);
+  assert.ok(rollback.indexOf('settingsRevision = revisionBefore;') > rollback.indexOf('writeSettings(previousSettings)'));
+});
+
+test('启动时的运行时也排进重启队列：启动途中退出会等它起来再停掉', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const main = fs.readFileSync(path.join(__dirname, '..', 'electron', 'main.js'), 'utf8');
+  const startup = main.slice(main.indexOf('const choice = await chooseInitialVault();'));
+  assert.match(startup, /await enqueueRestart\(async \(\) => \{\s*setRuntime\(await startConfiguredRuntime\(settings\)\);/);
+  assert.match(startup, /\} catch \(error\) \{\s*\/\/[^\n]*\n\s*if \(quitting\) return;/);
+  const finish = main.slice(main.indexOf('async function finishQuit()'), main.indexOf('function endSession()'));
+  assert.ok(finish.indexOf('await restartQueue;') < finish.indexOf('await runtime?.stop();'));
+});

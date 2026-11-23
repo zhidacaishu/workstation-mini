@@ -31,6 +31,19 @@ async function windowVetoesUnload(window, { timeoutMs = VETO_CHECK_TIMEOUT_MS } 
 function createQuitCoordinator({ getWindows, onAccepted, onCancelled = () => {}, confirmDiscard = null } = {}) {
   let state = 'idle';
   let requestPromise = null;
+  let acceptedPromise = null;
+
+  // 退出副作用只跑一次：正常裁决通过和系统结束会话（forceAccept）可能先后到来。
+  function accept() {
+    if (acceptedPromise) return acceptedPromise;
+    state = 'accepted';
+    acceptedPromise = Promise.resolve().then(onAccepted).catch(error => {
+      state = 'idle';
+      acceptedPromise = null;
+      throw error;
+    });
+    return acceptedPromise;
+  }
 
   function activeWindows() {
     return getWindows().filter(window => window && !window.isDestroyed());
@@ -43,23 +56,26 @@ function createQuitCoordinator({ getWindows, onAccepted, onCancelled = () => {},
   }
 
   function request() {
+    if (acceptedPromise) return acceptedPromise;
     if (requestPromise) return requestPromise;
 
     state = 'deciding';
     requestPromise = (async () => {
       for (const window of activeWindows()) {
         const vetoed = await windowVetoesUnload(window);
+        if (acceptedPromise) return acceptedPromise;
         if (vetoed) {
           reveal(window);
-          if (await confirmDiscard?.(window)) continue;
+          const discard = await confirmDiscard?.(window);
+          if (acceptedPromise) return acceptedPromise;
+          if (discard) continue;
           state = 'idle';
           onCancelled(window);
           return { cancelled: true };
         }
       }
 
-      state = 'accepted';
-      return onAccepted();
+      return accept();
     })().catch(error => {
       state = 'idle';
       throw error;
@@ -71,6 +87,9 @@ function createQuitCoordinator({ getWindows, onAccepted, onCancelled = () => {},
 
   return {
     request,
+    // 系统要结束会话（Windows 关机、重启、注销）：不再问页面，直接走退出流程；
+    // 页面上的草稿已经自动保存。正在问用户的那次裁决随之作废。
+    forceAccept: accept,
     isAccepted: () => state === 'accepted'
   };
 }
