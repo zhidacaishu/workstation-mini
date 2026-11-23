@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       build_installer:
-        description: Build the NSIS installer (also runs Windows verification)
+        description: Check the NSIS installer builds (also runs Windows verification; not uploaded)
         required: false
         default: false
         type: boolean
@@ -25,8 +25,9 @@ permissions:
   contents: read
 
 # 连着推几次时，只有最后一次的结果有意义。旧的跑完也没人看，白占 runner。
+# 组名带上事件类型：手动启动的桌面验证和推送触发的 Linux 回归不互相取消。
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -147,6 +148,10 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # 资料库恢复的原子改名在 macOS 上走 renamex_np，和 Linux 的 renameat2 不是同一条路径。
+      - name: Run regression tests
+        run: npm test
 
       - name: Run development desktop smoke tests
         run: npm run test:desktop

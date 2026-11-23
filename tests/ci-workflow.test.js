@@ -85,3 +85,17 @@ test('NSIS 开发安装器只允许手工明确构建', () => {
   assert.match(build, /run: npm run desktop:build/);
   assert.doesNotMatch(build, /github\.event_name == 'push'/);
 });
+
+test('手动验证和推送回归分属不同并发组，不会互相取消', () => {
+  assert.match(workflow, /^concurrency:\n  group: ci-\$\{\{ github\.event_name \}\}-\$\{\{ github\.ref \}\}\n  cancel-in-progress: true$/m);
+});
+
+test('macOS 验证和发布都先跑核心回归，macOS 专属路径（renamex_np）有测试覆盖', () => {
+  const release = normalizeLineEndings(fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8'));
+  const ciMac = job('verify-mac');
+  const releaseMac = job('macos', 'publish', release);
+  assert.ok(ciMac.indexOf('run: npm test') > -1, 'CI macOS 作业要跑 npm test');
+  assert.ok(ciMac.indexOf('run: npm test') < ciMac.indexOf('run: npm run desktop:dir:mac'));
+  assert.ok(releaseMac.indexOf('- run: npm test') > -1, '发布的 macOS 作业要跑 npm test');
+  assert.ok(releaseMac.indexOf('- run: npm test') < releaseMac.indexOf('- run: npm run desktop:build:mac'));
+});

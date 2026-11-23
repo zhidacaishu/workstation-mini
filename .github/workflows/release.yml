@@ -74,6 +74,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # 核心回归也在 macOS 上跑一遍：恢复的原子改名在这里走 renamex_np。
+      - run: npm test
       - run: npm run test:desktop
       - run: npm run desktop:build:mac
       - name: Verify package and locate executable
