@@ -163,3 +163,65 @@ test('当前平台 helper 并发抢占同一名称时恰有一个成功', async 
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('Windows 激活改名遇到瞬时占用会短暂重试', async () => {
+  const ctx = await temporaryPaths();
+  try {
+    let attempts = 0;
+    await renameExclusive(ctx.source, ctx.destination, {
+      platform: 'win32',
+      retryDelayMs: 1,
+      async rename() {
+        attempts += 1;
+        if (attempts < 3) throw Object.assign(new Error('busy'), { code: attempts === 1 ? 'EBUSY' : 'EPERM' });
+      }
+    });
+    assert.equal(attempts, 3);
+  } finally {
+    await fs.rm(ctx.root, { recursive: true, force: true });
+  }
+});
+
+test('Windows 目标已存在时立刻报告，不白等重试；一直被占用就按激活失败报', async () => {
+  const ctx = await temporaryPaths();
+  try {
+    await fs.mkdir(ctx.destination);
+    let attempts = 0;
+    await assert.rejects(() => renameExclusive(ctx.source, ctx.destination, {
+      platform: 'win32',
+      retryDelayMs: 1,
+      async rename() { attempts += 1; throw Object.assign(new Error('exists'), { code: 'EPERM' }); }
+    }), error => error.code === 'destination-exists');
+    assert.equal(attempts, 1);
+
+    await fs.rm(ctx.destination, { recursive: true });
+    attempts = 0;
+    await assert.rejects(() => renameExclusive(ctx.source, ctx.destination, {
+      platform: 'win32',
+      retryDelayMs: 1,
+      retryTimeoutMs: 30,
+      async rename() { attempts += 1; throw Object.assign(new Error('locked'), { code: 'EBUSY' }); }
+    }), error => error.code === 'activation-failed');
+    assert.ok(attempts > 1);
+
+    attempts = 0;
+    await assert.rejects(() => renameExclusive(ctx.source, ctx.destination, {
+      platform: 'win32',
+      retryDelayMs: 1,
+      async rename() { attempts += 1; throw Object.assign(new Error('gone'), { code: 'ENOENT' }); }
+    }), error => error.code === 'activation-failed');
+    assert.equal(attempts, 1, '不是瞬时占用的错误不重试');
+  } finally {
+    await fs.rm(ctx.root, { recursive: true, force: true });
+  }
+});
+
+test('恢复流程里递归删除目录都带重试，Windows 上短暂占用不会让清理失败', () => {
+  const fsSync = require('node:fs');
+  for (const file of ['journal.js', 'service.js']) {
+    const source = fsSync.readFileSync(path.join(__dirname, '..', 'src', 'recovery', file), 'utf8');
+    const recursive = source.match(/fsp\.rm\([^)]*recursive: true[^)]*\)/g) || [];
+    assert.ok(recursive.length > 0, file);
+    for (const call of recursive) assert.match(call, /maxRetries/, `${file}: ${call}`);
+  }
+});

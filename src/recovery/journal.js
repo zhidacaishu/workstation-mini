@@ -142,11 +142,11 @@ function createRecoveryJournal({ journalPath, now = () => new Date().toISOString
     }
     if (!residue.owned) throw new Error('恢复残留的所有权标记不匹配，拒绝自动清理。');
     if (residue.destinationExists && !residue.candidateExists) {
-      await fsp.rm(residue.record.stagingRoot, { recursive: true, force: true });
+      await fsp.rm(residue.record.stagingRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       await clear();
       return { ok: true, destinationPreserved: true, removed: true };
     }
-    await fsp.rm(residue.record.stagingRoot, { recursive: true, force: true });
+    await fsp.rm(residue.record.stagingRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     await clear();
     return { ok: true, removed: true };
   }
@@ -169,7 +169,7 @@ async function createOwnedStaging({ destinationParent, destinationPath, sessionI
       destinationPath: destination
     }, null, 2)}\n`, { flag: 'wx' });
   } catch (error) {
-    await fsp.rm(root, { recursive: true, force: true });
+    await fsp.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     throw error;
   }
   return { stagingRoot: root, candidatePath };

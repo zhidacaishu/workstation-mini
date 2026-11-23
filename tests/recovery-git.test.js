@@ -77,7 +77,7 @@ test('clone 参数固定且在 clone 后执行只读验证', async () => {
     timeouts.push(options.timeout);
     const joined = args.join(' ');
     if (joined.includes('symbolic-ref --short HEAD')) return { stdout: 'main\n' };
-    if (joined.includes('remote get-url origin')) return { stdout: `${VALID[0]}\n` };
+    if (joined.includes('config --get remote.origin.url')) return { stdout: `${VALID[0]}\n` };
     if (joined.includes('status --porcelain') || joined.includes('ls-files -u')) return { stdout: '' };
     if (joined.includes('rev-parse --git-path')) return { stdout: '/definitely/missing/recovery-marker\n' };
     if (joined.includes('rev-parse --verify HEAD')) return { stdout: 'abc\n' };
@@ -159,16 +159,16 @@ test('.git 目录链接即使指向仓内 Git 数据也拒绝', async t => {
   }
 });
 
-test('父仓库中的普通子目录不被视为独立仓库', async () => {
+test('父仓库中的普通子目录不被视为独立仓库，按没有 Git 的备份恢复', async () => {
+  // 恢复目标放在用 Git 管理的目录里（dotfiles 仓库、项目仓库）很常见：备份里没有 .git
+  // 时它就是普通资料库，不能因为 Git 认出了外层仓库而整个恢复失败。
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-git-parent-'));
   try {
     await run('git', ['init', root]);
     const candidate = path.join(root, 'candidate');
     await fs.mkdir(candidate);
     const git = createGitRecovery();
-    await assert.rejects(() => git.inspectLocalRepository(candidate), error => (
-      error instanceof RecoveryGitError && error.code === 'external-git-directory'
-    ));
+    assert.deepEqual(await git.inspectLocalRepository(candidate), { isRepo: false });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -289,3 +289,41 @@ test('离线完整性检查识别部分克隆缺失的 blob，并接受已补齐
   assert.equal(written.trim(), wanted.trim());
   assert.deepEqual(await inspect(), { isRepo: true });
 });
+
+test('盘符开头的 SCP 写法（C:foo）只在 Windows 上当成本地路径', () => {
+  for (const remote of ['C:foo', 'c:vault.git', 'D:team/vault.git']) {
+    assert.throws(() => validateRemote(remote, { platform: 'win32' }), error => error instanceof RecoveryGitError
+      && error.code === 'invalid-remote', remote);
+    // macOS、Linux 上这是 ~/.ssh/config 里单字母主机别名的 SSH 远端。
+    assert.equal(validateRemote(remote, { platform: 'darwin' }), remote);
+    assert.equal(validateRemote(remote, { platform: 'linux' }), remote);
+  }
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    assert.throws(() => validateRemote('C:\\vault', { platform }), error => error.code === 'invalid-remote');
+  }
+});
+
+test('全局 url.insteadOf 改写远端时，克隆验证仍认用户选的地址', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-recovery-insteadof-'));
+  const saved = process.env.GIT_CONFIG_GLOBAL;
+  t.after(async () => {
+    if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = saved;
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const globalConfig = path.join(root, 'global.gitconfig');
+  await fs.writeFile(globalConfig, '[url "git@example.com:"]\n\tinsteadOf = https://example.com/\n[user]\n\tname = t\n\temail = t@example.invalid\n');
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  const repo = path.join(root, 'clone');
+  await run('git', ['init', '-q', '-b', 'main', repo]);
+  await fs.writeFile(path.join(repo, 'a.md'), 'a\n');
+  await run('git', ['-C', repo, 'add', '-A']);
+  await run('git', ['-C', repo, 'commit', '-q', '-m', 'init']);
+  await run('git', ['-C', repo, 'remote', 'add', 'origin', VALID[0]]);
+  await run('git', ['-C', repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD']);
+  await run('git', ['-C', repo, 'branch', '-q', '-u', 'origin/main']);
+
+  const result = await createGitRecovery().validateClonedRepository(repo, { expectedRemote: VALID[0] });
+  assert.equal(result.ok, true);
+  assert.equal(result.origin, VALID[0]);
+});
+

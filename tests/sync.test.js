@@ -120,6 +120,44 @@ test('没配远端时能提交，但不尝试推送', async () => {
   }
 });
 
+test('全局关掉未跟踪文件显示时，只新建了笔记也照样提交', async () => {
+  const dir = await makeRepo();
+  try {
+    await writeNote(dir, 'notes/a.md', { body: '旧笔记' });
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'init');
+    git(dir, 'config', 'status.showUntrackedFiles', 'no');
+    await writeNote(dir, 'notes/new.md', { body: '新笔记' });
+
+    const result = await createSync({ vaultDir: dir, logger: quietLogger }).commitAndPush('新笔记');
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.committed, true);
+    assert.match(git(dir, 'ls-files'), /notes\/new\.md/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('取消只作用于已经排队的操作：退出前那次提交照常执行', async () => {
+  const dir = await makeRepo();
+  try {
+    const sync = createSync({ vaultDir: dir, logger: quietLogger });
+    await writeNote(dir, 'notes/a.md', { body: '内容' });
+    const queued = sync.commitAndPush('排队中的');
+    sync.cancel();
+    const cancelled = await queued;
+    assert.notEqual(cancelled.committed, true, '取消前排着队的操作不该提交');
+
+    const result = await sync.commitAndPush('退出前提交');
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.skipped, undefined, '不能被当成「不是 git 仓库」跳过');
+    assert.equal(result.committed, true);
+    assert.match(git(dir, 'log', '--oneline'), /退出前提交/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('没有改动时不产生空提交', async () => {
   const dir = await makeRepo();
   try {
@@ -1045,4 +1083,155 @@ test('已有规则文件不可写时保留原文', async t => {
   const sync = createSync({ vaultDir: dir, logger: quietLogger });
   assert.equal((await sync.ensureGitignore()).ok, false);
   assert.equal(await fs.readFile(file, 'utf8'), '# keep\n');
+});
+
+// ---------- 边界情况：上游改名、子仓库、游离 HEAD、交互提示、残留锁 ----------
+
+async function bareRemote(branch = 'main') {
+  const bare = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-bare-edge-'));
+  execFileSync('git', ['init', '-q', '--bare', '-b', branch, bare]);
+  return bare;
+}
+
+test('本地分支跟踪名字不同的上游分支（main → origin/master）时照常推送', async t => {
+  const dir = await makeRepo();
+  const bare = await bareRemote('master');
+  t.after(async () => { for (const target of [dir, bare]) await fs.rm(target, { recursive: true, force: true }); });
+  await writeNote(dir, 'notes/a.md', { body: 'a' });
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'init');
+  git(dir, 'remote', 'add', 'origin', bare);
+  git(dir, 'push', '-q', 'origin', 'main:master');
+  git(dir, 'branch', '-q', '-u', 'origin/master');
+  await writeNote(dir, 'notes/b.md', { body: 'b' });
+
+  const result = await createSync({ vaultDir: dir, logger: quietLogger }).cycle('改名上游');
+  assert.equal(result.ok, true, result.error);
+  assert.match(git(bare, 'log', '--oneline', 'master'), /改名上游/);
+  assert.throws(() => git(bare, 'rev-parse', '--verify', '--quiet', 'refs/heads/main'), '不该在远端另建 main');
+});
+
+test('子仓库里有没提交的改动时，同步不报「nothing to commit」，其余改动照常提交和拉取', async t => {
+  const dir = await makeRepo();
+  const bare = await bareRemote();
+  t.after(async () => { for (const target of [dir, bare]) await fs.rm(target, { recursive: true, force: true }); });
+  const nested = path.join(dir, 'notes', 'proj', 'code');
+  await fs.mkdir(nested, { recursive: true });
+  git(nested, 'init', '-q', '-b', 'main');
+  git(nested, 'config', 'user.email', 'test@example.com');
+  git(nested, 'config', 'user.name', 'test');
+  await fs.writeFile(path.join(nested, 'x.py'), '1\n');
+  git(nested, 'add', '-A');
+  git(nested, 'commit', '-q', '-m', 'sub');
+  await writeNote(dir, 'notes/a.md', { body: 'a' });
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'init');
+  git(dir, 'remote', 'add', 'origin', bare);
+  git(dir, 'push', '-q', '-u', 'origin', 'main');
+  await fs.writeFile(path.join(nested, 'x.py'), '2\n');
+  const sync = createSync({ vaultDir: dir, logger: quietLogger });
+
+  const idle = await sync.cycle('只有子仓库脏');
+  assert.equal(idle.ok, true, idle.error);
+  const pulled = await sync.pull();
+  assert.equal(pulled.ok, true, pulled.error);
+  assert.equal(pulled.skipped, undefined, '子仓库的工作区改动不该挡住启动时的拉取');
+
+  await writeNote(dir, 'notes/a.md', { body: 'a 改过' });
+  const edited = await sync.cycle('笔记改了');
+  assert.equal(edited.ok, true, edited.error);
+  assert.match(git(bare, 'log', '--oneline', 'main'), /笔记改了/);
+});
+
+test('游离 HEAD 时不往上面提交，明确报错', async t => {
+  const dir = await makeRepo();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await writeNote(dir, 'notes/a.md', { body: 'a' });
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'init');
+  git(dir, 'checkout', '-q', '--detach');
+  const head = git(dir, 'rev-parse', 'HEAD').trim();
+  await writeNote(dir, 'notes/b.md', { body: 'b' });
+
+  const result = await createSync({ vaultDir: dir, logger: quietLogger }).commitAndPush('不该提交');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /游离|detached/i);
+  assert.equal(git(dir, 'rev-parse', 'HEAD').trim(), head);
+  assert.match(git(dir, 'status', '--porcelain'), /notes\/b\.md/);
+});
+
+test('联网命令不让 SSH 和凭据管理器弹交互提示，但尊重用户自己配置的 ssh 命令', { skip: process.platform === 'win32' }, async t => {
+  const dir = await makeRepo();
+  const tools = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-fake-ssh-'));
+  t.after(async () => { for (const target of [dir, tools]) await fs.rm(target, { recursive: true, force: true }); });
+  const log = path.join(tools, 'calls.log');
+  const fake = path.join(tools, 'ssh');
+  await fs.writeFile(fake, `#!/bin/sh\necho "args=$* gcm=$GCM_INTERACTIVE" >> "${log}"\nexit 1\n`, { mode: 0o755 });
+  await writeNote(dir, 'notes/a.md', { body: 'a' });
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'init');
+  git(dir, 'remote', 'add', 'origin', 'ssh://git@example.invalid/vault.git');
+  git(dir, 'config', 'branch.main.remote', 'origin');
+  git(dir, 'config', 'branch.main.merge', 'refs/heads/main');
+  git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+
+  const saved = { PATH: process.env.PATH, GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND, GIT_SSH: process.env.GIT_SSH };
+  t.after(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+  process.env.PATH = `${tools}${path.delimiter}${process.env.PATH}`;
+  delete process.env.GIT_SSH_COMMAND;
+  delete process.env.GIT_SSH;
+
+  await createSync({ vaultDir: dir, logger: quietLogger }).cycle('ssh');
+  const first = await fs.readFile(log, 'utf8');
+  assert.match(first, /BatchMode=yes/);
+  assert.match(first, /gcm=never/);
+
+  await fs.rm(log, { force: true });
+  git(dir, 'config', 'core.sshCommand', `${fake} -o Custom=1`);
+  await createSync({ vaultDir: dir, logger: quietLogger }).cycle('ssh');
+  const second = await fs.readFile(log, 'utf8');
+  assert.match(second, /Custom=1/);
+  assert.doesNotMatch(second, /BatchMode/);
+});
+
+test('残留的 index.lock 让 Git 失败时，给出锁文件位置和处理办法', async t => {
+  const dir = await makeRepo();
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await writeNote(dir, 'notes/a.md', { body: 'a' });
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'init');
+  await writeNote(dir, 'notes/b.md', { body: 'b' });
+  await fs.writeFile(path.join(dir, '.git', 'index.lock'), '');
+
+  const result = await createSync({ vaultDir: dir, logger: quietLogger }).commitAndPush('有锁');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /index\.lock/);
+  const candidates = [dir, fsSync.realpathSync(dir)].map(root => path.join(root, '.git', 'index.lock'));
+  assert.ok(candidates.some(lock => result.error.includes(lock)), result.error);
+  assert.match(result.error, /没有别的 Git/);
+  assert.ok(fsSync.existsSync(path.join(dir, '.git', 'index.lock')), '不自动删锁');
+});
+
+test('远端要登录时不弹窗，失败信息告诉用户在终端里登录一次', async () => {
+  const http = require('node:http');
+  const dir = await makeRepo();
+  const server = http.createServer((req, res) => {
+    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="vault"' });
+    res.end();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    await writeNote(dir, 'notes/a.md', { body: '内容' });
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'init');
+    git(dir, 'remote', 'add', 'origin', `http://127.0.0.1:${server.address().port}/vault.git`);
+    // 测试机上可能装了凭据助手，清掉以免它去弹窗或读到别的凭据。
+    git(dir, 'config', 'credential.helper', '');
+    const result = await createSync({ vaultDir: dir, logger: quietLogger }).cycle('同步');
+    assert.equal(result.ok, false);
+    assert.match(result.error, /终端里进入资料库目录运行一次 git fetch/);
+  } finally {
+    server.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

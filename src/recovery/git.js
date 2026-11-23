@@ -91,13 +91,16 @@ function safeSshUser(value) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(decoded);
 }
 
-function validateRemote(value) {
+function validateRemote(value, { platform = process.platform } = {}) {
   const remote = String(value || '').trim();
   if (!remote || remote.startsWith('-') || /[\0\r\n]/.test(remote)) {
     throw new RecoveryGitError('invalid-remote', 'Git 远端地址不合法。');
   }
+  // 盘符开头：C:\vault 在哪里都是本地路径；C:foo 在 Windows 上也是（Git for Windows
+  // 把它当盘符），在 macOS、Linux 上则是 ~/.ssh/config 里单字母主机别名的 SSH 写法。
   if (/^(?:ext::|file:)/i.test(remote)
     || /^[a-zA-Z]:[\\/]/.test(remote)
+    || (platform === 'win32' && /^[a-zA-Z]:/.test(remote))
     || remote.startsWith('\\\\')
     || remote.startsWith('/')
     || remote.startsWith('./')
@@ -236,7 +239,9 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs 
     const branch = (await gitAt(candidateDir, ['symbolic-ref', '--short', 'HEAD'], options)).stdout.trim();
     if (!branch) throw new RecoveryGitError('detached-head', '恢复出的 Git 仓库没有当前分支。');
 
-    const origin = (await gitAt(candidateDir, ['remote', 'get-url', 'origin'], options)).stdout.trim();
+    // 读配置里的原文：remote get-url 会套用全局 url.<base>.insteadOf，改写后的地址
+    // 和用户选的对不上，克隆恢复就永远报 remote-mismatch。
+    const origin = (await gitAt(candidateDir, ['config', '--get', 'remote.origin.url'], options)).stdout.trim();
     if (options.expectedRemote && origin !== options.expectedRemote) {
       throw new RecoveryGitError('remote-mismatch', '恢复出的 Git origin 与所选远端不一致。');
     }
@@ -260,6 +265,9 @@ function createGitRecovery({ runner = exec, timeoutMs = 120_000, cloneTimeoutMs 
     let expectedStats;
     try { expectedStats = await fsp.lstat(expectedGitDirectory); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
+    // 备份里没有 .git 就是不带 Git 的普通资料库。不能再问 Git：目标放在别的工作树里
+    // （dotfiles 仓库、项目仓库）时它会认出外层仓库，恢复就被误判失败。
+    if (!expectedStats) return { isRepo: false };
     try {
       const inside = (await gitAt(candidateDir, ['rev-parse', '--is-inside-work-tree'], options)).stdout.trim();
       if (inside !== 'true') {

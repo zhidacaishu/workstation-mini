@@ -223,6 +223,41 @@ test('手工改到一半又选了远端：改到一半的内容也存进历史',
   } finally { await env.cleanup(); }
 });
 
+test('手工合并结果里有 ======= 标题下划线：不当成冲突标记，可以按现在的内容保留', async () => {
+  const env = twoDevices();
+  try {
+    commit(env.A, { 'notes/x.md': REMOTE_X }, 'remote', { push: true });
+    commit(env.B, { 'notes/x.md': LOCAL_X }, 'local');
+    const sync = syncFor(env);
+    await sync.cycle('同步');
+    const merged = 'X\n=======\n\n第一行（两边合起来）\n第二行\n第三行\n';
+    write(env.B, { 'notes/x.md': merged });
+
+    assert.equal((await sync.listConflicts()).files[0].current, true);
+    const result = await sync.resolveConflicts({ 'notes/x.md': 'current' });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(git(env.B, 'show', 'HEAD:notes/x.md'), merged);
+  } finally { await env.cleanup(); }
+});
+
+test('只改好一部分冲突块又选了远端：还带标记的现有内容也存进历史', async () => {
+  const env = twoDevices();
+  try {
+    commit(env.A, { 'notes/x.md': REMOTE_X }, 'remote', { push: true });
+    commit(env.B, { 'notes/x.md': LOCAL_X }, 'local');
+    const sync = syncFor(env);
+    await sync.cycle('同步');
+    const half = '# X\n\n手工合好的第一段\n\n<<<<<<< HEAD\n还没改的\n=======\n另一边\n>>>>>>> local\n';
+    write(env.B, { 'notes/x.md': half });
+
+    assert.equal((await sync.listConflicts()).files[0].current, false, '还有冲突块，不能按现在的内容保留');
+    const result = await sync.resolveConflicts({ 'notes/x.md': 'remote' });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(read(env.B, 'notes/x.md'), REMOTE_X);
+    assert.ok((await historyOf(env, 'x.md')).some(record => record.raw === half), '改到一半的内容应存进历史');
+  } finally { await env.cleanup(); }
+});
+
 test('冲突期间保存过别的笔记：不挡继续，改动一起提交', async () => {
   const env = twoDevices();
   try {

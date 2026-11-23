@@ -1,5 +1,6 @@
 const { execFile } = require('node:child_process');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 const path = require('node:path');
 const { promisify } = require('node:util');
 const { compareText } = require('./lineDiff');
@@ -102,8 +103,40 @@ const PRESERVE_MAX_BYTES = 16 * 1024 * 1024;
 // 冲突列表里给人看的两边差异：只比文本，文件太大或差得太多就不比。
 const CONFLICT_DIFF_MAX_BYTES = 512 * 1024;
 const CONFLICT_DIFF_MAX_ROWS = 300;
-const CONFLICT_MARKER = /^(?:<{7} |={7}$|>{7} )/m;
+// 只认 <<<<<<< 和 >>>>>>> 行：单独一行的 ======= 也是 Markdown 标题下划线，不能当冲突标记。
+// 冲突块的头尾任一行还在，就说明没改完。
+const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |\r?$)/m;
+// 「Unable to create '…/index.lock': File exists.」：另一个 Git 正在运行，或者上次被中途杀掉。
+function lockFileError(error) {
+  const match = /Unable to create '([^'\n]+\.lock)': File exists/.exec(String(error?.stderr || ''));
+  return match ? path.normalize(match[1]) : '';
+}
 const CONFLICT_TEXT_FILE = /\.(md|markdown|txt|jsonl|json|ya?ml|csv|tex|bib)$/i;
+// 远端要登录、要输口令或确认主机指纹时 Git/SSH 的报错。后台同步不弹窗（见 git()），
+// 只能请用户在终端里登录一次，之后凭据管理器或 ssh-agent 会记住。
+const AUTH_REQUIRED = /terminal prompts disabled|could not read (?:Username|Password)|Authentication failed|Permission denied \(publickey|Host key verification failed|Too many authentication failures|interactivity|GCM_INTERACTIVE/i;
+const AUTH_HINT = '远端需要登录或确认主机，后台同步不会弹出登录窗口。请在终端里进入资料库目录运行一次 git fetch，按提示完成登录或确认后再同步。';
+
+/**
+ * 把带冲突标记的文本拆回两边各自看到的内容（diff3 的共同祖先段丢掉）。
+ * 标记不成对时返回 null。标签（HEAD、提交号）不进结果，所以两份标签不同的
+ * 冲突文本也能比较是不是同一次合并的原样输出。
+ */
+function conflictProjections(text) {
+  const ours = [];
+  const theirs = [];
+  let state = 'both';
+  for (const line of text.split(/(?<=\n)/)) {
+    const bare = line.replace(/\r?\n$/, '');
+    if (state === 'both' && /^<{7}(?: |$)/.test(bare)) { state = 'ours'; continue; }
+    if (state === 'ours' && /^\|{7}(?: |$)/.test(bare)) { state = 'base'; continue; }
+    if ((state === 'ours' || state === 'base') && bare === '=======') { state = 'theirs'; continue; }
+    if (state === 'theirs' && /^>{7}(?: |$)/.test(bare)) { state = 'both'; continue; }
+    if (state === 'both' || state === 'ours') ours.push(line);
+    if (state === 'both' || state === 'theirs') theirs.push(line);
+  }
+  return state === 'both' ? { ours: ours.join(''), theirs: theirs.join('') } : null;
+}
 
 function createSync({
   vaultDir,
@@ -120,7 +153,13 @@ function createSync({
   // （运行时把它写进本机历史）；返回 true 表示已经存好。
   preserveDiscarded = async () => false
 }) {
-  const cancellation = new AbortController();
+  // 每个排队的操作各用一个取消信号。cancel() 取消正在跑的和已经排着队的操作，
+  // 之后才排进来的（退出前那次提交）照常执行。以前整个实例共用一个信号、取消后永久
+  // 失效，退出前提交的每条 git 命令都会立刻失败，再被 isRepo 当成「不是 git 仓库」
+  // 悄悄跳过，最后的编辑没有提交。
+  let cancellation = new AbortController();
+  let enqueued = 0;
+  let cancelledThrough = 0;
   let queue = Promise.resolve();
   let currentStatus = Object.freeze({
     phase: (enabled || reviewSyncEnabled) ? 'idle' : 'disabled',
@@ -146,7 +185,12 @@ function createSync({
   }
 
   function enqueue(operation) {
-    const result = queue.then(operation);
+    const ticket = ++enqueued;
+    const result = queue.then(() => {
+      cancellation = new AbortController();
+      if (ticket <= cancelledThrough) cancellation.abort();
+      return operation();
+    });
     queue = result.catch(() => {});
     return result;
   }
@@ -161,6 +205,8 @@ function createSync({
     // （退出前那次提交）仍按调用方的来。
     const network = NETWORK_COMMANDS.has(args[0]);
     const timeout = options.timeout ?? (network ? networkTimeoutMs : timeoutMs);
+    const { signal } = cancellation;
+    const guards = network ? await sshPromptGuard() : {};
     try {
       return await run('git', [
         '-C', vaultDir,
@@ -172,12 +218,25 @@ function createSync({
         maxBuffer: 64 * 1024 * 1024,
         ...options,
         timeout,
-        signal: cancellation.signal,
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(options.env || {}) }
+        signal,
+        // GIT_TERMINAL_PROMPT 管不到 SSH（口令、首次连接的主机指纹）和 Git Credential
+        // Manager 的登录窗口：后台同步没人回答，要么弹窗打扰，要么一直挂到网络上限。
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', ...guards, ...(options.env || {}) }
       });
     } catch (error) {
+      const lock = lockFileError(error);
+      if (lock) {
+        error.lockFile = lock;
+        error.message = `Git 的锁文件还在：${lock}\n可能是上次 Git 被中途结束（例如关机或超时）留下的。请确认没有别的 Git 程序正在操作这个资料库后，手动删除这个文件，再重新同步。`;
+        error.stderr = '';
+        throw error;
+      }
+      if (network && AUTH_REQUIRED.test(String(error?.stderr || ''))) {
+        error.authRequired = true;
+        error.stderr = `${String(error.stderr).trim()}\n${AUTH_HINT}`;
+      }
       // execFile 到点杀进程时只给一句「Command failed: git -C …」，看不出是超时。
-      if (error && error.killed && !cancellation.signal.aborted && error.name !== 'AbortError') {
+      if (error && error.killed && !signal.aborted && error.name !== 'AbortError') {
         const seconds = Math.round(timeout / 1000);
         const detail = String(error.stderr || '').trim();
         error.timedOut = true;
@@ -186,6 +245,25 @@ function createSync({
       }
       throw error;
     }
+  }
+
+  // 用户自己没指定 ssh 命令时，让 ssh 遇到需要回答的提示直接失败。按实例只探测一次。
+  let sshGuard;
+  function sshPromptGuard() {
+    sshGuard ??= (async () => {
+      if (process.env.GIT_SSH_COMMAND || process.env.GIT_SSH) return {};
+      try {
+        const { stdout } = await run('git', ['-C', vaultDir, 'config', '--get', 'core.sshCommand'], {
+          encoding: 'utf8', windowsHide: true, timeout: timeoutMs
+        });
+        if (stdout.trim()) return {};
+      } catch (error) {
+        // 退出码 1 表示没配置；别的失败（读不了配置）按「用户可能配了」处理，不去覆盖。
+        if (error?.code !== 1) return {};
+      }
+      return { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' };
+    })();
+    return sshGuard;
   }
 
   async function isRepo(options) {
@@ -210,8 +288,33 @@ function createSync({
   }
 
   async function hasChanges(options) {
-    const { stdout } = await git(['status', '--porcelain'], options);
+    // 显式要未跟踪文件：全局设了 status.showUntrackedFiles=no 时，只有新笔记的改动会被看漏。
+    // 子仓库（submodule、嵌套仓库）里没提交的改动在这一层提交不了：算进来的话，
+    // add 之后没有可提交的内容，commit 报错，还会一直挡住启动时的拉取。
+    const { stdout } = await git(['status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=dirty'], options);
     return stdout.trim().length > 0;
+  }
+
+  /**
+   * 暂存全部改动并提交。暂存后确实有内容才提交：只有子仓库变动等情况下，status
+   * 报有改动但 add 之后什么也没暂存，直接 commit 会以「nothing to commit」失败。
+   */
+  async function commitAll(message, options) {
+    await git(['add', '-A'], options);
+    const recovery = await detectRecovery(options);
+    if (recovery) return { recovery, committed: false };
+    if (!(await hasStagedChanges(options))) return { committed: false };
+    await git(['commit', '-m', message], options);
+    return { committed: true };
+  }
+
+  async function currentBranch(options) {
+    try {
+      return (await git(['symbolic-ref', '--quiet', '--short', 'HEAD'], options)).stdout.trim();
+    } catch (error) {
+      if (error?.code === 1) return '';
+      throw error;
+    }
   }
 
   async function hasUpstream(options) {
@@ -431,10 +534,8 @@ function createSync({
       if (await hasChanges(options)) {
         // 单独的拉取（启动时那一次）不替用户提交：跳过，下一轮完整同步时一起处理。
         if (!message) return finish({ ok: true, skipped: '本机有未提交的修改，下一轮同步时先提交再拉取' });
-        await git(['add', '-A'], options);
-        const recovery = await detectRecovery(options);
+        const { recovery } = await commitAll(message, options);
         if (recovery) return blocked(recovery);
-        await git(['commit', '-m', message], options);
       }
       // 拉取拆成两步：联网的 fetch 不挡笔记保存；改工作区的变基期间暂停写入。
       if (upstream) await git(['fetch', '--quiet'], options);
@@ -773,35 +874,61 @@ function createSync({
     if (denied) return denied;
 
     try {
-      const changed = await hasChanges(options);
-      if (changed) {
-        await git(['add', '-A'], options);
-        const recovery = await detectRecovery(options);
-        if (recovery) return blocked(recovery);
-        await git(['commit', '-m', message], options);
+      // 游离 HEAD 上的提交不属于任何分支，下次切回分支就找不到了。
+      const branch = await currentBranch(options);
+      if (!branch && await hasHead(options)) {
+        return finish({ ok: false, error: '资料库当前处于游离 HEAD（detached HEAD），没有提交。请在资料库目录用 git switch 切回一个分支后再同步。' });
+      }
+      let committed = false;
+      if (await hasChanges(options)) {
+        const outcome = await commitAll(message, options);
+        if (outcome.recovery) return blocked(outcome.recovery);
+        committed = outcome.committed;
       }
 
-      if (!(await hasRemote(options))) return finish({ ok: true, committed: changed, pushed: false });
+      if (!(await hasRemote(options))) return finish({ ok: true, committed, pushed: false });
       if (!(await hasHead(options))) return finish({ ok: true, committed: false, pushed: false });
 
-      // 没有上游时才需要挑远端；有上游就交给 git 自己按 tracking 配置走。
-      // 这里过去写死 origin，和 defaultRemote 的判断对不上 —— 同一个 vault 上
-      // 复习记录能推出去、常规提交却报「'origin' does not appear to be a git
-      // repository」，而用户并没有配错任何东西。
-      if (await hasUpstream(options)) {
+      // 有上游时交给 git 按 tracking 和推送配置推（远端不一定叫 origin）。只有一种情况
+      // 显式写出目标：本地 main 跟踪 origin/master 这类名字不同的上游、用户又没配任何
+      // 推送规则时，push.default=simple 下的裸 git push 每一轮都会拒绝。
+      const upstream = await hasUpstream(options);
+      const renamed = upstream ? await renamedUpstreamTarget(branch, options) : null;
+      if (upstream && !renamed) {
         await git(['push'], options);
       } else {
-        const branch = (await git(['symbolic-ref', '--quiet', '--short', 'HEAD'], options)).stdout.trim();
-        const { remote, destination } = await untrackedDestination(branch, options);
-        await git(['push', '-u', remote, `HEAD:${destination}`], options);
+        const { remote, destination } = renamed || await untrackedDestination(branch, options);
+        await git(['push', ...(upstream ? [] : ['-u']), remote, `HEAD:${destination}`], options);
       }
-      return finish({ ok: true, committed: changed, pushed: true });
+      return finish({ ok: true, committed, pushed: true });
     } catch (error) {
       const message = String(error.stderr || error.message).trim();
       const recovery = await detectRecovery(options);
       logger.warn(`[sync] 提交或推送失败：${message}`);
       return finish({ ok: false, error: message, ...(recovery ? { recovery } : {}) });
     }
+  }
+
+  /**
+   * 上游分支和本地分支不同名、而且用户没配任何推送规则时，返回要显式推到的
+   * { remote, destination }；其余情况返回 null，照旧裸 git push。
+   * 用户配了 push.default、remote.<名>.push、pushRemote / pushDefault（三角工作流），
+   * 上游是本仓库里的分支（remote = .）或直接写成地址，都交给 git 自己按配置推。
+   */
+  async function renamedUpstreamTarget(branch, options) {
+    const read = async key => {
+      try { return (await git(['config', '--get', key], options)).stdout.trim(); }
+      catch (error) { if (error?.code === 1) return ''; throw error; }
+    };
+    const remote = await read(`branch.${branch}.remote`);
+    const destination = await read(`branch.${branch}.merge`);
+    if (!remote || destination === `refs/heads/${branch}` || !destination.startsWith('refs/heads/')) return null;
+    const remotes = (await git(['remote'], options)).stdout.split('\n').map(name => name.trim());
+    if (!remotes.includes(remote)) return null;
+    const pushDefault = await read('push.default');
+    if (pushDefault && pushDefault !== 'simple') return null;
+    if (await read(`remote.${remote}.push`) || await read(`branch.${branch}.pushRemote`) || await read('remote.pushDefault')) return null;
+    return { remote, destination };
   }
 
   function commitAndPush(message, options) {
@@ -1047,6 +1174,36 @@ function createSync({
     return (await git(['cat-file', 'blob', sha], options)).stdout;
   }
 
+  /**
+   * 现在文件里的内容是不是 Git 留下的冲突原样、用户一个字没动：重新合并一遍两边，
+   * 拆开比较。原样的不必另存（两边各自已经存了）；判断不了的一律当作改过。
+   */
+  async function untouchedConflictText(current, stages, options) {
+    const projected = conflictProjections(current);
+    if (!projected) return false;
+    const [base, ours, theirs] = await Promise.all([1, 2, 3].map(stage => blobText(stages[stage], PRESERVE_MAX_BYTES, options)));
+    if (ours === null || theirs === null) return false;
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-merge-'));
+    try {
+      const files = ['ours', 'base', 'theirs'].map(name => path.join(directory, name));
+      await Promise.all([fs.writeFile(files[0], ours), fs.writeFile(files[1], base ?? ''), fs.writeFile(files[2], theirs)]);
+      let merged;
+      try {
+        merged = (await git(['merge-file', '-p', ...files], options)).stdout;
+      } catch (error) {
+        // 退出码是冲突块数；负数或更大的才是真出错。
+        if (!Number.isInteger(error?.code) || error.code < 1 || error.code > 127 || typeof error.stdout !== 'string') return false;
+        merged = error.stdout;
+      }
+      const regenerated = conflictProjections(merged);
+      return Boolean(regenerated) && regenerated.ours === projected.ours && regenerated.theirs === projected.theirs;
+    } catch {
+      return false;
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  }
+
   async function worktreeText(file, limit) {
     try {
       const absolute = await ensureSafeFilePath(vaultDir, file, { allowMissing: true });
@@ -1213,7 +1370,12 @@ function createSync({
             const discarded = choice === 'current'
               ? [await requiredBlob(stages[2]), await requiredBlob(stages[3])]
               : [await requiredBlob(drop)];
-            if (choice !== 'current' && current !== null && !CONFLICT_MARKER.test(current)) discarded.push(current);
+            // 现在文件里的内容（可能已经手工合并了一部分）也会被覆盖，先存一份；
+            // 只有确认是 Git 留下的原样冲突文本时才不存。
+            if (choice !== 'current' && current !== null
+              && !(CONFLICT_MARKER.test(current) && await untouchedConflictText(current, stages, options))) {
+              discarded.push(current);
+            }
             const saved = new Set();
             for (const content of discarded) {
               if (content === null || content === kept || saved.has(content)) continue;
@@ -1303,7 +1465,10 @@ function createSync({
     ensureGitignore,
     ensureGitattributes,
     idle,
-    cancel: () => cancellation.abort(),
+    cancel: () => {
+      cancelledThrough = enqueued;
+      cancellation.abort();
+    },
     isRepo,
     hasRemote,
     hasChanges,

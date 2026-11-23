@@ -209,6 +209,8 @@ async function startRuntime(config, { logger = console, watcherOptions = {}, gui
       const recovery = sync.getStatus().recovery;
       if (recovery) return Promise.resolve({ ok: false, blocked: 'recovery-required', recovery });
       const result = syncNowQueue.then(async () => {
+        // 排在前一轮后面、等到开始时应用已经在退出：不再起新的一轮，免得拖长退出等待。
+        if (stopping) return { ok: true, skipped: '应用正在退出' };
         const outcome = await sync.cycle(message);
         if (outcome.changed) await indexer.scan();
         return outcome;

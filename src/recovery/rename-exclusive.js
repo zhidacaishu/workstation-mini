@@ -6,6 +6,10 @@ const { promisify } = require('node:util');
 
 const run = promisify(execFile);
 const DESTINATION_EXISTS_EXIT = 73;
+// Windows 上刚写完的目录常被杀毒软件、索引服务短暂占着：和 src/vault/atomic.js 的
+// replaceFile 一样，这几个错误码先退避重试，不直接判成不可重试的激活失败。
+const TRANSIENT_RENAME_ERRORS = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const RENAME_RETRY_TIMEOUT_MS = 5000;
 
 class ExclusiveRenameError extends Error {
   constructor(code, message) {
@@ -58,7 +62,9 @@ async function renameExclusive(sourcePath, destinationPath, {
   arch = process.arch,
   runner = run,
   rename = fsp.rename,
-  helperPath = bundledHelperPath(platform, arch)
+  helperPath = bundledHelperPath(platform, arch),
+  retryTimeoutMs = RENAME_RETRY_TIMEOUT_MS,
+  retryDelayMs = 25
 } = {}) {
   const source = path.resolve(sourcePath);
   const destination = path.resolve(destinationPath);
@@ -67,13 +73,22 @@ async function renameExclusive(sourcePath, destinationPath, {
   }
 
   if (platform === 'win32') {
-    try {
-      await rename(source, destination);
-      return;
-    } catch (error) {
-      const destinationExists = await fsp.lstat(destination).then(() => true, () => false);
-      if (destinationExists) throw destinationExistsError();
-      throw new ExclusiveRenameError('activation-failed', '无法原子激活新资料库。');
+    const deadline = Date.now() + retryTimeoutMs;
+    let delay = retryDelayMs;
+    for (;;) {
+      try {
+        await rename(source, destination);
+        return;
+      } catch (error) {
+        // 目录改名到已有目录上也报 EPERM：先看目标在不在，在就不是瞬时占用。
+        const destinationExists = await fsp.lstat(destination).then(() => true, () => false);
+        if (destinationExists) throw destinationExistsError();
+        if (!TRANSIENT_RENAME_ERRORS.has(error?.code) || Date.now() >= deadline) {
+          throw new ExclusiveRenameError('activation-failed', '无法原子激活新资料库。');
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, 250);
+      }
     }
   }
 

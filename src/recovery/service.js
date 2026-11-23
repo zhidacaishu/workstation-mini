@@ -618,7 +618,7 @@ function createRecoveryService({
     if (!session?.renamed || state.phase !== 'activating') return { ok: false };
     let cleanupPending = false;
     try {
-      await fsp.rm(session.stagingRoot, { recursive: true, force: true });
+      await fsp.rm(session.stagingRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       await journal.clear();
     } catch {
       cleanupPending = true;
