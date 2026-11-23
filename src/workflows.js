@@ -28,7 +28,8 @@ const WORKFLOWS = {
 const BY_SECTION = new Map(Object.values(WORKFLOWS).map(flow => [flow.section, flow]));
 
 function workflowOf(key) {
-  return WORKFLOWS[key] || null;
+  // 只认自己的键：`/board/constructor`、`__proto__` 这类原型链上的名字不能当成工作流。
+  return typeof key === 'string' && Object.hasOwn(WORKFLOWS, key) ? WORKFLOWS[key] : null;
 }
 
 function workflowForSection(section) {

@@ -81,7 +81,8 @@
     <% if (!readOnly) { %>
       <form class="plan-quick-add is-compact" action="/plan/tasks" method="post" data-quick-add>
         <input type="hidden" name="returnTo" value="/">
-        <input type="hidden" name="due" value="<%= date %>">
+        <%# 不写死打开页面那天的日期：窗口开着跨过午夜后再添加，应记在提交那天。 %>
+        <input type="hidden" name="due" value="today">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         <input type="text" name="text" maxlength="500" placeholder="添加今天的待办，回车保存" aria-label="添加今天的待办" autocomplete="off" required<% if (typeof added !== 'undefined' && added) { %> autofocus<% } %>>
       </form>

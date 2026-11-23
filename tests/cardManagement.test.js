@@ -440,3 +440,47 @@ test('整组恢复时已移走的活卡保留身份与评分', async t => {
   assert.equal(cards.find(card => card.back === 'changed').state.reviewCount, 1);
   assert.equal(cards.find(card => card.back === 'first').state.reviewCount, 0);
 });
+
+test('改正面时背面里别的机器注释行保留在文件里，界面上照旧不显示', async t => {
+  const { app, vaultDir } = await setup(t);
+  await appendCard(vaultDir, { deckFile: 'ml', front: '旧正面', back: '答案' });
+  const directive = '<!-- workstation:highlight:v1 {"color":"yellow"} -->';
+  const original = await read(vaultDir, 'ml.md');
+  await fs.writeFile(path.join(vaultDir, 'cards', 'ml.md'), original.replace('答案\n', `答案\n${directive}\n`));
+
+  const file = await readNote(vaultDir, 'cards/ml.md');
+  await updateCard(vaultDir, { id: 'ml/旧正面', expectedHash: file.hash, front: '新正面' });
+  const after = await read(vaultDir, 'ml.md');
+  assert.match(after, /## 新正面\n/);
+  assert.ok(after.includes(directive), '机器注释行不能被删掉');
+
+  const edited = await readNote(vaultDir, 'cards/ml.md');
+  await updateCard(vaultDir, { id: 'ml/旧正面', expectedHash: edited.hash, back: '新答案' });
+  assert.ok((await read(vaultDir, 'ml.md')).includes(directive), '改背面同样保留');
+  const list = (await request(app).get('/cards?deck=ml').expect(200)).text;
+  assert.match(list, /新答案/);
+  assert.doesNotMatch(list, /workstation:highlight/);
+});
+
+test('正面有连续空格的卡，不改内容直接保存不重写文件', async t => {
+  const { vaultDir } = await setup(t);
+  await appendCard(vaultDir, { deckFile: 'ml', front: '占位', back: '答案' });
+  const raw = (await read(vaultDir, 'ml.md')).replace('## 占位', '## Q  two');
+  await fs.writeFile(path.join(vaultDir, 'cards', 'ml.md'), raw);
+  const file = await readNote(vaultDir, 'cards/ml.md');
+
+  await updateCard(vaultDir, { id: 'ml/Q two', expectedHash: file.hash, front: 'Q  two', back: '答案' });
+  assert.equal(await read(vaultDir, 'ml.md'), raw, '什么都没改，文件一个字节都不动');
+});
+
+test('挪到新建的卡组文件时沿用原卡组的类型', async t => {
+  const { vaultDir } = await setup(t);
+  await appendCard(vaultDir, { deckFile: 'words', front: 'serendipity', back: '意外发现', type: 'en-word' });
+  assert.match(await read(vaultDir, 'words.md'), /type: en-word/);
+  const file = await readNote(vaultDir, 'cards/words.md');
+
+  await updateCard(vaultDir, { id: 'words/serendipity', expectedHash: file.hash, deckFile: 'gre' });
+  const moved = await read(vaultDir, 'gre.md');
+  assert.match(moved, /## serendipity/);
+  assert.match(moved, /type: en-word/);
+});

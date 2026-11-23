@@ -103,6 +103,7 @@ function splitCards(body) {
         // ID 必须沿用旧算法，否则这些卡的复习历史会在升级后全部断掉。
         idFront: line.match(/^##[ \t]+(.+?)[ \t]*#*[ \t]*$/)[1].trim(),
         backLines: [],
+        directives: [],
         meta: {},
         metaLine: -1,
         start: index
@@ -114,7 +115,12 @@ function splitCards(body) {
     if (!current.backLines.length && /^[ \t]*$/.test(line)) return;
     if (!fence && isDirectiveLine(line)) {
       const meta = line.match(CARD_META_LINE);
-      if (!meta) return;
+      // 别的机器注释（旧版标注标记等）不算背面、不显示，但要记下来：整张重写
+      // （改正面、改背面、挪卡组）时原样写回，不能悄悄删掉。
+      if (!meta) {
+        current.directives.push(line);
+        return;
+      }
       if (current.metaLine < 0 && !current.backLines.length) {
         current.meta = parseCardMeta(meta[1]);
         current.metaLine = index;
@@ -132,6 +138,7 @@ function splitCards(body) {
     front: card.front,
     idFront: card.idFront,
     back: trimBack(card.backLines.join('\n')),
+    directives: card.directives,
     meta: card.meta,
     metaLine: card.metaLine,
     start: card.start,
@@ -270,6 +277,11 @@ function assignIds(bases, fixed, taken = new Set()) {
 
 function deckFileOf(cardPath) {
   return stripExtension(toPosix(cardPath).replace(/^cards\//, ''));
+}
+
+function deckTypeOf(raw) {
+  const type = parseFrontmatter(raw).data?.type;
+  return CARD_TYPES.includes(type) ? type : DEFAULT_TYPE;
 }
 
 function parseCardFile(cardPath, raw, { taken, sourceHash } = {}) {
@@ -454,8 +466,9 @@ function cardLines(heading, back, meta) {
   return back ? lines.concat(back.split('\n')) : lines;
 }
 
-function renderCardLines({ front, back, meta, heading = '' }) {
-  return cardLines(heading || renderHeading(front), protectCardSeparators(trimBack(back)), meta);
+/** directives：这张卡里别的机器注释行，统一接在背面后面写回（读的时候不进背面）。 */
+function renderCardLines({ front, back, meta, heading = '', directives = [] }) {
+  return [...cardLines(heading || renderHeading(front), protectCardSeparators(trimBack(back)), meta), ...directives];
 }
 
 /** 把卡组文件拆成 frontmatter 前缀和正文行（行尾的 \r 原样留着）。 */
@@ -693,7 +706,9 @@ async function updateCardLocked(vaultDir, { id, expectedHash = '', front, back, 
     const parts = deckParts(note.raw);
     const block = parts.blocks[index];
 
-    const nextFront = front === undefined ? card.front : normalizeFront(front);
+    // 正面按折叠空白比较：标题里原本有连续空格时，原样提交回来不算改了正面。
+    const typedFront = front === undefined ? card.front : normalizeFront(front);
+    const nextFront = typedFront === card.front.replace(/\s+/g, ' ').trim() ? card.front : typedFront;
     const nextBack = back === undefined ? card.back : trimBack(back);
     const meta = { ...block.meta };
     if (nextFront !== card.front || target !== source) {
@@ -707,7 +722,7 @@ async function updateCardLocked(vaultDir, { id, expectedHash = '', front, back, 
       const heading = nextFront === card.front ? stripCR(parts.lines[block.start]) : '';
       const edited = nextFront === card.front && nextBack === card.back
         ? setCardMeta(note.raw, index, meta)
-        : replaceCard(note.raw, index, renderCardLines({ front: nextFront, back: nextBack, meta, heading }));
+        : replaceCard(note.raw, index, renderCardLines({ front: nextFront, back: nextBack, meta, heading, directives: block.directives }));
       const raw = preserveIds(source, edited, sourceTaken, keepIds);
       await protectPeerIds(vaultDir, state, new Map([[source, raw]]));
       const written = await writeNote(vaultDir, source, { raw });
@@ -718,7 +733,7 @@ async function updateCardLocked(vaultDir, { id, expectedHash = '', front, back, 
     const sourceRaw = preserveIds(source, replaceCard(note.raw, index, null), new Set([...sourceTaken, meta.id]), remaining);
 
     // 挪卡组：先写进新文件，再从旧文件删掉。中途失败最多留下两份，不会丢卡。
-    const lines = renderCardLines({ front: nextFront, back: nextBack, meta });
+    const lines = renderCardLines({ front: nextFront, back: nextBack, meta, directives: block.directives });
     const targetTaken = new Set([...takenFor(target)].filter(item => item !== meta.id));
     await ensureSafeFilePath(vaultDir, target, { allowMissing: true, createParents: true });
     let existing;
@@ -727,7 +742,8 @@ async function updateCardLocked(vaultDir, { id, expectedHash = '', front, back, 
     const before = existing ? parseCardFile(target, existing.raw, { taken: targetTaken }) : [];
     const combined = existing
       ? appendCardLines(existing.raw, lines)
-      : stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(target), type: DEFAULT_TYPE });
+      // 新建的目标卡组沿用原卡组的类型：en-word 的卡挪过去不该变成 concept。
+      : stringifyFrontmatter(`\n${lines.join('\n')}\n`, { deck: deckFileOf(target), type: deckTypeOf(note.raw) });
     const targetRaw = preserveIds(target, combined, targetTaken, [...before, card]);
     await protectPeerIds(vaultDir, state, new Map([[source, sourceRaw], [target, targetRaw]]));
     await writeNote(vaultDir, target, { raw: targetRaw }, { exclusive: !existing });

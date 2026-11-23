@@ -32,6 +32,18 @@ test('只提供研究项目看板，旧章节、投稿和回复稿入口返回 4
   }
 });
 
+test('原型链上的名字不算工作流：看板返回 404，改状态被拒绝', async t => {
+  const { app } = await setup(t);
+  for (const key of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    await request(app).get(`/board/${key}`).expect(404);
+  }
+  const { workflowOf, isValidStatus, normalizeStatus, statusLabel } = require('../src/workflows');
+  assert.equal(workflowOf('constructor'), null);
+  assert.equal(isValidStatus('__proto__', 'x'), false);
+  assert.equal(normalizeStatus('constructor', 'x'), '');
+  assert.equal(statusLabel('toString', 'x'), 'x');
+});
+
 test('看板保留项目状态和下一步，不显示旧习题进度或审稿派生信息', async t => {
   const ctx = await setup(t);
   const before = await writeNote(ctx.config.notesDir, 'experiments/project.md', {

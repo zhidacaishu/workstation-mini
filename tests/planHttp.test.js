@@ -221,3 +221,31 @@ test('未闭围栏内的快速添加仍可索引，保留原文且只用有效�
   assert.equal((await readNote(config.notesDir, file)).raw, prefix + '- [ ] 复核 @2026-02-31 @' + TODAY + '\r\n\r\n' + body);
   assert.deepEqual(db.listTasks().map(t => [t.title, t.due]), [['复核 @2026-02-31', TODAY]]);
 });
+
+test('今日页开着跨过午夜：快速添加的待办记在提交那天，不是打开页面那天', async t => {
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-plan-'));
+  const config = loadConfig({ vaultDir, dbPath: ':memory:', syncEnabled: false });
+  await fs.mkdir(config.notesDir, { recursive: true });
+  const db = openDatabase(':memory:');
+  const indexer = createIndexer({ db, vaultDir: config.notesDir });
+  let clock = new Date(2026, 9, 24, 23, 50);
+  const app = createApp(config, { db, indexer, search: createSearch(db), now: () => clock });
+  t.after(async () => {
+    db.close();
+    await fs.rm(vaultDir, { recursive: true, force: true });
+  });
+
+  const page = (await request(app).get('/').expect(200)).text;
+  const form = page.match(/<form class="plan-quick-add[^>]*>([\s\S]*?)<\/form>/)[1];
+  const fields = Object.fromEntries([...form.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map(match => [match[1], match[2]]));
+
+  clock = new Date(2026, 9, 25, 8, 0);
+  await request(app).post('/plan/tasks').type('form').send({ ...fields, text: '早上要做的事' }).expect(302);
+  assert.deepEqual(db.listTasks().map(task => [task.title, task.due, task.path]), [['早上要做的事', '2026-10-25', 'calendar/2026-10-25.md']]);
+});
+
+test('计划页显式选的日期照旧按所选的写', async t => {
+  const { app, db } = await setup(t);
+  await request(app).post('/plan/tasks').type('form').send({ text: '下周的事', due: '2026-10-31', returnTo: '/plan?view=list' }).expect(302);
+  assert.deepEqual(db.listTasks().map(task => [task.title, task.due]), [['下周的事', '2026-10-31']]);
+});

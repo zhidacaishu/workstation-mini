@@ -208,12 +208,13 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
       const text = String(req.body.text ?? '').replace(/\s+/g, ' ').trim();
       if (!text) throw httpError(400, '请先写下待办内容。');
       if (text.length > 500) throw httpError(400, '待办内容太长，请控制在 500 字以内。');
-      const due = String(req.body.due || '');
+      const date = toLocalDate(now());
+      // 今日页提交 due=today：按提交时的日期算，页面开着跨过午夜也不会记成前一天。
+      const due = req.body.due === 'today' ? date : String(req.body.due || '');
       if (due && !isValidDateString(due)) throw httpError(400, '请选择有效日期。');
       // 文字里已经手写了 @日期 的，以手写的为准，不再追加第二个。
       let line = `- [ ] ${text}`;
       if (due && !extractTasks(line)[0]?.due) line += ` @${due}`;
-      const date = toLocalDate(now());
       const notePath = notePathFor(date);
       await enqueueNote(config.notesDir, notePath, async () => {
         const existing = await readDay(config.notesDir, date);
