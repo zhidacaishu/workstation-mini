@@ -12,11 +12,19 @@ function toPosix(value) {
   return String(value ?? '').replaceAll('\\', '/').replace(/\/+/g, '/');
 }
 
-function samePath(left, right) {
-  const normalize = value => process.platform === 'win32'
+function samePath(left, right, platform = process.platform) {
+  const normalize = value => platform === 'win32'
     ? path.resolve(value).toLowerCase()
     : path.resolve(value);
   return normalize(left) === normalize(right);
+}
+
+// 同一个目录项的名字：Windows 和 macOS 的默认磁盘不分大小写，macOS 还不分 Unicode
+// 写法（NFC/NFD）。realpath 返回的是磁盘上的拼写，和用户输入的可以不一样。
+function sameEntryName(actual, typed, platform = process.platform) {
+  if (platform !== 'win32' && platform !== 'darwin') return actual === typed;
+  const fold = value => value.normalize('NFC').toLowerCase();
+  return fold(actual) === fold(typed);
 }
 
 function assertInsideRoot(root, target) {
@@ -27,16 +35,15 @@ function assertInsideRoot(root, target) {
   return relative;
 }
 
-async function ensureSafeTargetParent(targetDir, absolute, { create = false } = {}) {
+async function ensureSafeTargetParent(targetDir, absolute, { create = false, platform = process.platform } = {}) {
   const root = path.resolve(targetDir);
   const relative = assertInsideRoot(root, path.dirname(absolute));
   const rootReal = await fsp.realpath(root);
   if (!(await fsp.stat(rootReal)).isDirectory()) throw new Error('资料库不是目录。');
   let current = root;
-  let expectedReal = rootReal;
+  let parentReal = rootReal;
   for (const segment of relative.split(path.sep).filter(Boolean)) {
     current = path.join(current, segment);
-    expectedReal = path.join(expectedReal, segment);
     if (create) {
       try {
         await fsp.mkdir(current);
@@ -49,16 +56,20 @@ async function ensureSafeTargetParent(targetDir, absolute, { create = false } = 
       // 带上 400：这是用户填的路径有问题（上级是个文件或符号链接），不是应用内部错误。
       throw Object.assign(new Error('目标路径包含符号链接或非目录祖先。'), { status: 400 });
     }
-    if (!samePath(await fsp.realpath(current), expectedReal)) {
+    // 每一级的真实位置都必须是上一级真实位置的直接子项：目录联接、挂载点把它带到
+    // 别处时 dirname 对不上。名字只按平台规则比较，大小写、NFC/NFD 不同不算离开。
+    const real = await fsp.realpath(current);
+    if (!samePath(path.dirname(real), parentReal, platform) || !sameEntryName(path.basename(real), segment, platform)) {
       throw Object.assign(new Error('目标路径离开了资料库目录。'), { status: 400 });
     }
+    parentReal = real;
   }
   return absolute;
 }
 
-async function ensureSafeFilePath(vaultDir, relativePath, { allowMissing = false, createParents = false } = {}) {
+async function ensureSafeFilePath(vaultDir, relativePath, { allowMissing = false, createParents = false, platform } = {}) {
   const absolute = toAbsolute(vaultDir, relativePath);
-  await ensureSafeTargetParent(vaultDir, absolute, { create: createParents });
+  await ensureSafeTargetParent(vaultDir, absolute, { create: createParents, platform });
   try {
     const stats = await fsp.lstat(absolute);
     if (!stats.isFile() || stats.isSymbolicLink()) throw new Error('目标不是普通文件。');

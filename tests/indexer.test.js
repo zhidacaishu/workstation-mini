@@ -719,8 +719,10 @@ test('Windows 增量扫描统一大小写别名，并清除旧版本留下的重
 
     // 模拟旧版遗留的大小写重复行，规范拼写事件也应该对账清除它。
     ctx.db.raw.exec(`
-      INSERT INTO notes SELECT 'folder/english.md', section, title_raw, body_raw, data_json, hash, size, mtime_ms, indexed_at FROM notes;
-      INSERT INTO notes_fts SELECT 'folder/english.md', title, body FROM notes_fts;
+      INSERT INTO notes (path, section, title_raw, body_raw, data_json, hash, size, mtime_ms, indexed_at)
+        SELECT 'folder/english.md', section, title_raw, body_raw, data_json, hash, size, mtime_ms, indexed_at FROM notes;
+      INSERT INTO notes_fts (rowid, path, title, body)
+        SELECT (SELECT id FROM notes WHERE path = 'folder/english.md'), 'folder/english.md', title, body FROM notes_fts;
       INSERT INTO tasks SELECT 'folder/english.md', line, done, title, due FROM tasks;
     `);
     assert.equal(ctx.db.countNotes(), 2);
@@ -1073,4 +1075,121 @@ test('链接解析中断后重新打开数据库，启动扫描与强制扫描�
     assert.equal((await indexer.scan(options)).unchanged, 2);
     assert.deepEqual(db.backlinks('b.md').map(note => note.path), ['a.md']);
   }
+});
+
+test('某个子文件夹读不了时，其余笔记照常入索引，那个文件夹里已有的索引保留', async t => {
+  const ctx = await setup();
+  try {
+    await writeNote(ctx.vaultDir, 'a.md', { raw: '# A\n' });
+    await writeNote(ctx.vaultDir, 'private/secret.md', { raw: '# 私密\n' });
+    assert.equal((await ctx.indexer.scan()).added, 2);
+
+    await writeNote(ctx.vaultDir, 'b.md', { raw: '# B\n' });
+    const fsp = require('node:fs/promises');
+    const readdir = fsp.readdir;
+    const denied = t.mock.method(fsp, 'readdir', async (target, options) => {
+      if (path.basename(String(target)) === 'private') throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      return readdir.call(fsp, target, options);
+    });
+
+    const result = await ctx.indexer.scan();
+    assert.equal(result.phase, 'degraded');
+    assert.equal(result.added, 1);
+    assert.equal(result.removed, 0, '读不了的文件夹里的笔记不能当成已删除');
+    assert.deepEqual(ctx.db.listPaths().sort(), ['a.md', 'b.md', 'private/secret.md']);
+    const failure = ctx.indexer.getStatus().failures.find(item => item.path === 'private');
+    assert.ok(failure, '读不了的文件夹记成失败项');
+    assert.equal(failure.retryable, true);
+
+    denied.mock.restore();
+    const retried = await ctx.indexer.retry();
+    assert.equal(retried.phase, 'ready');
+    assert.equal(ctx.indexer.getStatus().failureTotal, 0);
+  } finally { await ctx.cleanup(); }
+});
+
+test('listNotes 只有在调用方接收时才跳过读不了的子文件夹', async t => {
+  const ctx = await setup();
+  try {
+    await writeNote(ctx.vaultDir, 'a.md', { raw: '# A\n' });
+    await writeNote(ctx.vaultDir, 'locked/x.md', { raw: '# X\n' });
+    const fsp = require('node:fs/promises');
+    const readdir = fsp.readdir;
+    t.mock.method(fsp, 'readdir', async (target, options) => {
+      if (path.basename(String(target)) === 'locked') throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+      return readdir.call(fsp, target, options);
+    });
+    await assert.rejects(listNotes(ctx.vaultDir), /EIO/);
+    const unreadable = [];
+    assert.deepEqual(await listNotes(ctx.vaultDir, { onUnreadable: (dir, error) => unreadable.push([dir, error.code]) }), ['a.md']);
+    assert.deepEqual(unreadable, [['locked', 'EIO']]);
+  } finally { await ctx.cleanup(); }
+});
+
+test('全文索引按 rowid 增删，不按 path 扫全表', async t => {
+  const Database = require('better-sqlite3');
+  const prepared = [];
+  const prepare = Database.prototype.prepare;
+  t.mock.method(Database.prototype, 'prepare', function (source) {
+    prepared.push(String(source));
+    return prepare.call(this, source);
+  });
+  const db = openDatabase(':memory:');
+  t.after(() => db.close());
+  t.mock.restoreAll();
+
+  const ftsWrites = prepared.filter(source => /\b(DELETE FROM|INSERT INTO)\s+notes_fts\b/i.test(source));
+  assert.ok(ftsWrites.length >= 2);
+  for (const source of ftsWrites.filter(item => /DELETE/i.test(item))) {
+    const plan = db.raw.prepare(`EXPLAIN QUERY PLAN ${source}`).all(1).map(row => row.detail).join('\n');
+    // FTS5 的计划总写 SCAN … VIRTUAL TABLE；按 rowid 定位时索引串带「=」，全表扫描时为空。
+    assert.match(plan, /VIRTUAL TABLE INDEX \d+:=/, `${source} 不应全表扫描：${plan}`);
+  }
+
+  const record = notePath => ({
+    path: notePath, section: '', title: notePath, body: '', data: {}, hash: notePath, size: 1, mtimeMs: 1,
+    indexedAt: '2026-01-01T00:00:00Z', titleTokens: notePath, bodyTokens: `正文 ${notePath}`, tags: [], links: [], tasks: []
+  });
+  for (const notePath of ['a.md', 'b.md', 'c.md']) db.replaceNote(record(notePath));
+  db.replaceNote(record('b.md'));
+  db.removeNote('a.md');
+  assert.deepEqual(db.raw.prepare('SELECT path FROM notes_fts ORDER BY path').all().map(row => row.path), ['b.md', 'c.md']);
+  const mismatched = db.raw.prepare('SELECT count(*) AS c FROM notes_fts f LEFT JOIN notes n ON n.path = f.path WHERE n.id IS NOT f.rowid').get().c;
+  assert.equal(mismatched, 0, '全文索引行与笔记行一一对应');
+});
+
+test('排队中的全量扫描会合并：轮询再多也最多一个在等，保存不必排在一串全量扫描后面', async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let walks = 0;
+  let reads = 0;
+  const ctx = await setup({
+    listNotesFn: async (dir, options) => {
+      walks += 1;
+      if (walks === 1) await gate;
+      return listNotes(dir, options);
+    },
+    readOpenedFile: handle => { reads += 1; return handle.readFile('utf8'); }
+  });
+  try {
+    await writeNote(ctx.vaultDir, 'a.md', { raw: '# A\n' });
+    const running = ctx.indexer.scan({ kind: 'background' });
+    await new Promise(resolve => setImmediate(resolve));
+    const queued = Array.from({ length: 5 }, () => ctx.indexer.scan({ kind: 'background' }));
+    assert.ok(queued.every(promise => promise === queued[0]), '排着队的全量扫描复用同一个');
+    const forced = ctx.indexer.scan({ force: true, kind: 'full' });
+    assert.equal(forced, queued[0], '还没开始的那一轮可以直接升级成强制重扫');
+    release();
+    await running;
+    assert.equal(reads, 1);
+    await queued[0];
+    assert.equal(walks, 2);
+    assert.equal(reads, 2, '升级成强制重扫后会重新读取');
+    assert.equal(ctx.indexer.getStatus().scanKind, 'full');
+
+    const after = ctx.indexer.scan({ kind: 'background' });
+    assert.notEqual(after, queued[0], '已经开始的扫描不再合并');
+    await after;
+    assert.equal(walks, 3);
+  } finally { await ctx.cleanup(); }
 });

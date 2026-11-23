@@ -25,13 +25,17 @@ const Database = require('better-sqlite3');
 // v11：重算 Markdown 一级标题和待办日期。
 // v12：重算因围栏与行内代码边界变化而受影响的双链。
 // v13：旧索引缺少仅用 CR 换行的公式块之后的双链。
-const SCHEMA_VERSION = 13;
+// v14：notes 增加整数主键 id，notes_fts 的 rowid 与它对应。按 path 删全文索引行
+//      要扫整张 FTS 表（path 列不建索引），全量重建随笔记数平方增长。
+const SCHEMA_VERSION = 14;
 
 const SCHEMA = `
   -- 每篇笔记一行。body_raw / title_raw 是原文缓存，供 LIKE 兜底和渲染使用；
   -- 它不是第二个真相源，Markdown 文件才是。
+  -- id 是 notes_fts 的 rowid：显式声明的整数主键不会被 VACUUM 重新编号。
   CREATE TABLE IF NOT EXISTS notes (
-    path        TEXT PRIMARY KEY,
+    id          INTEGER PRIMARY KEY,
+    path        TEXT NOT NULL UNIQUE,
     section     TEXT NOT NULL DEFAULT '',
     title_raw   TEXT NOT NULL DEFAULT '',
     body_raw    TEXT NOT NULL DEFAULT '',
@@ -169,8 +173,9 @@ function openDatabase(dbPath, { logger = console } = {}) {
     `),
     touchNote: db.prepare(`UPDATE notes SET mtime_ms = ?, size = ?, indexed_at = ? WHERE path = ?`),
     deleteNote: db.prepare(`DELETE FROM notes WHERE path = ?`),
-    deleteFts: db.prepare(`DELETE FROM notes_fts WHERE path = ?`),
-    insertFts: db.prepare(`INSERT INTO notes_fts (path, title, body) VALUES (?, ?, ?)`),
+    noteId: db.prepare(`SELECT id FROM notes WHERE path = ?`).pluck(),
+    deleteFts: db.prepare(`DELETE FROM notes_fts WHERE rowid = ?`),
+    insertFts: db.prepare(`INSERT INTO notes_fts (rowid, path, title, body) VALUES (?, ?, ?, ?)`),
     deleteTags: db.prepare(`DELETE FROM tags WHERE path = ?`),
     insertTag: db.prepare(`INSERT OR IGNORE INTO tags (path, tag) VALUES (?, ?)`),
     deleteLinks: db.prepare(`DELETE FROM links WHERE from_path = ?`),
@@ -199,8 +204,9 @@ function openDatabase(dbPath, { logger = console } = {}) {
       indexedAt: record.indexedAt
     });
 
-    statements.deleteFts.run(record.path);
-    statements.insertFts.run(record.path, record.titleTokens, record.bodyTokens);
+    const id = statements.noteId.get(record.path);
+    statements.deleteFts.run(id);
+    statements.insertFts.run(id, record.path, record.titleTokens, record.bodyTokens);
 
     statements.deleteTags.run(record.path);
     for (const tag of record.tags) statements.insertTag.run(record.path, tag);
@@ -217,8 +223,9 @@ function openDatabase(dbPath, { logger = console } = {}) {
   });
 
   const removeNote = db.transaction(notePath => {
+    const id = statements.noteId.get(notePath);
     statements.deleteNote.run(notePath);
-    statements.deleteFts.run(notePath);
+    if (id !== undefined) statements.deleteFts.run(id);
     statements.deleteTags.run(notePath);
     statements.deleteLinks.run(notePath);
     statements.deleteTasks.run(notePath);

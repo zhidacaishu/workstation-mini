@@ -90,7 +90,7 @@ test('每篇笔记的旧版本会被清理：最近的全部保留，更早的�
   await saveVersion(root, 'busy.md', '# 删掉之前', 'delete');
   for (let i = 0; i < KEEP_RECENT + 10; i += 1) await saveVersion(root, 'busy.md', `# v${i}`, 'save');
   const kept = await listRecords(root, 'busy.md');
-  assert.equal(kept.length, KEEP_RECENT + 2, '同一天里更早的版本只留最新的一份，删除记录另外保留');
+  assert.equal(kept.length, KEEP_RECENT + 1, '今天已有最近的 20 份，同一天更早的不再多留；删除记录另外保留');
   assert.equal((await getRecord(root, kept[0].id)).raw, `# v${KEEP_RECENT + 9}`);
   await pruneVersions(root, noteKey('busy.md'), Date.now() + 100 * 86_400_000);
   const left = await listRecords(root, 'busy.md');

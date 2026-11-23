@@ -150,3 +150,26 @@ test('健康页统计普通历史与卡组版本，并指出无法读取的卡�
   assert.match(warning, /卡组扫描未完成/);
   assert.doesNotMatch(warning, /一切正常|查看卡组历史/);
 });
+
+test('笔记目录里有读不了的子文件夹时，健康报告照常生成并列出这个文件夹', async t => {
+  const vaultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-health-'));
+  const db = openDatabase(':memory:');
+  t.after(async () => { db.close(); await fs.rm(vaultDir, { recursive: true, force: true }); });
+  await fs.mkdir(path.join(vaultDir, 'notes', 'locked'), { recursive: true });
+  await writeNote(path.join(vaultDir, 'notes'), 'a.md', { body: '正文' });
+  await writeNote(path.join(vaultDir, 'notes'), 'locked/b.md', { body: '正文' });
+  const config = loadConfig({ vaultDir, dbPath: ':memory:', syncEnabled: false });
+  const indexer = createIndexer({ db, vaultDir: config.notesDir });
+  const app = createApp(config, { db, indexer, search: createSearch(db) });
+  const readdir = fs.readdir;
+  t.mock.method(fs, 'readdir', async (target, options) => {
+    if (path.basename(String(target)) === 'locked') throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    return readdir.call(fs, target, options);
+  });
+  const response = await request(app).get('/api/health').expect(200);
+  assert.equal(response.body.vault.noteFiles, 1);
+  assert.deepEqual(response.body.vault.unreadableFolders, ['locked']);
+  const page = (await request(app).get('/health').expect(200)).text;
+  assert.match(page, /读不了的文件夹/);
+  assert.match(page, /<code>notes\/locked<\/code>/);
+});

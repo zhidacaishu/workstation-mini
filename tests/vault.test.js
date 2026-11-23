@@ -497,3 +497,41 @@ test('链接标题与公式中的反引号不遮蔽正文，图片说明里的�
   const text = '[[前]] ![说明 `[[示例]]`](img.png) [[后]]';
   assert.deepEqual(parseWikilinks(text).map(link => link.target), ['前', '后']);
 });
+
+test('macOS 上目录名的大小写或 Unicode 写法和磁盘上不同，写入不算离开资料库；真离开了仍然拦下', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-case-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const typed = 'café';
+  await fs.mkdir(path.join(root, 'diary', typed), { recursive: true });
+  const realRoot = await fs.realpath(root);
+  const realpath = fs.realpath;
+  let redirect = null;
+  // 模拟不区分大小写的 APFS：realpath 返回磁盘上的拼写（大写、NFD）。
+  t.mock.method(fs, 'realpath', async target => {
+    const resolved = await realpath.call(fs, target);
+    if (redirect) return redirect(resolved);
+    return resolved
+      .replace(`${path.sep}diary`, `${path.sep}Diary`)
+      .replace(typed, typed.normalize('NFD'));
+  });
+  const relative = `diary/${typed}/x.md`;
+
+  const absolute = await paths.ensureSafeFilePath(root, relative, { allowMissing: true, platform: 'darwin' });
+  assert.equal(absolute, path.join(root, 'diary', typed, 'x.md'));
+  await assert.rejects(paths.ensureSafeFilePath(root, relative, { allowMissing: true, platform: 'linux' }), /离开了资料库/);
+
+  redirect = resolved => resolved.startsWith(realRoot) && resolved !== realRoot
+    ? path.join(os.tmpdir(), 'elsewhere', path.basename(resolved))
+    : resolved;
+  await assert.rejects(paths.ensureSafeFilePath(root, relative, { allowMissing: true, platform: 'darwin' }), /离开了资料库/);
+});
+
+test('属性区标题是带时区的时间时按原文显示，不换算成 UTC', () => {
+  const offset = note.parseNote('a.md', '---\ntitle: 2026-08-06T09:00:00+08:00\n---\n正文\n');
+  assert.equal(offset.title, '2026-08-06T09:00:00+08:00');
+  const spaced = note.parseNote('b.md', '---\ntags: [x]\ntitle: 2026-08-06 09:30:00 +08:00 # 会议\n---\n正文\n');
+  assert.equal(spaced.title, '2026-08-06 09:30:00 +08:00');
+  assert.equal(note.parseNote('c.md', '---\ntitle: 2026-08-06\n---\n').title, '2026-08-06');
+  // 嵌套在别的键下面的 title 不是笔记标题。
+  assert.equal(note.parseNote('d.md', '---\nmeta:\n  title: 2026-01-01T00:00:00+08:00\ntitle: 2026-08-06T09:00:00Z\n---\n').title, '2026-08-06T09:00:00Z');
+});

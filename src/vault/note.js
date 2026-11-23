@@ -334,8 +334,27 @@ function patchFrontmatterField(raw, key, value) {
  * frontmatter 的 title 优先，其次正文第一个 H1，最后退回文件名。
  * 这样刚建的空笔记也总有一个能显示的标题。
  */
-function resolveTitle(data, body, relativePath) {
-  const explicit = stringifyFrontmatterValue(data?.title).trim();
+/**
+ * 标题被 YAML 解析成时间（`title: 2026-08-06T09:00:00+08:00`）时，Date 里已经没有原来的
+ * 时区，换算成 UTC 显示会差几个小时。从属性区原文里找回顶层 title 那一行的写法，
+ * 确认解析出来是同一个时间点再用。
+ */
+const TITLE_TIMESTAMP_LINE = /^title[ \t]*:[ \t]*(\d{4}-\d{1,2}-\d{1,2}(?:[Tt \t]+[0-9:.]+(?:[ \t]*(?:[Zz]|[+-]\d{1,2}(?::?\d{2})?))?)?)[ \t]*(?:#.*)?$/m;
+
+function timestampTitleLiteral(value, source) {
+  if (!(value instanceof Date) || typeof source !== 'string') return '';
+  const literal = TITLE_TIMESTAMP_LINE.exec(source.replace(/\r/g, ''))?.[1];
+  if (!literal) return '';
+  try {
+    const reparsed = yaml.parse(`value: ${literal}`)?.value;
+    return reparsed instanceof Date && reparsed.getTime() === value.getTime() ? literal : '';
+  } catch {
+    return '';
+  }
+}
+
+function resolveTitle(data, body, relativePath, frontmatterSource) {
+  const explicit = (timestampTitleLiteral(data?.title, frontmatterSource) || stringifyFrontmatterValue(data?.title)).trim();
   if (explicit) return explicit;
   const heading = firstHeading(body);
   if (heading) return heading;
@@ -350,7 +369,7 @@ function parseNote(relativePath, raw, stats) {
   return {
     path: toPosix(relativePath),
     section: sectionOf(relativePath),
-    title: resolveTitle(data, body, relativePath),
+    title: resolveTitle(data, body, relativePath, parsed.matter),
     data,
     tags: normalizeTags(data.tags),
     body,
@@ -496,9 +515,15 @@ async function deleteNote(vaultDir, relativePath) {
  *
  * 跳过点号开头的目录（.git 首当其冲）和 node_modules；不跟随符号链接，
  * 否则一个指向 vault 外面的链接会把整块磁盘扫进索引。
+ *
+ * onUnreadable(相对路径, error)：某个子文件夹读不了（权限、I/O 错误、扫描途中被换成
+ * 文件）时交给调用方记下，其余照常列出。不传的话仍然抛错，调用方不会误以为那里没有笔记。
+ * 根目录本身读不了始终抛错。
  */
+const UNREADABLE_DIRECTORY = new Set(['EACCES', 'EPERM', 'ENOTDIR', 'EIO']);
+
 async function listNotes(rootDir, options = {}) {
-  const { extension = NOTE_EXTENSION } = options;
+  const { extension = NOTE_EXTENSION, onUnreadable = null } = options;
   const results = [];
 
   async function walk(currentDir, prefix) {
@@ -507,6 +532,10 @@ async function listNotes(rootDir, options = {}) {
       entries = await fsp.readdir(currentDir, { withFileTypes: true });
     } catch (error) {
       if (error.code === 'ENOENT') return;
+      if (prefix && onUnreadable && UNREADABLE_DIRECTORY.has(error.code)) {
+        onUnreadable(prefix, error);
+        return;
+      }
       throw error;
     }
 

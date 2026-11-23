@@ -85,7 +85,7 @@ function createSearch(db) {
         SELECT notes.path, notes.title_raw AS title, notes.section, notes.body_raw AS body,
                bm25(notes_fts) AS score
         FROM notes_fts
-        JOIN notes ON notes.path = notes_fts.path
+        JOIN notes ON notes.id = notes_fts.rowid
         WHERE notes_fts MATCH ?${clause}
         ORDER BY score
         LIMIT ${limit}

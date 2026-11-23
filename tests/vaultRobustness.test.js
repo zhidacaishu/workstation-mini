@@ -14,7 +14,7 @@ const { createSearch } = require('../src/search');
 const { parseNote } = require('../src/vault/note');
 const { parseWikilinks } = require('../src/vault/wikilink');
 const { parseCardFile, appendCard, deleteCard, loadAllCards } = require('../src/cards');
-const { readNote } = require('../src/vault/note');
+const { readNote, writeNote } = require('../src/vault/note');
 const history = require('../src/vault/history');
 const { gitReport } = require('../src/health');
 const { createReviewStore } = require('../src/review');
@@ -206,6 +206,153 @@ test('删卡前的卡组版本：60 天内全留，更早的每天只留最早�
     const left = new Set(fs.readdirSync(directory));
     for (const name of [...recent, oldDayFirst, deleted]) assert.ok(left.has(name), `应保留 ${name}`);
     for (const name of oldDayLater) assert.ok(!left.has(name), `应清理 ${name}`);
+  } finally { env.cleanup(); }
+});
+
+test('冲突未采用和中止前的副本不随普通保存清理', async () => {
+  const env = makeVault();
+  try {
+    const now = Date.parse('2026-11-12T12:00:00.000Z');
+    const day = 86_400_000;
+    const stamp = ms => new Date(ms).toISOString().replace(/[-:.]/g, '');
+    const key = history.noteKey('inbox/a.md');
+    const directory = path.join(env.notesDir, history.DIRECTORY, 'versions', key);
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'path.json'), JSON.stringify({ path: 'inbox/a.md' }));
+    const write = (ms, reason, tag) => {
+      const name = `${stamp(ms)}-${reason}-00000000-0000-4000-8000-${String(tag).padStart(12, '0')}.json`;
+      fs.writeFileSync(path.join(directory, name), '{}');
+      return name;
+    };
+    // 同一天先有冲突和中止的副本，之后又保存了很多次；另有一对超过 60 天的。
+    const kept = [
+      write(now - 3600_000, 'conflict', 1), write(now - 3500_000, 'abort', 2),
+      write(now - 400 * day, 'conflict', 3), write(now - 400 * day, 'abort', 4)
+    ];
+    for (let index = 0; index < history.KEEP_RECENT + 5; index += 1) write(now - 3000_000 + index * 1000, 'save', 100 + index);
+
+    await history.pruneVersions(env.notesDir, key, now);
+
+    const left = new Set(fs.readdirSync(directory));
+    for (const name of kept) assert.ok(left.has(name), `应保留 ${name}`);
+    assert.equal([...left].filter(name => name.includes('-save-')).length, history.KEEP_RECENT, '同一天的普通保存只留最近的 20 份');
+  } finally { env.cleanup(); }
+});
+
+test('卡组快照和删除副本不占「最近 20 份」的名额；按本地日期每天留一份', async () => {
+  const env = makeVault();
+  const timezone = process.env.TZ;
+  try {
+    process.env.TZ = 'Asia/Shanghai';
+    const now = Date.parse('2026-11-12T12:00:00.000Z');
+    const day = 86_400_000;
+    const stamp = ms => new Date(ms).toISOString().replace(/[-:.]/g, '');
+    const key = history.noteKey('cards/deck.md');
+    const directory = path.join(env.vaultDir, history.DIRECTORY, 'versions', key);
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'path.json'), JSON.stringify({ path: 'cards/deck.md' }));
+    let tag = 0;
+    const write = (ms, reason) => {
+      tag += 1;
+      const name = `${stamp(ms)}-${reason}-00000000-0000-4000-8000-${String(tag).padStart(12, '0')}.json`;
+      fs.writeFileSync(path.join(directory, name), '{}');
+      return name;
+    };
+    // 5 份普通保存之后，同一天又删了 20 张卡、留下 20 份快照。
+    const saves = Array.from({ length: 5 }, (_, index) => write(now - 7200_000 + index * 1000, 'save'));
+    for (let index = 0; index < 20; index += 1) write(now - 3600_000 + index * 1000, 'card');
+    // 另有 20 份更新的保存把上面的挤出「最近 20」之外之前，先看本地日期分组：
+    // 北京时间 10 月 2 日 01:00 和 10 月 1 日 23:00 在 UTC 是同一天。
+    const lateNight = write(Date.parse('2026-10-01T15:00:00.000Z'), 'save');
+    const earlyMorning = write(Date.parse('2026-10-01T17:00:00.000Z'), 'save');
+    for (let index = 0; index < history.KEEP_RECENT; index += 1) write(now - 600_000 + index * 1000, 'save');
+
+    await history.pruneVersions(env.vaultDir, key, now);
+    const left = new Set(fs.readdirSync(directory));
+    assert.ok(left.has(lateNight) && left.has(earlyMorning), '本地日期不同的两天各留一份');
+    assert.equal(saves.filter(name => left.has(name)).length, 0, '今天已有最近 20 份，更早的同日保存不再多留');
+    assert.equal([...left].filter(name => name.includes('-card-')).length, 20, '60 天内的卡组快照全留');
+
+    // 卡组快照不挤占普通保存的名额。
+    for (const name of fs.readdirSync(directory)) if (name.includes('-save-')) fs.rmSync(path.join(directory, name));
+    const kept = Array.from({ length: 5 }, (_, index) => write(now - 7200_000 + index * 1000, 'save'));
+    for (let index = 0; index < 20; index += 1) write(now - 1800_000 + index * 1000, 'delete');
+    await history.pruneVersions(env.vaultDir, key, now);
+    const after = new Set(fs.readdirSync(directory));
+    for (const name of kept) assert.ok(after.has(name), `应保留 ${name}`);
+  } finally {
+    if (timezone === undefined) delete process.env.TZ; else process.env.TZ = timezone;
+    env.cleanup();
+  }
+});
+
+test('清理旧版本失败时，笔记照常保存', async () => {
+  const env = makeVault();
+  const fsp = require('node:fs/promises');
+  const originalRm = fsp.rm;
+  const originalWarn = console.warn;
+  const warnings = [];
+  try {
+    fs.writeFileSync(path.join(env.notesDir, 'inbox/a.md'), 'v0\n');
+    for (let index = 1; index <= history.KEEP_RECENT + 1; index += 1) {
+      await writeNote(env.notesDir, 'inbox/a.md', { raw: `v${index}\n` });
+    }
+    // 模拟 Windows 上旧版本被杀毒软件占着，删不掉。
+    fsp.rm = async (target, options) => {
+      const name = path.basename(String(target));
+      if (String(target).includes(`${history.DIRECTORY}${path.sep}versions`) && /-save-.*\.json$/.test(name)) {
+        throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+      }
+      return originalRm(target, options);
+    };
+    console.warn = message => warnings.push(String(message));
+
+    await writeNote(env.notesDir, 'inbox/a.md', { raw: '新内容\n' });
+
+    assert.equal(fs.readFileSync(path.join(env.notesDir, 'inbox/a.md'), 'utf8'), '新内容\n');
+    assert.ok(warnings.some(message => message.includes('清理旧版本失败')));
+  } finally {
+    fsp.rm = originalRm;
+    console.warn = originalWarn;
+    env.cleanup();
+  }
+});
+
+test('版本和草稿先 fsync 临时文件再改名，崩溃留下的旧临时文件随清理删掉', async t => {
+  const env = makeVault();
+  try {
+    const fsp = require('node:fs/promises');
+    const open = fsp.open;
+    const synced = [];
+    t.mock.method(fsp, 'open', async (target, ...rest) => {
+      const handle = await open.call(fsp, target, ...rest);
+      const sync = handle.sync.bind(handle);
+      handle.sync = async () => { synced.push(path.basename(String(target))); return sync(); };
+      return handle;
+    });
+    fs.writeFileSync(path.join(env.notesDir, 'inbox/a.md'), 'v0\n');
+    await writeNote(env.notesDir, 'inbox/a.md', { raw: 'v1\n' });
+    await history.saveDraft(env.notesDir, '00000000-0000-4000-8000-000000000001', { path: 'inbox/a.md', raw: '草稿', sequence: 1 });
+    assert.ok(synced.some(name => /-save-.*\.json\.tmp-/.test(name)), '版本文件写完要 fsync');
+    assert.ok(synced.some(name => /^00000000-0000-4000-8000-000000000001\.json\.tmp-/.test(name)), '草稿写完要 fsync');
+    t.mock.restoreAll();
+
+    const key = history.noteKey('inbox/a.md');
+    const versions = path.join(env.notesDir, history.DIRECTORY, 'versions', key);
+    const drafts = path.join(env.notesDir, history.DIRECTORY, 'drafts');
+    const stale = [
+      path.join(versions, '20260101T000000000Z-save-00000000-0000-4000-8000-000000000009.json.tmp-00000000-0000-4000-8000-00000000000a'),
+      path.join(drafts, '00000000-0000-4000-8000-000000000002.json.tmp-00000000-0000-4000-8000-00000000000b')
+    ];
+    const fresh = path.join(versions, 'path.json.tmp-00000000-0000-4000-8000-00000000000c');
+    for (const file of [...stale, fresh]) fs.writeFileSync(file, '{');
+    const old = new Date(Date.now() - 2 * 86_400_000);
+    for (const file of stale) fs.utimesSync(file, old, old);
+
+    await history.pruneVersions(env.notesDir, key);
+    await history.pruneDrafts(env.notesDir);
+    for (const file of stale) assert.equal(fs.existsSync(file), false, `应清理 ${path.basename(file)}`);
+    assert.equal(fs.existsSync(fresh), true, '刚写到一半的临时文件不能删');
   } finally { env.cleanup(); }
 });
 

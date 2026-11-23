@@ -311,11 +311,26 @@ function createIndexer({
     const { force = false, kind = 'full', forcePaths = new Set() } = options;
     const stats = { added: 0, updated: 0, removed: 0, unchanged: 0 };
     try {
-      const onDisk = await listNotesFn(vaultDir);
+      const unreadable = [];
+      const onDisk = await listNotesFn(vaultDir, { onUnreadable: directory => unreadable.push(directory) });
       const eligibleSet = new Set();
       const indexed = new Map(db.listIndexed().map(row => [row.path, row]));
       const touched = [];
       const nextFailures = new Map();
+      // 读不了的子文件夹只记一条失败项，扫描照常往下走；里面已经入库的笔记保留上次的
+      // 索引，不能因为这一轮看不见就当成删除。
+      for (const directory of unreadable) {
+        nextFailures.set(directory, {
+          path: directory,
+          code: 'folder-read-denied',
+          reason: '文件夹暂时无法读取，里面的笔记保留上次的索引',
+          retryable: true
+        });
+        const prefix = `${directory}/`;
+        for (const indexedPath of indexed.keys()) {
+          if (indexedPath.startsWith(prefix)) eligibleSet.add(indexedPath);
+        }
+      }
       beginScan(kind, onDisk.length);
       let done = 0;
 
@@ -473,12 +488,30 @@ function createIndexer({
     }
   }
 
+  // 已经排队、还没开始的那一轮全量扫描。周期对账每 30 秒来一次，盘慢（云盘占位
+  // 文件、网络盘）时一轮扫不完，下一轮又排进来；不合并的话队列越排越长，保存时的
+  // 增量扫描要等前面所有全量扫描跑完。还没开始的一轮可以直接升级成强制重扫、
+  // 换成更显眼的种类，结果对所有请求方都成立。
+  let pendingFull = null;
+
   function scan(options = {}) {
     if (Array.isArray(options.paths)) {
       const { paths, kind = 'incremental' } = options;
       return enqueue(() => scanPathsOnce(paths, { kind }));
     }
-    return enqueue(() => scanOnce(options));
+    const mergeable = !options.forcePaths;
+    if (mergeable && pendingFull) {
+      if (options.force) pendingFull.options.force = true;
+      if ((options.kind || 'full') !== 'background') pendingFull.options.kind = options.kind || 'full';
+      return pendingFull.promise;
+    }
+    const entry = { options: { ...options } };
+    entry.promise = enqueue(() => {
+      if (pendingFull === entry) pendingFull = null;
+      return scanOnce(entry.options);
+    });
+    if (mergeable) pendingFull = entry;
+    return entry.promise;
   }
 
   function retry() {
@@ -486,7 +519,9 @@ function createIndexer({
       if (status.phase === 'ready') {
         return { skipped: '索引没有失败项', phase: 'ready', failureTotal: 0 };
       }
-      if (status.phase === 'degraded' && failureMap.size) {
+      // 文件夹级的失败项只能靠重新遍历来确认，增量重试读不到它。
+      const folderFailure = [...failureMap.values()].some(failure => failure.code === 'folder-read-denied');
+      if (status.phase === 'degraded' && failureMap.size && !folderFailure) {
         return scanPathsOnce([...failureMap.keys()], { kind: 'retry' });
       }
       return scanOnce({ force: true, kind: 'retry' });
