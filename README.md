@@ -2,34 +2,49 @@
 
 English · [简体中文](README.zh-CN.md)
 
-Workstation Mini is a local-first desktop app for research notes, tasks, and spaced repetition. Keep an experiment log, link it to related notes, turn a finding into a flashcard, and schedule the next experiment. Notes and card decks are Markdown files you can open in another editor. Review events are stored as JSON Lines, and the app rebuilds its SQLite search index from the vault.
+**Workstation Mini** is a local-first desktop application for research notes, task planning, and spaced repetition. Record experiment logs, link related notes, turn findings into flashcards, and schedule follow-up work in one place. Notes and card decks are stored as plain Markdown files that remain readable in any external editor; review events are recorded as JSON Lines, and the SQLite search index is derived from and rebuildable from the vault.
 
-The desktop interface is in Simplified Chinese. The Chinese labels below match the buttons and pages in the app.
+> The desktop interface is in Simplified Chinese. The Chinese UI labels referenced below match the buttons and pages in the application.
 
-## Install and open a vault
+![Today workspace in light mode](docs/images/today-light.png)
 
-Download the installer and, optionally, `SHA256SUMS.txt` to verify it. Windows x64 uses the `-setup.exe` installer. Apple Silicon Macs use the `-mac-arm64.dmg` disk image. The Windows installer is unsigned. The Mac app uses an ad-hoc signature and has not been notarized by Apple. Install updates manually from [GitHub Releases](https://github.com/zhidacaishu/workstation-mini/releases/latest).
+---
 
-This README describes the current `main` branch. To check which changes are in your installer, use its release notes. Changes awaiting release are listed under **未发布** in the [changelog](CHANGELOG.md).
+## Installation and Quick Start
 
-1. On first launch, create a vault (**创建新资料库**), open an existing one (**打开现有资料库**), or restore one (**从备份恢复**). Recovery accepts a Git repository or a local backup and verifies it before switching.
-2. Open **新建** and enter a title. A new note normally goes in `notes/inbox/`. The app proposes a unique filename, which you can change before saving.
-3. Add a task to the note, then open **计划** to find it in the list or on the calendar. Checking it off or changing its due date updates the original Markdown line.
-4. Open **复习** to create your first flashcard. You can also select text on a note’s reading page and turn the selection into a card.
+Download the platform installer from [GitHub Releases](https://github.com/zhidacaishu/workstation-mini/releases/latest) along with `SHA256SUMS.txt` if you wish to verify checksums:
 
-The question mark in the sidebar opens the built-in guide (**上手指南**). It includes a short tour, a first-use checklist, and a Git setup guide tailored to your vault.
+- **Windows (x64)**: `*-setup.exe` (unsigned).
+- **macOS (Apple Silicon)**: `*-mac-arm64.dmg` (ad-hoc signed; not notarized by Apple).
 
-## Notes, research, and review
+Workstation Mini does not include automatic updates; install newer versions manually from GitHub Releases.
 
-| To do this | Use |
+> **Branch note:** This README documents the current `main` branch. To check what is included in a packaged release, consult its release notes. Unreleased changes on `main` are listed under **未发布** in [CHANGELOG.md](CHANGELOG.md).
+
+### First-Run Workflow
+
+1. **Open or create a vault:** On first launch, create a new vault (**创建新资料库**), open an existing directory (**打开现有资料库**), or restore from a backup (**从备份恢复**). Recovery accepts a Git repository or a local backup and validates it before switching.
+2. **Create a note:** Open **新建** and enter a title. New notes default to `notes/inbox/`, with an automatically generated unique filename that can be edited before saving.
+3. **Track tasks:** Add a Markdown task to any note, then open **计划** to view it in the task list or monthly calendar. Checking off a task or changing its due date updates the original Markdown line directly.
+4. **Create and review flashcards:** Open **复习** to create your first flashcard, or select text on a note's reading page to convert the selection into a card.
+
+Click the question mark in the sidebar to open the built-in guide (**上手指南**), which provides an interactive interface tour, a first-use checklist, and a Git setup check tailored to your vault.
+
+---
+
+## Core Capabilities
+
+| Workflow | How It Works |
 | --- | --- |
-| Find a note or follow an idea | Open search with `Ctrl+K` or `⌘K`. Type `[[` in the editor to link another note. The reading view shows its outline and backlinks. |
-| Record an experiment | Create a research project and record the dataset, parameters, seed, commit, result, and next step. The project board and Today page surface the next action. |
-| Track a deadline | Write a Markdown task such as `- [ ] Run the ablation @2026-12-01`. Undated tasks appear under **计划 → 未安排**. Daily calendar notes live in `notes/calendar/YYYY-MM-DD.md`. |
-| Add an image or equation | Paste or drop a PNG, JPEG, GIF, or WebP image up to 15 MB. The editor saves it in `attachments/` and inserts a link. Inline and display math render offline with bundled KaTeX. |
-| Review a finding | Use a level-two heading for the front of a card and the text below for its back. Wrap a phrase in `{{double braces}}` to make a cloze. FSRS schedules the next review from your rating. |
+| **Search & Linking** | Open search and the command palette with `Ctrl+K` (Windows/Linux) or `⌘K` (macOS). Type `[[` in the editor to autocomplete links to other notes. The reading view displays the document outline and backlinks. |
+| **Experiment Tracking** | Create a research project note and record the dataset, parameters, seed, commit, result, and next step. The project board and Today page surface the next action. |
+| **Deadlines & Daily Notes** | Write Markdown tasks such as `- [ ] Run the ablation @2026-12-01`. Undated tasks appear under **计划 → 未安排**. Daily calendar notes are stored in `notes/calendar/YYYY-MM-DD.md`. |
+| **Images & Equations** | Paste or drop PNG, JPEG, GIF, or WebP images (up to 15 MB each). The editor saves them to `attachments/` and inserts an embed link. Inline and display math render offline using bundled KaTeX. |
+| **Spaced Repetition** | Use a level-two heading (`##`) for the card front and the body text below for the back. Wrap phrases in `{{double braces}}` to create cloze deletions. FSRS schedules subsequent reviews based on your rating. |
 
-For example, save the following as `cards/experiments.md` to make a card:
+### Flashcard Example and Review Controls
+
+Save the following Markdown in `cards/experiments.md` to define a card:
 
 ```markdown
 ## Why record the random seed?
@@ -37,50 +52,72 @@ For example, save the following as `cards/experiments.md` to make a card:
 It lets another run reproduce the same sequence of random choices.
 ```
 
-During review, press **Space** to reveal the answer, **1–4** to rate it, or **Z** to undo the last rating. A card rated **忘了** returns at the end of the session. Editing a card’s front, moving it to another deck, or pausing it preserves its review identity.
+During review, press **Space** to reveal the answer, **1–4** to rate recall, or **Z** to undo the last rating. Cards rated **忘了** are re-queued at the end of the current session. Editing a card's front, moving it to another deck, or suspending it preserves its review identity.
 
-## Files and local history
+### Workspace Preview
+
+| Note Reading (Dark · KaTeX & Outline) | Monthly Calendar (Light · Tasks & Daily Notes) |
+| --- | --- |
+| ![Note reading view with KaTeX math and outline in dark mode](docs/images/note-dark.png) | ![Monthly plan calendar view in light mode](docs/images/plan-calendar-light.png) |
+
+**Spaced Repetition Review (Dark · Cloze Highlight & FSRS Ratings)**
+
+![Flashcard review view with cloze highlight in dark mode](docs/images/review-dark.png)
+
+---
+
+## Vault Layout and Local History
 
 | Content | Location |
 | --- | --- |
 | Notes and research projects | `notes/` in the vault |
 | Card decks and review events | `cards/*.md` and `reviews/YYYY-MM-DEVICE.jsonl` |
-| Images, audio, and other linked media | `attachments/` and `audio/` |
-| Note versions and editor drafts | `notes/.workstation-local/` |
-| Deck history and Git conflict or abort snapshots | `.workstation-local/` at the vault root |
-| Search index | One index per vault under `workstation-data/index/` in the app data directory |
+| Images, audio, and linked media | `attachments/` and `audio/` |
+| Note version history and editor drafts | `notes/.workstation-local/` |
+| Deck history and Git conflict/abort snapshots | `.workstation-local/` at the vault root |
+| SQLite search index | One index per vault under `workstation-data/index/` in the app data directory |
 
-Before overwriting an edited note, the app saves its previous contents in local history. If the history write fails, the original stays on disk and your new text stays in the editor. Check disk space and write access, then retry. Open **历史与草稿** to compare versions, restore a note or deck, or recover a draft. Local history captures individual saves, so it can contain intermediate versions between Git commits.
+### Local History and Draft Protection
 
-For each note, the latest 20 ordinary saves are kept. Older saves are reduced to one per local day within the past 60 days. Deletion and conflict snapshots have separate retention rules. Local history and drafts stay on the device. When Windows asks the app to close for shutdown, restart, or sign-out, you can save unsaved note, card, and settings edits, discard them, or return to editing.
+- **Atomic version preservation:** Before overwriting an edited note, the application saves its previous contents to local history. If writing the history record fails, the original file remains untouched on disk and your edits remain in the editor so you can check disk space or write permissions and retry.
+- **Version inspection and drafts:** Open **历史与草稿** to compare versions line by line, restore a note or card deck, or recover an unsaved draft. Because local history captures individual saves, it preserves intermediate revisions between Git commits.
+- **Retention policy:** For each note, the latest 20 ordinary saves are kept in full, while older saves within the past 60 days are compacted to one version per local day. Deletion and conflict snapshots follow separate retention rules. Both local history and drafts remain strictly on the local device.
+- **Windows session-end handling:** When Windows initiates a shutdown, restart, or sign-out, any unsaved edits in notes, cards, or settings trigger a prompt allowing you to save, discard, or return to editing.
 
-## Optional Git sync
+---
 
-Use the **vault’s own Git working-tree root** as the vault directory. Linked worktrees are supported. In **上手指南 → Git**, the app checks your Git installation, repository, commit identity, and remote and shows the setup commands still needed. Automatic sync is off on a fresh installation. Enable it in **设置 → Git 同步**. Give each device a distinct name so each writes its own review log.
+## Optional Git Sync
 
-A full sync commits changes that Git tracks or would add, fetches remote changes, rebases if needed, and pushes. Review the vault’s `.gitignore` before enabling sync. With a local repository and no remote, the app can still make local commits. Configure credentials in your terminal if a background fetch needs authentication.
+To use Git sync, point the vault directory to the **vault's own Git working-tree root** (linked worktrees are also supported). In **上手指南 → Git**, the application inspects your Git installation, repository status, commit identity, and remote configuration, and lists any remaining setup commands.
 
-- **Push rules.** Full sync respects explicit Git push settings. For example, with `push.default=simple`, a local `main` tracking `origin/published` on the same remote stops at the push step and reports the two branch names. Review-only sync checks the destination and outgoing commits before sending review records. If the remote branch advances after that check, the push stops.
-- **Conflicting edits.** In **设置 → Git 同步**, compare the two sides and choose the local version, the remote version, or a manually merged file. Before replacing a note or deck, the app saves the complete working copy and discarded text versions in local history. This includes edits made in the common-ancestor section of a three-way conflict. Other files are copied byte for byte to `.workstation-local/git-conflicts/`. A failed backup stops the overwrite. If the manual result still contains a conflict marker, the app shows its line number.
-- **Recovery.** You can continue a merge or rebase from Settings, abort it, or resolve it with Git in the vault directory. Before an abort, the app saves pending note, deck, and review-log changes under `.workstation-local/git-abort/`. Open **资料库健康** to inspect the index, review logs, and Git status.
+Automatic sync is disabled on a fresh installation and can be enabled in **设置 → Git 同步**. Assign a distinct device name on each machine so each writes to its own review log file.
 
-## Development and verification
+- **Sync cycle:** Full sync commits tracked or addable changes, fetches remote updates, rebases when required, and pushes. Review your vault's `.gitignore` before enabling sync. When a local repository has no remote configured, the application still creates local commits. If background fetches require authentication, configure credentials in your terminal.
+- **Push rules:** Full sync honors explicit Git push configurations. For example, under `push.default=simple`, if a local `main` branch tracks `origin/published` on the same remote, sync halts before pushing and reports both branch names. Review-only sync verifies the target branch and outgoing commits prior to pushing review logs; if the remote branch advances after that check, the push is aborted.
+- **Conflicting edits:** In **设置 → Git 同步**, inspect the two sides of each conflicting file and choose the local version, the remote version, or a manually merged file. Before replacing a note or deck, the application saves the complete working copy—including edits within the common-ancestor section of a three-way conflict—and the discarded version in local history. Other files (such as attachments) are backed up byte-for-byte to `.workstation-local/git-conflicts/`. Any backup failure aborts the overwrite, and if a manually merged file still contains conflict markers, the UI reports the offending line number.
+- **Recovery and diagnostics:** You can continue or abort a merge/rebase from Settings, or resolve it directly with Git in the vault directory. Before aborting, pending changes to notes, decks, and review logs are backed up under `.workstation-local/git-abort/`. Open **资料库健康** to inspect the search index, review logs, and Git status.
 
-Install Node.js **22.12.0 or later**, then run these commands from the repository root:
+---
+
+## Development and Verification
+
+Requires **Node.js 22.12.0 or later**. Run the following commands from the repository root:
 
 ```sh
 npm ci
 npm run dev
 ```
 
-| Command | What it runs |
+| Command | Purpose |
 | --- | --- |
-| `npm test` | Core regression suite, including storage, indexing, Git sync, and vault recovery |
-| `npm run test:desktop` | Electron interaction tests with temporary vaults |
-| `npm run desktop:build` | Windows x64 NSIS installer |
-| `npm run desktop:build:mac` | Apple Silicon macOS disk image |
-| `npm run verify-mac-package` | Architecture, native binaries, resources, and signature checks for the packaged Mac app |
+| `npm test` | Run the core regression suite (storage, indexing, Git sync, and vault recovery) |
+| `npm run test:desktop` | Run Electron desktop interaction tests against temporary vaults |
+| `npm run desktop:build` | Build the Windows x64 NSIS installer |
+| `npm run desktop:build:mac` | Build the Apple Silicon macOS disk image (`.dmg`) |
+| `npm run verify-mac-package` | Verify architecture, native binaries, bundled resources, and signatures for the packaged macOS app |
 
-Pushes to `main` and pull requests run the Linux regression suite. For platform-specific checks, run the **CI** workflow manually and select Windows or macOS. A version tag matching `package.json` triggers the release workflow. It publishes installers and checksums after the Linux regressions and the Windows and macOS packaging and desktop tests pass.
+### CI and Release Pipeline
 
-For more on editor shortcuts, history retention, or the scope of the Mini edition, see the [Chinese user guide](README.zh-CN.md) and [feature scope](docs/MINI-SCOPE.md).
+Pushes to `main` and pull requests automatically run the Linux core regression suite. For platform-specific verification, manually trigger the **CI** workflow and select Windows or macOS. Pushing a `v*` tag matching `package.json` triggers the release workflow, which publishes installers and checksums after Linux regressions as well as Windows and macOS packaging and packaged desktop tests pass.
+
+For editor shortcuts, detailed retention policies, or the scope of the Mini edition, see the [Chinese User Guide](README.zh-CN.md) and [Feature Scope](docs/MINI-SCOPE.md).
