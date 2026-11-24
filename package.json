@@ -1,6 +1,6 @@
 {
   "name": "workstation-mini",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "description": "精简版本地知识复习与研究练习工作台",
   "main": "electron/main.js",
