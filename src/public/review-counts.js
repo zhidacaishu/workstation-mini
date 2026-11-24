@@ -10,12 +10,15 @@
     if (!due) badge?.remove();
     else {
       const label = due + ' 张到期';
+      let created = false;
       if (!badge) {
         badge = document.createElement('span');
         badge.className = 'nav-badge';
         nav.append(badge);
+        created = true;
       }
       if (badge.title !== label) {
+        const changed = !created && Boolean(badge.title);
         badge.title = label;
         badge.removeAttribute('aria-label');
         const comma = document.createElement('span');
@@ -25,13 +28,19 @@
         suffix.className = 'visually-hidden';
         suffix.textContent = ' 张到期';
         badge.replaceChildren(comma, document.createTextNode(due > 99 ? '99+' : String(due)), suffix);
+        if (created) window.workstationMotion?.enter?.(badge, { y: 0, scale: 0.65, duration: 220, easing: window.workstationMotion.EASE_SPRING });
+        else if (changed) window.workstationMotion?.pulse?.(badge, { scale: 1.18, duration: 220 });
       }
     }
     if (!today) return;
-    today.querySelector('strong').textContent = due + fresh;
+    const totalEl = today.querySelector('strong');
+    const nextTotal = String(due + fresh);
+    const totalChanged = Boolean(totalEl && totalEl.textContent && totalEl.textContent !== nextTotal);
+    if (totalEl) totalEl.textContent = nextTotal;
     today.querySelector('[data-review-due]').textContent = due;
     today.querySelector('[data-review-fresh]').textContent = fresh;
     today.hidden = !due && !fresh;
+    if (totalChanged && !today.hidden) window.workstationMotion?.pulse?.(totalEl, { scale: 1.12, duration: 200 });
   }
 
   async function refresh() {

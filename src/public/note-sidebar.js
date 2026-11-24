@@ -2,8 +2,13 @@
   const sidebar = document.querySelector('[data-note-sidebar]');
   if (!sidebar) return;
 
+  const tablist = sidebar.querySelector('.note-sidebar-tabs');
   const tabs = [...sidebar.querySelectorAll('[data-note-tab]')];
   const panels = [...sidebar.querySelectorAll('[data-note-panel]')];
+  const syncIndicator = window.workstationMotion?.attachIndicator?.(tablist, {
+    selector: '[data-note-tab]',
+    isActive: item => item.getAttribute('aria-selected') === 'true'
+  });
   function revealCurrent() {
     const panel = sidebar.querySelector('[data-note-panel="outline"]');
     const link = panel.querySelector('[aria-current="location"]');
@@ -13,12 +18,23 @@
     else if (item.bottom > bounds.bottom) panel.scrollTop += item.bottom - bounds.bottom;
   }
   function selectTab(tab, focus = false) {
+    const prevIndex = tabs.findIndex(item => item.getAttribute('aria-selected') === 'true');
+    const nextIndex = tabs.indexOf(tab);
     for (const item of tabs) {
       const selected = item === tab;
       item.setAttribute('aria-selected', String(selected));
       item.tabIndex = selected ? 0 : -1;
     }
-    for (const panel of panels) panel.hidden = panel.dataset.notePanel !== tab.dataset.noteTab;
+    syncIndicator?.();
+    let shownPanel = null;
+    for (const panel of panels) {
+      const show = panel.dataset.notePanel === tab.dataset.noteTab;
+      panel.hidden = !show;
+      if (show) shownPanel = panel;
+    }
+    if (shownPanel && prevIndex !== -1 && prevIndex !== nextIndex) {
+      window.workstationMotion?.enter?.(shownPanel, { x: nextIndex > prevIndex ? 8 : -8, y: 0, duration: 170 });
+    }
     if (tab.dataset.noteTab === 'outline') revealCurrent();
     if (focus) tab.focus();
   }

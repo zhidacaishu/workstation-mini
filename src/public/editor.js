@@ -148,6 +148,7 @@
 
   function renderSuggest() {
     const list = ensurePopup();
+    const wasHidden = list.hidden;
     list.textContent = '';
     if (!suggest) return;
     if (!suggest.items.length) {
@@ -177,9 +178,14 @@
     const height = list.offsetHeight;
     const left = Math.max(8, Math.min(point.left, window.innerWidth - width - 8));
     const below = point.top + point.height + 6;
-    const top = below + height > window.innerHeight - 8 ? Math.max(8, point.top - height - 6) : below;
+    const above = below + height > window.innerHeight - 8;
+    const top = above ? Math.max(8, point.top - height - 6) : below;
+    list.dataset.placement = above ? 'above' : 'below';
     list.style.left = `${left}px`;
     list.style.top = `${top}px`;
+    if (wasHidden) {
+      window.workstationMotion?.enter?.(list, { y: above ? 5 : -5, scale: 0.98, duration: 150 });
+    }
     if (suggest.items.length) suggest.area.setAttribute('aria-activedescendant', `link-suggest-${suggest.active}`);
   }
 
@@ -445,21 +451,26 @@
       pane.scrollTop = (area.scrollTop / range) * target;
     }
 
-    function apply() {
+    function apply({ animate = false } = {}) {
       const on = active();
+      const wasOn = !pane.hidden;
       host.classList.toggle('has-preview', on);
       pane.hidden = !on;
       if (toggle) {
         toggle.hidden = !wide.matches;
         toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
       }
-      if (on) { lastSent = null; refresh(); }
+      if (on) {
+        if (animate && !wasOn) window.workstationMotion?.enter?.(pane, { x: 10, y: 0, duration: 200 });
+        lastSent = null;
+        refresh();
+      }
     }
 
     toggle?.addEventListener('click', () => {
       wanted = !active();
       document.cookie = `${PREVIEW_COOKIE}=${wanted ? '1' : '0'}; Max-Age=${365 * 86400}; Path=/; SameSite=Strict`;
-      apply();
+      apply({ animate: true });
     });
     wide.addEventListener('change', apply);
     area.addEventListener('input', schedule);
@@ -500,16 +511,32 @@
     area.addEventListener('scroll', () => { if (suggest) renderSuggest(); }, { passive: true });
 
     if (area.dataset.upload === '1') {
+      let dragDepth = 0;
+      const hasFiles = event => [...(event.dataTransfer?.types || [])].includes('Files');
+      const setDropHighlight = on => area.classList?.toggle('is-drop-target', on);
       area.addEventListener('paste', event => {
         const files = imageFiles(event.clipboardData?.files);
         if (!files.length) return;
         event.preventDefault();
         uploadImages(area, files);
       });
+      area.addEventListener('dragenter', event => {
+        if (!hasFiles(event)) return;
+        dragDepth += 1;
+        setDropHighlight(true);
+      });
       area.addEventListener('dragover', event => {
-        if ([...(event.dataTransfer?.types || [])].includes('Files')) event.preventDefault();
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        setDropHighlight(true);
+      });
+      area.addEventListener('dragleave', () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) setDropHighlight(false);
       });
       area.addEventListener('drop', event => {
+        dragDepth = 0;
+        setDropHighlight(false);
         const files = imageFiles(event.dataTransfer?.files);
         if (!files.length) return;
         event.preventDefault();

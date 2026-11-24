@@ -55,14 +55,61 @@
     toast.append(text, closeButton);
     region.append(toast);
 
-    let timer = 0;
-    const close = () => {
-      if (timer) window.clearTimeout(timer);
-      toast.remove();
-    };
-    closeButton.addEventListener('click', close);
     const delay = timeout === undefined ? (type === 'error' ? 8000 : 4200) : timeout;
-    if (delay > 0) timer = window.setTimeout(close, delay);
+    let timer = 0;
+    let remaining = delay;
+    let startedAt = 0;
+    let hovered = false;
+    let focused = false;
+    let closed = false;
+
+    const removeWithFlip = () => {
+      const siblings = [...(region.children || [])].filter(node => node !== toast);
+      const motion = window.workstationMotion;
+      if (motion?.flip && siblings.length) {
+        motion.flip(siblings, () => toast.remove(), { duration: motion.DUR?.base || 210 });
+      } else {
+        toast.remove();
+      }
+    };
+
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      if (timer) window.clearTimeout(timer);
+      timer = 0;
+      const motion = window.workstationMotion;
+      const anim = motion?.exit?.(toast, { y: 6, scale: 0.97, duration: motion.DUR?.exit || 150 });
+      if (anim?.finished) {
+        toast.style.pointerEvents = 'none';
+        anim.finished.then(removeWithFlip, removeWithFlip);
+      } else {
+        removeWithFlip();
+      }
+    };
+
+    const startTimer = () => {
+      if (closed || hovered || focused || timer || remaining <= 0) return;
+      startedAt = Date.now();
+      timer = window.setTimeout(close, remaining);
+    };
+    const pauseTimer = () => {
+      if (!timer) return;
+      window.clearTimeout(timer);
+      timer = 0;
+      remaining = Math.max(400, remaining - (Date.now() - startedAt));
+    };
+
+    closeButton.addEventListener('click', close);
+    toast.addEventListener?.('mouseenter', () => { hovered = true; pauseTimer(); });
+    toast.addEventListener?.('mouseleave', () => { hovered = false; startTimer(); });
+    toast.addEventListener?.('focusin', () => { focused = true; pauseTimer(); });
+    toast.addEventListener?.('focusout', event => {
+      if (event?.relatedTarget && toast.contains?.(event.relatedTarget)) return;
+      focused = false;
+      startTimer();
+    });
+    startTimer();
     return close;
   }
 
@@ -140,7 +187,10 @@
       const items = column.querySelector('[data-board-items]');
       const count = items?.querySelectorAll('[data-board-card]').length || 0;
       const counter = column.querySelector('[data-column-count]');
-      if (counter) counter.textContent = String(count);
+      if (counter && counter.textContent !== String(count)) {
+        counter.textContent = String(count);
+        window.workstationMotion?.pulse?.(counter, { scale: 1.18 });
+      }
     };
 
     const data = Object.fromEntries(new FormData(form));
@@ -172,11 +222,22 @@
       const resultLine = card.querySelector('[data-board-result]');
       const nextLine = card.querySelector('[data-board-next]');
       const showResult = newStatus === 'done' && Boolean(resultLine);
-      if (resultLine) resultLine.hidden = !showResult;
-      if (nextLine) nextLine.hidden = showResult;
-      targetItems.append(card);
-      updateColumn(sourceColumn);
-      updateColumn(targetColumn);
+      const affectedCards = [
+        ...(sourceColumn?.querySelectorAll?.('[data-board-card]') || []),
+        ...(targetColumn?.querySelectorAll?.('[data-board-card]') || [])
+      ];
+      const moveCard = () => {
+        if (resultLine) resultLine.hidden = !showResult;
+        if (nextLine) nextLine.hidden = showResult;
+        targetItems.append(card);
+        updateColumn(sourceColumn);
+        updateColumn(targetColumn);
+      };
+      if (window.workstationMotion?.flip) {
+        window.workstationMotion.flip(affectedCards, moveCard, { duration: 300, liftElement: card });
+      } else {
+        moveCard();
+      }
       notify(`已移到“${select.selectedOptions[0]?.textContent || newStatus}”`);
     } catch (error) {
       select.value = oldStatus;
@@ -413,6 +474,7 @@
         }
       } catch (error) {
         renderEditorState('error', `保存失败：${error.message}`);
+        window.workstationMotion?.nudge?.(status);
         if (error.status === 409 && editorForm.querySelector('[name="isNew"]')?.value !== '1') {
           // 别处改过这篇笔记：现在的内容先存成本机草稿，再问要不要载入最新版本。
           // 不载入就留在这里，可以把内容复制出来再刷新。
@@ -618,6 +680,7 @@
         await navigator.clipboard.writeText(code.textContent.replace(/\n$/, ''));
         button.textContent = '已复制';
         button.classList.add('is-done');
+        window.workstationMotion?.pulse?.(button, { scale: 1.06, duration: 200 });
       } catch {
         button.textContent = '复制失败';
       }

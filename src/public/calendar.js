@@ -37,7 +37,9 @@
     const monthButtons = [...document.querySelectorAll('.plan-month-nav a')];
     const monthButtonIndex = monthButtons.indexOf(active);
     const wasInDay = workspace.contains(active);
-    const sameMonth = parts.calendar.dataset.month === calendar.dataset.month;
+    const prevMonth = calendar.dataset.month || '';
+    const nextMonth = parts.calendar.dataset.month || '';
+    const sameMonth = nextMonth === prevMonth;
     const newDay = parts.date;
     // 通常同月只有两个格子的选中态变化。保留网格、滚动位置和键盘焦点。
     for (const cell of calendar.querySelectorAll('[aria-current="date"], [data-calendar-day="' + newDay + '"]')) {
@@ -49,14 +51,22 @@
     if (!calendar.isEqualNode(parts.calendar)) {
       const top = calendar.querySelector('.calgrid').scrollTop;
       calendar.replaceWith(parts.calendar);
-      if (sameMonth) parts.calendar.querySelector('.calgrid').scrollTop = top;
+      const grid = parts.calendar.querySelector('.calgrid');
+      if (sameMonth) grid.scrollTop = top;
+      else if (grid && prevMonth && nextMonth) {
+        const dir = nextMonth > prevMonth ? 1 : -1;
+        window.workstationMotion?.enter?.(grid, { x: dir * 14, y: 0, duration: 210 });
+      }
     }
     const header = document.querySelector('.plan-header');
     if (!header.isEqualNode(parts.header)) header.replaceWith(parts.header);
     const badge = document.querySelector('[data-nav="plan"]');
     if (!badge.isEqualNode(parts.badge)) badge.replaceChildren(...parts.badge.childNodes);
     if (keepNote) workspace.querySelector('[aria-labelledby="plan-day-tasks-title"]').replaceWith(parts.tasks);
-    else workspace.querySelector('.plan-day-detail').replaceWith(parts.detail);
+    else {
+      workspace.querySelector('.plan-day-detail').replaceWith(parts.detail);
+      window.workstationMotion?.enter?.(parts.detail, { y: 5, duration: 170 });
+    }
     plan.refreshTasks();
     if (!active?.isConnected) {
       const target = monthButtonIndex >= 0 ? document.querySelectorAll('.plan-month-nav a')[monthButtonIndex]

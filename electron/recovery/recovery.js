@@ -199,7 +199,10 @@ function render(next = {}) {
   const percent = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
   progress.setAttribute('aria-valuenow', String(percent));
   progress.setAttribute('aria-valuetext', total > 0 ? `${current} / ${total} ${unit}` : copy[2]);
-  progressBar.style.width = `${percent}%`;
+  if (progressBar?.style) {
+    progressBar.style.width = '100%';
+    progressBar.style.transform = `scaleX(${percent / 100})`;
+  }
   currentPath.textContent = state.progress?.currentPath || '';
   currentPath.hidden = !currentPath.textContent;
 
@@ -209,10 +212,12 @@ function render(next = {}) {
   renderList('index-failures', state.indexFailures, state.indexFailureTotal, item => `${item.path} — ${item.reason || item.code}`);
 
   const fatal = document.getElementById('fatal-error');
+  const hadFatal = !fatal.hidden;
   fatal.hidden = !state.error;
   if (state.error) {
     fatal.querySelector('strong').textContent = state.error.message || '恢复失败';
     fatal.querySelector('p').textContent = state.error.remediation || '检查来源和目标后重试。';
+    if (!hadFatal) window.workstationMotion?.nudge?.(fatal);
   }
 
   if (phase === 'ready-to-activate' && state.outcome === 'partial') {
@@ -250,8 +255,11 @@ async function run(operation) {
 
 function toggleSource() {
   const git = sourceKind() === 'git';
-  document.getElementById('git-source').hidden = !git;
-  document.getElementById('local-source').hidden = git;
+  const gitEl = document.getElementById('git-source');
+  const localEl = document.getElementById('local-source');
+  gitEl.hidden = !git;
+  localEl.hidden = git;
+  window.workstationMotion?.enter?.(git ? gitEl : localEl, { y: 4, duration: 170 });
   renderControls();
 }
 

@@ -26,6 +26,7 @@ const miniCoreTests = [
   'taskRules.test.js',
   'math.test.js',
   'appClient.test.js',
+  'motionClient.test.js',
   'calendarHttp.test.js',
   'planHttp.test.js',
   'planClient.test.js',

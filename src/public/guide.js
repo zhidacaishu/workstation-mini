@@ -28,8 +28,13 @@
       // 原文案只记一次：连点两下时，第二次记下的会是「已复制」，之后就再也变不回来。
       button.dataset.copyLabel ||= button.textContent;
       button.textContent = '已复制';
+      button.classList?.add('is-done');
+      window.workstationMotion?.pulse?.(button, { scale: 1.05, duration: 200 });
       clearTimeout(Number(button.dataset.copyTimer));
-      button.dataset.copyTimer = String(setTimeout(() => { button.textContent = button.dataset.copyLabel; }, 1600));
+      button.dataset.copyTimer = String(setTimeout(() => {
+        button.textContent = button.dataset.copyLabel;
+        button.classList?.remove('is-done');
+      }, 1600));
     } catch {
       // 剪贴板不可用时退一步：选中文字，让用户自己复制。
       const range = document.createRange();
@@ -52,7 +57,13 @@
     button.disabled = true;
     try {
       await setChecklist('hidden');
-      if (card) card.hidden = true;
+      if (card) {
+        const anim = window.workstationMotion?.exit?.(card, { y: -6, scale: 0.985, duration: 160 });
+        if (anim?.finished) {
+          await anim.finished.catch(() => {});
+        }
+        card.hidden = true;
+      }
       document.getElementById('main-content')?.focus();
       notify('已隐藏上手清单。需要时可以在「上手指南」里重新显示。', 'success');
     } catch (error) {
@@ -112,6 +123,8 @@
     let opener = null;
     let frame = 0;
     let loadFailed = false;
+    let lastRenderedStep = -1;
+    let repositionReset = 0;
 
     const loaded = api
       ? api.getGuide().then(value => { state = value; }).catch(() => { loadFailed = true; })
@@ -178,14 +191,22 @@
       card.style.setProperty('--tour-arrow', clamp(center - top, 20, box.height - 20) + 'px');
     }
 
-    function schedulePlace() {
+    function schedulePlace(immediate = false) {
+      if (immediate && dialog.open) {
+        dialog.classList.add('is-repositioning');
+        clearTimeout(repositionReset);
+        repositionReset = setTimeout(() => dialog.classList.remove('is-repositioning'), 180);
+      }
       if (!frame) frame = requestAnimationFrame(place);
     }
 
     function render() {
       const index = current();
+      const prevStep = lastRenderedStep;
+      lastRenderedStep = index;
       const template = steps[index];
       const isWelcome = index === 0;
+      dialog.classList.remove('is-repositioning');
       title.textContent = template.dataset.title;
       body.replaceChildren(template.content.cloneNode(true));
       progress.textContent = isWelcome ? '一分钟导览' : index + ' / ' + stops;
@@ -196,6 +217,11 @@
       next.textContent = template.dataset.next || '下一步';
       dialog.classList.toggle('is-welcome', isWelcome);
       place();
+      if (prevStep !== -1 && prevStep !== index) {
+        const dir = index > prevStep ? 1 : -1;
+        window.workstationMotion?.enter?.(title, { x: dir * 6, y: 0, duration: 170 });
+        window.workstationMotion?.enter?.(body, { x: dir * 8, y: 0, duration: 190 });
+      }
     }
 
     function setBusy(value) {
@@ -263,25 +289,33 @@
     });
     dialog.addEventListener('close', () => {
       message('');
+      lastRenderedStep = -1;
+      dialog.classList.remove('is-repositioning');
       const target = opener?.isConnected && opener !== document.body ? opener : document.getElementById('main-content');
       target?.focus();
     });
     // 窗口缩放、侧栏在矮窗口里滚动或重新排布、卡片内容变高，都要重新对齐高亮框和卡片。
-    // 缩放停下后再补一次：侧栏在矮窗口里的紧凑布局可能比 resize 事件晚一帧生效。
+    // 窗口/侧栏变动要求 0 延迟贴合；卡片自身换步变高只重算位置，不打断正在播放的换步过渡。
     let settle = 0;
+    const placeImmediate = () => schedulePlace(true);
+    const placeSmooth = () => schedulePlace(false);
     window.addEventListener('resize', () => {
-      schedulePlace();
+      placeImmediate();
       clearTimeout(settle);
-      settle = setTimeout(schedulePlace, 150);
+      settle = setTimeout(placeImmediate, 150);
     });
-    document.addEventListener('scroll', schedulePlace, { capture: true, passive: true });
+    document.addEventListener('scroll', placeImmediate, { capture: true, passive: true });
     if ('ResizeObserver' in window) {
-      const observer = new ResizeObserver(schedulePlace);
-      for (const element of [card, document.documentElement, document.querySelector('.workspace-sidebar')]) {
-        if (element) observer.observe(element);
+      const viewportObserver = new ResizeObserver(placeImmediate);
+      for (const element of [document.documentElement, document.querySelector('.workspace-sidebar')]) {
+        if (element) viewportObserver.observe(element);
+      }
+      if (card) {
+        const cardObserver = new ResizeObserver(placeSmooth);
+        cardObserver.observe(card);
       }
     }
-    document.fonts?.ready.then(schedulePlace);
+    document.fonts?.ready.then(placeSmooth);
 
     loaded.then(() => {
       // 自动导览只在首次打开时出现，而且不打断编辑和进行中的复习。

@@ -14,6 +14,11 @@ const conflictList = document.getElementById('conflict-list');
 const conflictProgress = document.getElementById('conflict-progress');
 const resolveButton = document.getElementById('resolve-conflicts');
 const capabilityElements = [...document.querySelectorAll('[data-capability]')];
+const themeSwitch = document.querySelector?.('.theme-switch') || null;
+const syncThemeIndicator = window.workstationMotion?.attachIndicator?.(themeSwitch, {
+  selector: 'label',
+  isActive: label => Boolean(label.querySelector?.('input:checked'))
+});
 
 const PLAIN_FIELDS = [
   'vaultDir', 'device', 'readOnly', 'syncEnabled', 'syncIntervalMinutes',
@@ -313,6 +318,7 @@ function failOperation(error) {
   unlockControls();
   setPhase('error');
   setMessage(error.message || String(error), 'error');
+  window.workstationMotion?.nudge?.(message);
   if (pendingExternalChange) {
     pendingExternalChange = false;
     handleExternalChange();
@@ -340,6 +346,7 @@ function fill(data) {
   baseline = snapshot();
   lastServerSignature = serverSignature(data);
   externalData = null;
+  syncThemeIndicator?.({ immediate: true });
 }
 
 function collect() {
@@ -429,7 +436,10 @@ async function handleExternalChange() {
 }
 
 form.addEventListener('input', updateDirtyState);
-form.addEventListener('change', updateDirtyState);
+form.addEventListener('change', event => {
+  if (event.target?.name === 'theme') syncThemeIndicator?.();
+  updateDirtyState();
+});
 
 form.addEventListener('submit', event => {
   event.preventDefault();

@@ -162,7 +162,7 @@
     else root.removeAttribute('aria-busy');
   }
 
-  function render() {
+  function render(direction = 0) {
     const card = current();
     if (!card) {
       if (pendingAnswers > 0) {
@@ -203,8 +203,23 @@
       suspendEl.hidden = false;
       suspendEl.disabled = false;
     }
-    if (meterEl?.style) meterEl.style.width = `${Math.round(((previousSteps + index) / Math.max(previousSteps + queue.length, 1)) * 100)}%`;
-    remainingEl.textContent = String(queue.length - index);
+    const progressRatio = (previousSteps + index) / Math.max(previousSteps + queue.length, 1);
+    if (meterEl?.style) {
+      meterEl.style.width = '100%';
+      meterEl.style.transform = `scaleX(${Math.max(0, Math.min(1, progressRatio))})`;
+    }
+    const nextRemaining = String(queue.length - index);
+    const remainingChanged = remainingEl.textContent !== nextRemaining;
+    remainingEl.textContent = nextRemaining;
+    if (direction !== 0) {
+      const motion = window.workstationMotion;
+      const fast = motion?.DUR?.fast || 150;
+      const base = motion?.DUR?.base || 210;
+      motion?.enter?.(frontEl, { x: direction * 16, y: 0, duration: fast });
+      motion?.enter?.(revealBtn, { y: 4, duration: fast });
+      if (remainingChanged) motion?.pulse?.(remainingEl, { scale: 1.12, duration: base });
+      if (relearnEl && card.relearn) motion?.pulse?.(relearnEl, { scale: 1.06, duration: base });
+    }
     revealed = false;
     shownAt = Date.now();
   }
@@ -222,9 +237,11 @@
       answerEl = clozeEl;
     } else {
       backEl.hidden = false;
+      window.workstationMotion?.enter?.(backEl, { y: 8, duration: window.workstationMotion?.DUR?.base || 210 });
     }
     revealBtn.hidden = true;
     ratingsEl.hidden = false;
+    window.workstationMotion?.enter?.(ratingsEl, { y: 5, duration: window.workstationMotion?.DUR?.fast || 150 });
     // 焦点交给复习区（保住数字快捷键），读屏软件不会因此念出答案；用一个播报区念一遍。
     const announcer = document.getElementById('review-announcer');
     if (announcer) announcer.textContent = '答案：' + String(answerEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -339,7 +356,7 @@
     index += 1;
     lastAnswer = entry;
     updateUndo();
-    render();
+    render(1);
     // 鼠标评分后隐藏的评分按钮可能仍持有焦点，令空格、数字键和 Z 被当成
     // 按钮输入而跳过。下一张以及最后一张的保存期间，都交回仍可见的复习区。
     root.focus({ preventScroll: true });
@@ -413,7 +430,7 @@
       anySynced = false;
       syncVersion += 1;
       syncMessage = '';
-      render();
+      render(-1);
       root.focus({ preventScroll: true });
     } catch (error) {
       window.workstationUI?.notify?.(error.message, { type: 'error' });
@@ -463,6 +480,7 @@
     }
     root.hidden = true;
     doneEl.hidden = false;
+    window.workstationMotion?.enter?.(doneEl, { y: 10, scale: 0.988, duration: 240 });
     summaryEl.textContent = relearnedCards.size
       ? `复习了 ${reviewedCards.size} 张，其中 ${relearnedCards.size} 张本轮重学过。`
       : `复习了 ${reviewedCards.size} 张。`;
@@ -540,7 +558,7 @@
       updateUndo();
       window.workstationReviewCounts?.refresh();
       window.workstationUI?.notify?.('已暂停这张卡，可以在卡组的卡片列表里恢复。', { type: 'success' });
-      render();
+      render(1);
       // 禁用按钮可能保留焦点，也可能退回 body；用户已移到其他控件时则不抢焦点。
       if (!root.hidden && (document.activeElement === suspendEl || document.activeElement === document.body)) {
         root.focus({ preventScroll: true });
@@ -577,6 +595,11 @@
       reveal();
     } else if (['1', '2', '3', '4'].includes(event.key)) {
       event.preventDefault();
+      const button = [...ratingsEl.querySelectorAll('[data-rating]')].find(el => el.dataset?.rating === event.key);
+      if (button?.classList) {
+        button.classList.add('is-key-active');
+        setTimeout(() => button.classList.remove('is-key-active'), 110);
+      }
       answer(Number(event.key));
     } else if (event.key === 'z' || event.key === 'Z') {
       if (!lastAnswer) return;

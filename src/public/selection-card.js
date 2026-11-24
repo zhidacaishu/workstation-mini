@@ -159,6 +159,7 @@
       status.hidden = false;
       status.textContent = message;
       status.classList.toggle('is-error', isError);
+      if (isError) window.workstationMotion?.nudge?.(status);
     };
 
     // 按 Esc、点遮罩很容易是误触：改过内容时先确认，不一下子把已填的卡片丢掉。

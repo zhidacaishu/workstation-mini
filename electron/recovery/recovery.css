@@ -34,10 +34,10 @@ button {
   font-size: var(--fs-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: border-color var(--motion), background var(--motion), color var(--motion), transform var(--motion);
+  transition: border-color var(--motion), background var(--motion), color var(--motion), opacity var(--motion), transform var(--motion-press);
 }
 button:hover:not(:disabled) { background: var(--button-hover); }
-button:active:not(:disabled) { transform: translateY(.5px); }
+button:active:not(:disabled) { transform: scale(0.975); }
 button:disabled, input:disabled { cursor: not-allowed; opacity: .56; }
 /* 焦点：按钮和单选框用 outline；文本框只画一圈（见下面的 input:focus），不叠双线。 */
 button:focus-visible, input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -70,8 +70,8 @@ button:focus-visible, input[type="radio"]:focus-visible, input[type="checkbox"]:
 .mark-tick { fill: none; stroke: var(--raised); stroke-width: 66; stroke-linecap: round; stroke-linejoin: round; }
 .stage-rail ol { position: relative; margin: 0; padding: 0; list-style: none; }
 .stage-rail ol::before { content: ""; position: absolute; top: 15px; bottom: 15px; left: 13px; width: 1px; background: color-mix(in srgb, var(--faint) 42%, transparent); }
-.stage-rail li { position: relative; display: grid; grid-template-columns: 27px minmax(0, 1fr); gap: 10px; min-height: 67px; color: var(--faint); }
-.stage-rail li > span { z-index: 1; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--faint) 52%, transparent); border-radius: 50%; background: var(--rail); font-size: var(--fs-2xs); font-weight: 600; }
+.stage-rail li { position: relative; display: grid; grid-template-columns: 27px minmax(0, 1fr); gap: 10px; min-height: 67px; color: var(--faint); transition: color var(--motion-base); }
+.stage-rail li > span { z-index: 1; width: 27px; height: 27px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--faint) 52%, transparent); border-radius: 50%; background: var(--rail); font-size: var(--fs-2xs); font-weight: 600; transition: border-color var(--motion-base), background var(--motion-base), color var(--motion-base), transform var(--motion-spring); }
 .stage-rail li strong, .stage-rail li small { display: block; }
 .stage-rail li strong { padding-top: 1px; color: inherit; font-size: var(--fs-xs); font-weight: 600; }
 .stage-rail li small { margin-top: 2px; font-size: var(--fs-2xs); line-height: 1.4; }
@@ -124,10 +124,13 @@ body[data-view="welcome"] .welcome-mark svg { width: 38px; height: 38px; }
   border-radius: var(--radius-lg);
   background: var(--surface);
   text-align: left;
+  transition: border-color var(--motion), background var(--motion), box-shadow var(--motion), transform var(--motion-press);
 }
-.choice:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong)); background: var(--surface); }
+.choice:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong)); background: var(--surface); box-shadow: var(--shadow-card); }
+.choice:active:not(:disabled) { transform: scale(0.988); }
 .choice svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.choice-icon { display: grid; color: var(--muted); }
+.choice-icon { display: grid; color: var(--muted); transition: color var(--motion); }
+.choice:hover:not(:disabled) .choice-icon { color: var(--accent); }
 .choice-icon svg { width: 20px; height: 20px; }
 .choice strong, .choice small { display: block; }
 .choice strong { color: var(--text); font-size: var(--fs-md); font-weight: 600; }
@@ -149,7 +152,10 @@ body[data-view="welcome"] #status-panel:has(> #fatal-error:not([hidden])) > #sta
 body[data-view="welcome"] .fatal { margin-top: 0; }
 .source-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 16px; padding: 0; border: 0; }
 .source-switch legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.source-switch label { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }
+.source-switch label { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); cursor: pointer; transition: border-color var(--motion), background var(--motion), transform var(--motion-press); }
+.source-switch label:hover { border-color: var(--line-strong); }
+.source-switch label:active { transform: scale(0.985); }
+.source-switch label:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
 .source-switch input { margin: 3px 0 0; accent-color: var(--accent); }
 .source-switch strong, .source-switch small { display: block; }
 .source-switch strong { color: var(--text); font-size: var(--fs-sm); font-weight: 600; }
@@ -164,13 +170,13 @@ input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 1px va
 .selected-path, .current-path { overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); color: var(--muted); font-size: var(--fs-xs); }
 .directory-name { max-width: 420px; margin-top: 16px; }
 .status-sheet { min-width: 0; }
-.progress { height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--inset); }
-.progress span { display: block; width: 0; height: 100%; background: var(--accent); transition: width var(--motion); }
-.report-block { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--inset); }
+.progress { position: relative; height: 6px; overflow: hidden; border-radius: var(--radius-pill); background: var(--inset); }
+.progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left center; transform: scaleX(0); transition: transform var(--motion-move); }
+.report-block { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--inset); animation: sheet-in var(--motion-enter); }
 .report-block ul { margin: 0; padding-left: 20px; }
 .report-block li { margin: 4px 0; overflow-wrap: anywhere; }
 .report-total { margin: 8px 0 0; color: var(--subtle); font-size: var(--fs-xs); }
-.fatal { margin-top: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.fatal { margin-top: 16px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--line)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); animation: sheet-in var(--motion-enter); }
 .fatal strong { color: var(--danger); }
 .fatal p { margin: 3px 0 0; }
 .actions {
@@ -189,13 +195,24 @@ input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 1px va
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   backdrop-filter: blur(10px);
+  transition: border-top-color var(--motion-base);
 }
 .actions p { min-width: 0; margin: 0 auto 0 0; color: var(--subtle); font-size: var(--fs-xs); }
 .actions > button { flex: none; white-space: nowrap; }
 body[data-phase="activating"] .actions { border-top-color: var(--accent); }
 
+@keyframes sheet-in {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to { opacity: 1; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  *, *::before, *::after, dialog::backdrop {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* macOS 窗口外框：桌面壳隐藏了系统标题栏，红绿灯落在侧栏左上角（见
