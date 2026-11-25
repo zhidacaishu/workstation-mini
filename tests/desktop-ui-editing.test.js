@@ -526,9 +526,16 @@ test('系统询问退出时等待笔记或卡片保存，放弃或保存失败�
           await dialog.getByText('系统即将结束会话，还有未保存的更改').waitFor();
           return dialog;
         }
+        async function dismissAndReturn(dialog, buttonName) {
+          // 同一次退出请求会合并。等独立消息窗口关闭后，再模拟下一次系统通知。
+          await Promise.all([
+            dialog.waitForEvent('close'),
+            dialog.getByRole('button', { name: buttonName }).click()
+          ]);
+        }
         if (scenario === 'note') {
           const dialog = await ask();
-          await dialog.getByRole('button', { name: '返回编辑' }).click();
+          await dismissAndReturn(dialog, '返回编辑');
           assert.equal(await area.inputValue(), '关机前的编辑');
           assert.equal(await fs.readFile(file, 'utf8'), initial);
         }
@@ -543,7 +550,7 @@ test('系统询问退出时等待笔记或卡片保存，放弃或保存失败�
           await dialog.getByRole('button', { name: '保存并退出' }).click();
           const notice = await notified;
           await notice.getByText('保存尚未确认，工作台将保持打开').waitFor();
-          await notice.getByRole('button', { name: '返回窗口' }).click();
+          await dismissAndReturn(notice, '返回窗口');
           assert.equal(await area.inputValue(), '关机前的编辑');
           const retried = await ask();
           const closed = app.waitForEvent('close', { timeout: 12000 });

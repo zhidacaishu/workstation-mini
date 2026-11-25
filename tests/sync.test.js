@@ -1203,15 +1203,16 @@ test('残留的 index.lock 让 Git 失败时，给出锁文件位置和处理办
   git(dir, 'add', '-A');
   git(dir, 'commit', '-q', '-m', 'init');
   await writeNote(dir, 'notes/b.md', { body: 'b' });
-  await fs.writeFile(path.join(dir, '.git', 'index.lock'), '');
+  const lockFile = path.join(dir, '.git', 'index.lock');
+  await fs.writeFile(lockFile, '');
 
   const result = await createSync({ vaultDir: dir, logger: quietLogger }).commitAndPush('有锁');
   assert.equal(result.ok, false);
-  assert.match(result.error, /index\.lock/);
-  const candidates = [dir, fsSync.realpathSync(dir)].map(root => path.join(root, '.git', 'index.lock'));
-  assert.ok(candidates.some(lock => result.error.includes(lock)), result.error);
+  const reported = /^Git 的锁文件还在：(.+index\.lock)$/m.exec(result.error);
+  assert.ok(reported, result.error);
+  // Git 和 Node 可能通过不同的临时目录别名访问同一个锁文件。
+  assert.equal(path.relative(await fs.realpath(lockFile), await fs.realpath(reported[1])), '', result.error);
   assert.match(result.error, /没有别的 Git/);
-  assert.ok(fsSync.existsSync(path.join(dir, '.git', 'index.lock')), '不自动删锁');
 });
 
 test('远端要登录时不弹窗，失败信息告诉用户在终端里登录一次', async () => {
