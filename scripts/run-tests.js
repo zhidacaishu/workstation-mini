@@ -76,7 +76,8 @@ const miniCoreTests = [
   'recovery-journal.test.js',
   'testNetwork.test.js',
   'renderingFixes.test.js',
-  'editorSuggestClient.test.js'
+  'editorSuggestClient.test.js',
+  'uxPolish.test.js'
 ];
 // 原生窗口共享桌面焦点，按文件串行执行；纯逻辑/配置测试只在核心集跑一次。
 const desktopTests = [

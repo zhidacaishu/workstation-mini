@@ -36,11 +36,11 @@ Click the question mark in the sidebar to open the built-in guide (**上手指�
 
 | Workflow | How It Works |
 | --- | --- |
-| **Search & Linking** | Open search and the command palette with `Ctrl+K` (Windows/Linux) or `⌘K` (macOS). Type `[[` in the editor to autocomplete links to other notes. The reading view displays the document outline and backlinks. |
-| **Experiment Tracking** | Create a research project note and record the dataset, parameters, seed, commit, result, and next step. The project board and Today page surface the next action. |
-| **Deadlines & Daily Notes** | Write Markdown tasks such as `- [ ] Run the ablation @2026-12-01`. Undated tasks appear under **计划 → 未安排**. Daily calendar notes are stored in `notes/calendar/YYYY-MM-DD.md`. |
+| **Search & Linking** | Toggle search and the command palette with `Ctrl+K` (Windows/Linux) or `⌘K` (macOS), including quick commands for workspace pages. Type `[[` in the editor to autocomplete links to other notes. The reading view displays the document outline and backlinks. |
+| **Experiment Tracking** | Create a research project note and record the dataset, parameters, seed, commit, result, and next step. The project board and Today page surface the next action, with one-click undo when moving cards across columns. |
+| **Deadlines & Daily Notes** | Write Markdown tasks such as `- [ ] Run the ablation @2026-12-01`. Undated tasks appear under **计划 → 未安排**. Checking off or rescheduling a task updates the original Markdown line directly, refreshes the overdue badge live, and supports inline revert and exact one-click undo. Daily calendar notes are stored in `notes/calendar/YYYY-MM-DD.md`. |
 | **Images & Equations** | Paste or drop PNG, JPEG, GIF, or WebP images (up to 15 MB each). The editor saves them to `attachments/` and inserts an embed link. Inline and display math render offline using bundled KaTeX. |
-| **Spaced Repetition** | Use a level-two heading (`##`) for the card front and the body text below for the back. Wrap phrases in `{{double braces}}` to create cloze deletions. FSRS schedules subsequent reviews based on your rating. |
+| **Spaced Repetition** | Use a level-two heading (`##`) for the card front and the body text below for the back. Wrap phrases in `{{double braces}}` to create cloze deletions. FSRS schedules subsequent reviews based on your rating, and creating cards from note selections autocompletes existing decks. |
 
 ### Flashcard Example and Review Controls
 
@@ -52,7 +52,7 @@ Save the following Markdown in `cards/experiments.md` to define a card:
 It lets another run reproduce the same sequence of random choices.
 ```
 
-During review, press **Space** to reveal the answer, **1–4** to rate recall, or **Z** to undo the last rating. Cards rated **忘了** are re-queued at the end of the current session. Editing a card's front, moving it to another deck, or suspending it preserves its review identity.
+During review, press **Space** to reveal the answer, **1–4** to rate recall, or **Z** to undo the last rating. Cards rated **忘了** are re-queued at the end of the current session. Editing a card's front, moving it to another deck, or suspending it preserves its review identity; suspending a card—either in-place from the card list or mid-review—can be undone immediately. Save shortcuts (`Ctrl+S` on Windows/Linux, `⌘S` on macOS) work consistently across note and card editors, calendar notes, selection-to-card dialogs, and Settings.
 
 ### Workspace Preview
 
@@ -82,6 +82,7 @@ During review, press **Space** to reveal the answer, **1–4** to rate recall, o
 - **Atomic version preservation:** Before overwriting an edited note, the application saves its previous contents to local history. If writing the history record fails, the original file remains untouched on disk and your edits remain in the editor so you can check disk space or write permissions and retry.
 - **Version inspection and drafts:** Open **历史与草稿** to compare versions line by line, restore a note or card deck, or recover an unsaved draft. Because local history captures individual saves, it preserves intermediate revisions between Git commits.
 - **Retention policy:** For each note, the latest 20 ordinary saves are kept in full, while older saves within the past 60 days are compacted to one version per local day. Deletion and conflict snapshots follow separate retention rules. Both local history and drafts remain strictly on the local device.
+- **Unsaved work and confirmation safety:** Destructive delete confirmations default focus to **Cancel**. Background reindex completion and task undo operations never discard unsaved editor, calendar note, or quick-add inputs; if edits are in progress, the app preserves them and offers a manual refresh action instead.
 - **Windows session-end handling:** When Windows initiates a shutdown, restart, or sign-out, any unsaved edits in notes, cards, or settings trigger a prompt allowing you to save, discard, or return to editing.
 
 ---

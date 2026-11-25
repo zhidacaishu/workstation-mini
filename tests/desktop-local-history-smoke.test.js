@@ -123,7 +123,7 @@ test('draft survives restart; history restores deleted note; tasks edit source i
       await page.goto(origin + '/tasks', { waitUntil: 'domcontentloaded', timeout: 15000 });
       const task = page.locator('[data-task-form]').first();
       await task.locator('[name="due"]').fill('2026-10-08');
-      await task.locator('button').click();
+      await task.locator('[data-task-save]').click();
       await page.waitForFunction(() => document.querySelector('[data-task-form] [name="due"]')?.value === '2026-10-08'
         && !document.querySelector('[data-task-form]')?.hasAttribute('aria-busy'));
       await page.locator('[data-task-form]').first().locator('[name="done"]').check();

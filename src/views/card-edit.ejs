@@ -5,8 +5,9 @@
   <%# 卡组文件就在下面的「卡组文件」里，标题下不再重复一遍路径。 %>
   <h1>编辑卡片</h1>
   <div class="actions">
+    <p class="editor-status" data-card-status role="status" aria-live="polite">所有更改均已保存</p>
     <a class="button quiet" href="<%= returnTo %>">取消</a>
-    <button class="button primary" type="submit" form="card-edit-form">保存</button>
+    <button class="button primary" type="submit" form="card-edit-form" aria-label="保存">保存 <kbd aria-hidden="true"><%= typeof isMac !== 'undefined' && isMac ? '⌘S' : 'Ctrl+S' %></kbd></button>
   </div>
 </header>
 
@@ -36,6 +37,7 @@
   <label class="card-field">
     <span>卡组文件</span>
     <span class="card-deck-input"><span aria-hidden="true">cards/</span><input type="text" name="deckFile" value="<%= card.deckFile %>" list="deck-files" autocomplete="off" spellcheck="false"><span aria-hidden="true">.md</span></span>
+    <small>修改正面或更换卡组不会丢失复习记录。</small>
     <datalist id="deck-files">
       <% deckFiles.forEach(item => { %><option value="<%= item.file %>"><%= item.deck %></option><% }) %>
     </datalist>
@@ -51,7 +53,7 @@
   </div>
 </form>
 
-<form id="card-delete-form" action="/cards/delete" method="post" data-confirm="删除前的卡组会存进「历史与草稿」，需要时可以在那里恢复。">
+<form id="card-delete-form" action="/cards/delete" method="post" data-confirm="删除前的卡组会存进「历史与草稿」，需要时可以在那里恢复。" data-confirm-danger>
   <input type="hidden" name="id" value="<%= card.id %>">
   <input type="hidden" name="expectedHash" value="<%= expectedHash %>">
   <input type="hidden" name="returnTo" value="<%= returnTo %>">

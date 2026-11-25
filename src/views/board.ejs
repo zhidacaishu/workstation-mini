@@ -10,13 +10,14 @@
 <header class="page-head">
   <%# 每一栏标题旁都有数目，页头不再写「共 N 个项目」。 %>
   <h1><%= workflow.label %></h1>
-  <% if (!readOnly) { %><a class="button" href="/new?folder=<%= encodeURIComponent(workflow.section) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
+  <% if (!readOnly && total > 0) { %><a class="button" href="/new?folder=<%= encodeURIComponent(workflow.section) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
 </header>
 
 <% if (total === 0) { %>
   <section class="panel empty-state board-onboarding">
     <h2>还没有<%= workflow.noun %></h2>
     <p><%= readOnly ? '项目用于记录进展、下一步和结论。' : '创建项目，记录进展、下一步和结论。' %></p>
+    <% if (!readOnly) { %><a class="button primary" href="/new?folder=<%= encodeURIComponent(workflow.section) %>"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>新建项目</a><% } %>
   </section>
 <% } else { %>
   <div class="board" data-board data-workflow="<%= workflow.key %>">

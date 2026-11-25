@@ -7,7 +7,7 @@ const { buildIndexResolver } = require('../vault/wikilink');
 const { isSafeRelativePath } = require('../vault/paths');
 const { CARD_TYPES, DEFAULT_TYPE, appendCard, updateCard, deleteCard, listDeckFiles, renderClozeAnswer } = require('../cards');
 const { toLocalDate } = require('../templates');
-const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
+const { httpError, blockWhenReadOnly, writeHandler, setFlash } = require('./http');
 
 const isTrue = value => value === true || value === 'true' || value === '1' || value === 'on';
 
@@ -30,7 +30,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
 
   router.get('/decks', async (req, res, next) => {
     try {
-      res.render('decks', { title: '卡片', ...(await service.stats()) });
+      res.render('decks', { title: '复习', ...(await service.stats()) });
     } catch (error) {
       next(error);
     }
@@ -261,12 +261,37 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
     } catch (error) { next(error); }
   }));
 
-  // 只切换暂停状态：复习中途和卡片列表里一键操作，不需要卡组版本号。
+  // 只切换暂停状态：复习中途和卡片列表里一键操作；撤销时可带 expectedHash 防止覆盖外部修改。
   router.post('/cards/suspend', blockMarkdownWrite, writeHandler(async (req, res, next) => {
     try {
       const suspended = isTrue(req.body.suspended);
-      const result = await updateCard(config.vaultDir, { id: req.body.id, suspended });
-      if (wantsJson(req)) { res.json({ ok: true, suspended, ...result }); return; }
+      const expectedHash = String(req.body.expectedHash || '');
+      const result = await updateCard(config.vaultDir, { id: req.body.id, expectedHash, suspended });
+      if (wantsJson(req)) {
+        let status = suspended ? { label: '已暂停', tone: 'is-suspended' } : undefined;
+        let deckCanReview;
+        try {
+          const current = (now || (() => new Date()))();
+          const nowIso = current.toISOString();
+          const all = await service.withStates();
+          const found = all.find(item => item.id === req.body.id);
+          if (found) {
+            status = stateLabel(found, nowIso, toLocalDate(current));
+            deckCanReview = all.some(item => item.deck === found.deck && !item.suspended
+              && (item.state.state === State.New || item.state.due <= nowIso));
+          }
+        } catch {
+          // 写入已经落盘：附带统计读取失败时不能把成功操作报成失败。
+        }
+        res.json({
+          ok: true,
+          suspended,
+          ...result,
+          ...(status ? { status } : {}),
+          ...(typeof deckCanReview === 'boolean' ? { deckCanReview } : {})
+        });
+        return;
+      }
       res.redirect(safeReturn(req.body.returnTo, '/decks'));
     } catch (error) { next(error); }
   }));
@@ -276,6 +301,7 @@ function createReviewRoutes({ config, db, sync, syncReviewNow, indexer, now, rev
       const result = await deleteCard(config.vaultDir, { id: req.body.id, expectedHash: String(req.body.expectedHash || '') });
       if (wantsJson(req)) { res.json({ ok: true, ...result }); return; }
       const returnTo = safeReturn(req.body.returnTo, '/decks');
+      setFlash(res, { message: '已删除卡片，可在「历史与草稿」恢复。', href: '/history', actionLabel: '查看历史' });
       // 从复习页进来删掉的卡，回到复习页会重新排队，不会再出现。
       res.redirect(returnTo);
     } catch (error) { next(error); }

@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('workstationRecovery', {
   chooseDestinationParent: () => invoke('recovery:choose-destination-parent'),
   inspectRemote: remote => invoke('recovery:inspect-remote', remote),
   beginRestore: () => invoke('recovery:begin-restore'),
+  returnToWelcome: () => invoke('recovery:return-to-welcome'),
   start: options => invoke('recovery:start', options),
   cancel: () => invoke('recovery:cancel'),
   retryStage: () => invoke('recovery:retry-stage'),

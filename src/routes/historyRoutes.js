@@ -4,9 +4,9 @@ const { listRecords, listDeckRecords, getRecord, saveDraft, removeDraft } = requ
 const { readNote, parseFrontmatter, resolveTitle, hashContent } = require('../vault/note');
 const { restoreDeck } = require('../cards');
 const fs = require('node:fs/promises');
-const { isSafeRelativePath, isNotePath, basename, ensureSafeFilePath } = require('../vault/paths');
+const { isSafeRelativePath, isNotePath, basename, encodePath, ensureSafeFilePath } = require('../vault/paths');
 const { compareText } = require('../lineDiff');
-const { blockWhenReadOnly, httpError, writeHandler } = require('./http');
+const { blockWhenReadOnly, httpError, writeHandler, setFlash } = require('./http');
 
 const DECK_PREFIX = 'deck:';
 const HISTORY_PAGE = 100;
@@ -127,7 +127,7 @@ function createHistoryRoutes({ config, db }) {
       const comparison = selected ? compareWithCurrent(found, current) : null;
       const showFull = req.query.view === 'full' || !comparison || comparison.state !== 'diff';
       res.render('history', {
-        title: '版本历史与草稿', records, selected, notePath, deckPath, comparison, showFull, expectedHash,
+        title: '历史与草稿', records, selected, notePath, deckPath, comparison, showFull, expectedHash,
         page, hasMore: all.length > page * HISTORY_PAGE, total: all.length
       });
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
@@ -137,6 +137,7 @@ function createHistoryRoutes({ config, db }) {
       const record = await findRecord(String(req.body?.id || ''));
       if (record.source !== 'deck') throw httpError(400, '这条记录不是卡组版本。');
       await restoreDeck(config.vaultDir, record.path, record.raw, req.body.expectedHash);
+      setFlash(res, { message: '已恢复卡组版本。' });
       res.redirect('/cards');
     } catch (error) { next(error.code === 'ENOENT' ? httpError(404, '恢复记录不存在。') : error); }
   }));
@@ -155,6 +156,7 @@ function createHistoryRoutes({ config, db }) {
         expectedHash: current?.hash || '', isNew: !current,
         draftId: crypto.randomUUID(), recovered: true, autoPath: unnamed,
         folder: unnamed && record.folder && isNotePath(record.folder + '/x.md') ? record.folder : 'inbox',
+        cancelHref: current ? '/note/' + encodePath(record.path) : '/history?id=' + encodeURIComponent(record.id),
         recoveredSequence: record.sequence,
         recoveredFrom: record.kind === 'draft' ? record.id : '',
         editorWarning: current

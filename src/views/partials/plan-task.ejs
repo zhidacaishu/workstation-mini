@@ -18,14 +18,16 @@
               <span>到期日期</span>
               <input class="plan-task-date" type="date" name="due" value="<%= task.due || '' %>" aria-label="<%= task.title %>的到期日期">
             </label>
+            <button class="button small quiet" type="button" data-task-revert>还原</button>
             <button class="button small primary" type="submit" data-task-save>保存</button>
           </div>
         </details>
       <% } else { %>
       <span class="plan-task-due">
-        <time class="plan-task-when" datetime="<%= task.due || '' %>" aria-hidden="true"><%= task.due ? ui.dueLabel(task.due, today) : '' %></time>
+        <time class="plan-task-when<%= task.due ? '' : ' is-unset' %>" datetime="<%= task.due || '' %>" aria-hidden="true"><%= task.due ? ui.dueLabel(task.due, today) : '设日期' %></time>
         <input class="plan-task-date" type="date" name="due" value="<%= task.due || '' %>" aria-label="<%= task.title %>的到期日期" title="修改到期日期">
       </span>
+      <button class="button small quiet" type="button" data-task-revert>还原</button>
       <button class="button small primary" type="submit" data-task-save>保存</button>
       <% } %>
     </form>

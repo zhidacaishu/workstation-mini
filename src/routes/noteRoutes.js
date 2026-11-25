@@ -6,7 +6,7 @@ const { isSafeRelativePath, isNotePath, toPosix, sectionOf, encodePath, withNote
 const { readNote, writeNote, deleteNote } = require('../vault/note');
 const { enqueueNote } = require('../vault/note-queue');
 const { removeDraft } = require('../vault/history');
-const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
+const { httpError, blockWhenReadOnly, writeHandler, setFlash } = require('./http');
 
 function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
   const router = express.Router();
@@ -74,6 +74,10 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
     // 免得每次去翻格式；用户可以删掉不需要的行。
     const isProject = (notePath || `${folder}/`).startsWith('experiments/');
     const yamlTitle = title && /[:#\[\]{}&*!|>'"%@`,]|^[\s-?]|\s$/.test(title) ? JSON.stringify(title) : title;
+    const rawReturn = String(req.query.returnTo || '');
+    const cancelHref = /^\/(?:$|search|plan|board\/experiment|decks|cards|history|health|guide)(?:[/?#]|$)/.test(rawReturn)
+      ? rawReturn
+      : isProject ? '/board/experiment' : '/';
     res.render('edit', {
       title: isProject ? '新建研究项目' : '新建笔记',
       notePath,
@@ -83,7 +87,8 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
       expectedHash: '',
       isNew: true,
       autoPath: !notePath,
-      folder: isProject ? 'experiments' : folder
+      folder: isProject ? 'experiments' : folder,
+      cancelHref
     });
   });
 
@@ -247,6 +252,7 @@ function createNoteRoutes({ config, db, indexer, search, getIndexStatus }) {
         await deleteNote(config.notesDir, notePath);
       });
       await indexer.scan({ paths: [notePath] });
+      setFlash(res, { message: '已删除笔记，可在「历史与草稿」恢复。', href: '/history', actionLabel: '查看历史' });
       res.redirect(sectionOf(notePath) ? `/search?section=${encodeURIComponent(sectionOf(notePath))}` : '/search');
     } catch (error) {
       next(error);

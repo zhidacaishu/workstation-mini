@@ -6,5 +6,5 @@ contextBridge.exposeInMainWorld('workstationDesktop', {
   confirmLeave: () => ipcRenderer.sendSync('workstation:confirm-leave'),
   getGuide: () => invoke('guide:get'),
   saveGuide: state => invoke('guide:save', state),
-  openSettings: () => invoke('guide:settings')
+  openSettings: section => invoke('guide:settings', section)
 });

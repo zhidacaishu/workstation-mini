@@ -120,11 +120,29 @@ async function createHealthReport({ config, db, indexer, sync, now = () => new D
   const indexedNotes = readStat('indexedNotes', () => db.countNotes());
   const brokenCount = readStat('brokenCount', () => db.raw.prepare("SELECT count(*) AS c FROM links WHERE to_path = ''").get().c);
   // 断链逐条列出来（来源笔记 + 写的目标），最多 BROKEN_LINK_LIMIT 条；只有路径、标题和链接目标，没有正文。
+  // 同名多篇造成的未解析双链单独列在 ambiguousTargets，保持 broken 条目结构简洁且不为同名双链建议新建第三篇。
+  const ambiguousBasenames = new Set();
+  if (brokenCount) {
+    const seen = new Set();
+    const notePaths = readStat('notePaths', () => db.listPaths()) || [];
+    for (const notePath of notePaths) {
+      const normalized = String(notePath || '').replace(/\\/g, '/');
+      const name = normalized.slice(normalized.lastIndexOf('/') + 1).replace(/\.md$/i, '');
+      if (seen.has(name)) ambiguousBasenames.add(name);
+      else seen.add(name);
+    }
+  }
   const brokenLinks = brokenCount ? readStat('brokenLinks', () => db.raw.prepare(
     `SELECT l.from_path AS path, l.to_target AS target, n.title_raw AS title
        FROM links l LEFT JOIN notes n ON n.path = l.from_path
       WHERE l.to_path = '' ORDER BY l.from_path, l.to_target LIMIT ?`
   ).all(BROKEN_LINK_LIMIT)) || [] : [];
+  const ambiguousTargets = [...new Set(brokenLinks
+    .map(item => String(item.target || ''))
+    .filter(target => {
+      const clean = target.replace(/\\/g, '/').replace(/\.md$/i, '');
+      return !clean.includes('/') && ambiguousBasenames.has(clean);
+    }))];
   let records = [];
   try { records = await listRecords(config.notesDir); } catch {}
   const decks = await listDeckRecords(config.vaultDir).catch(() => []);
@@ -138,7 +156,7 @@ async function createHealthReport({ config, db, indexer, sync, now = () => new D
     generatedAt: now().toISOString(),
     vault: { exists: vaultExists, notesDirExists, noteFiles: noteFiles.length, unreadableFolders, indexedNotes, indexLag: indexedNotes === null ? null : noteFiles.length - indexedNotes, indexRebuildable: true },
     index: { statErrors, phase: index.phase || 'unknown', generation: index.generation || 0, done: index.done || 0, total: index.total || 0, failureTotal: index.failureTotal || 0, failures: (index.failures || []).map(item => ({ path: item.path, code: item.code, reason: item.reason, retryable: item.retryable })), failuresTruncated: Boolean(index.failuresTruncated), fatal: index.fatal || null },
-    links: { brokenCount, broken: brokenLinks, brokenTruncated: brokenCount != null && brokenCount > brokenLinks.length },
+    links: { brokenCount, broken: brokenLinks, brokenTruncated: brokenCount != null && brokenCount > brokenLinks.length, ambiguousTargets },
     sync: { enabled: Boolean(config.syncEnabled) },
     reviews,
     drafts: { count: draftCount, deletedNoteHistoryCount, historyCount },

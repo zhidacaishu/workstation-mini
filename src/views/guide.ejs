@@ -68,9 +68,11 @@ $$</code></pre>
       <tr><th scope="row"><kbd><%= mod %>K</kbd></th><td>打开搜索与命令面板：搜笔记标题和正文，或执行「新建笔记」「计划」「重新扫描索引」等命令</td></tr>
       <tr><th scope="row"><kbd>/</kbd></th><td>在笔记列表页聚焦搜索框，其他页面打开命令面板</td></tr>
       <tr><th scope="row"><kbd>↑</kbd> <kbd>↓</kbd> <kbd>Enter</kbd></th><td>在命令面板里选择并打开</td></tr>
-      <tr><th scope="row"><kbd><%= mod %>S</kbd></th><td>编辑页保存</td></tr>
+      <tr><th scope="row"><kbd><%= mod %>S</kbd></th><td>保存笔记、卡片、月历备注或设置</td></tr>
+      <tr><th scope="row"><kbd><%= mod %>Enter</kbd></th><td>在新建卡片弹窗里快速保存</td></tr>
       <tr><th scope="row"><kbd>空格</kbd></th><td>复习时显示答案</td></tr>
       <tr><th scope="row"><kbd>1</kbd> – <kbd>4</kbd></th><td>复习评分：忘了 · 勉强 · 记得 · 太简单</td></tr>
+      <tr><th scope="row"><kbd>Z</kbd></th><td>复习时撤销上一张的评分</td></tr>
       <tr><th scope="row"><kbd>Esc</kbd></th><td>关闭面板、对话框或菜单</td></tr>
     </tbody>
   </table>
@@ -83,7 +85,7 @@ $$</code></pre>
 - [x] 整理实验结果</code></pre>
   <ul>
     <li><code>- [ ]</code> 是待办，<code>- [x]</code> 是已完成；<code>@YYYY-MM-DD</code> 是截止日，可以不写。代码块里的示例不会变成待办。</li>
-    <li>笔记阅读页里的待办可以直接勾选；今日页只列出今天到期和已经逾期的，没写日期的在「计划 → 未安排」里。</li>
+    <li>笔记阅读页里的待办可以直接勾选；今日页只列出今天到期和已经逾期的，没写日期的归在「计划」列表底部的「未安排日期」分组里。</li>
     <li>「计划」可以在列表和月历之间切换：勾选完成、修改截止日都会写回原来那一行 Markdown；月历里还能给某一天写备注。</li>
     <li>研究项目也是普通笔记，frontmatter 里记录状态、截止日、数据集、参数、seed、commit 和下一步。从「研究项目」新建会预填这些字段。</li>
   </ul>
@@ -115,9 +117,9 @@ $$</code></pre>
       <h3>在终端里准备仓库<% if (!needsTerminal) { %><span class="guide-check-state">已完成</span><% } %></h3>
       <% if (needsTerminal) { %>
         <% if (!git.installed) { %>
-          <p>先安装 Git：macOS 在终端运行 <code>xcode-select --install</code>，Windows 安装 Git for Windows。</p>
+          <p><% if (isMac) { %>先安装 Git：在「终端」运行 <code>xcode-select --install</code>。<% } else { %>先安装 Git（如 Git for Windows）。<% } %></p>
         <% } %>
-        <p>在 macOS 终端或 Windows Git Bash 里运行下面的命令，把名字和邮箱换成你自己的。应用不会替你执行它们。</p>
+        <p>在<%= isMac ? '「终端」' : ' Git Bash 或终端' %>里运行下面的命令，把名字和邮箱换成你自己的。应用不会替你执行它们。</p>
         <div class="guide-command">
           <pre><code id="git-commands" data-guide-git-commands><%= gitCommands %></code></pre>
           <button type="button" class="button small" data-copy="git-commands">复制</button>
@@ -129,8 +131,8 @@ $$</code></pre>
     </li>
     <li class="<%= git.syncEnabled && !git.readOnly ? 'is-done' : '' %>">
       <h3>在设置里开启自动同步<% if (git.syncEnabled && !git.readOnly) { %><span class="guide-check-state">已开启</span><% } %></h3>
-      <p>「设置 → 同步」勾选「启用自动同步」，选好间隔，点「保存设置」并确认提示。<% if (git.readOnly) { %>只读模式下不会自动提交笔记，需要先关闭只读模式。<% } %></p>
-      <button type="button" class="button small" data-guide-settings>打开设置</button>
+      <p>「设置 → Git 同步」勾选「启用自动同步」，选好间隔，点「保存设置」并确认提示。<% if (git.readOnly) { %>只读模式下不会自动提交笔记，需要先关闭只读模式。<% } %></p>
+      <button type="button" class="button small" data-guide-settings="sync">打开设置</button>
     </li>
     <li>
       <h3>确认有了提交</h3>
@@ -157,7 +159,9 @@ $$</code></pre>
     <li><strong>改坏或误删了卡片</strong>：卡组文件的旧版本也在「历史与草稿」里，标着「卡组」，可以整份恢复到原来的位置。</li>
     <li><strong>没保存就离开</strong>：编辑页、卡片编辑页和设置有未保存的修改时，离开或关闭窗口会先问你「离开」还是「留下」。选离开会丢掉这些修改，编辑页的草稿仍留在「历史与草稿」里。</li>
     <li><strong>本机历史保存失败</strong>：原文件和编辑器里的新稿都还在。检查磁盘可用空间和写入权限后，在原编辑器里再次保存。</li>
+    <% if (!isMac) { %>
     <li><strong>Windows 关机或注销</strong>：未保存的笔记、卡片或设置可以选择保存并退出、放弃修改或返回编辑。保存失败时工作台会保持打开。</li>
+    <% } %>
     <li><strong>搜不到内容</strong>：在命令面板执行「重新扫描索引」。索引只是从 Markdown 生成的副本，放在本机应用数据目录里，不进资料库，重建不会丢内容。</li>
     <li><strong>同步或索引报错</strong>：侧栏的脉冲图标打开「资料库健康」，查看索引、复习日志和 Git 状态。</li>
     <li><strong>从备份恢复</strong>：「设置 → 工作区 → 开始恢复…」，支持 Git 克隆和本地备份，验证通过后才切换资料库。</li>

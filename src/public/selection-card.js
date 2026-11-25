@@ -117,7 +117,7 @@
             <input id="compose-front" type="text" name="front" placeholder="写下问题" autocomplete="off" aria-required="true">
           </label>
           <div class="card-compose-face">
-            <div class="card-compose-caption"><label for="compose-back">背面</label><small id="compose-format">Markdown · {{挖空}}</small></div>
+            <div class="card-compose-caption"><label for="compose-back">背面</label><small id="compose-format">Markdown · $公式$ · {{挖空}}</small></div>
             <textarea id="compose-back" name="back" rows="4" aria-describedby="compose-format" placeholder="写下答案（可稍后补充）"></textarea>
           </div>
         </div>
@@ -143,16 +143,18 @@
     const front = form.querySelector('[name=front]');
     const deckField = form.querySelector('[name=deckFile]');
     deckField.value = trigger?.dataset.cardCreate || '';
-    if (trigger) {
-      const choices = form.querySelector('datalist');
+    const choices = form.querySelector('datalist');
+    if (choices && typeof Option === 'function') {
       requestJson('/api/card-decks').then(files => {
-        if (dialog.isConnected) choices.replaceChildren(...files.map(({ file, deck }) => new Option(deck, file)));
+        if (dialog.isConnected && Array.isArray(files)) {
+          choices.replaceChildren(...files.map(({ file, deck }) => new Option(deck, file)));
+        }
       }).catch(() => {}); // 建议不可用时仍可直接输入文件名。
     }
     const saveButton = form.querySelector('[data-save]');
     const onMac = document.body.dataset.primaryModifier === 'meta';
-    saveButton.title = onMac ? '保存（⌘ Enter）' : '保存（Ctrl + Enter）';
-    saveButton.setAttribute('aria-keyshortcuts', onMac ? 'Meta+Enter' : 'Control+Enter');
+    saveButton.title = onMac ? '保存（⌘Enter 或 ⌘S）' : '保存（Ctrl+Enter 或 Ctrl+S）';
+    saveButton.setAttribute('aria-keyshortcuts', onMac ? 'Meta+Enter Meta+S' : 'Control+Enter Control+S');
     const status = form.querySelector('.selection-status');
 
     const showStatus = (message, isError = false) => {
@@ -162,13 +164,12 @@
       if (isError) window.workstationMotion?.nudge?.(status);
     };
 
-    // 按 Esc、点遮罩很容易是误触：改过内容时先确认，不一下子把已填的卡片丢掉。
-    // 笔记划词入口保留原有的一键取消；手写卡片有改动时也确认取消操作。
+    // 按 Esc、点遮罩或取消时：没改过就直接关闭；有未保存的改动时先确认，避免误丢内容。
     const snapshot = () => [...form.querySelectorAll('input, textarea, select')].map(field => field.value).join('\u0000');
     let initial = '';
     async function discardIfConfirmed() {
       if (saving) return;
-      if (snapshot() === initial || await window.workstationDialog.confirm('放弃这张卡片？', '已填的内容不会保存。', '放弃卡片')) closeForm();
+      if (snapshot() === initial || await window.workstationDialog.confirm('放弃这张卡片？', '已填的内容不会保存。', '放弃卡片', { danger: true })) closeForm();
     }
     dialog.addEventListener('close', () => cleanupDialog(dialog), { once: true });
     dialog.addEventListener('cancel', event => {
@@ -178,13 +179,13 @@
     dialog.addEventListener('click', event => {
       if (event.target === dialog) discardIfConfirmed();
     });
-    form.querySelector('[data-cancel]').addEventListener('click', trigger ? discardIfConfirmed : closeForm);
+    form.querySelector('[data-cancel]').addEventListener('click', discardIfConfirmed);
     form.addEventListener('keydown', event => {
-      if (event.isComposing || event.key !== 'Enter') return;
-      if (ui.isExactPrimaryShortcut(event, 'Enter')) {
+      if (event.isComposing) return;
+      if (ui.isExactPrimaryShortcut?.(event, 'Enter') || ui.isExactPrimaryShortcut?.(event, 's')) {
         event.preventDefault();
         if (!event.repeat && !saving) form.requestSubmit();
-      } else if (trigger && event.target === front && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      } else if (event.key === 'Enter' && event.target === front && !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey) {
         event.preventDefault();
         form.querySelector('[name=back]').focus();
       }

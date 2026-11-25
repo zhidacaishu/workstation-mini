@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Workstation Mini 设置</title>
+  <title>科研工作台设置</title>
   <link rel="stylesheet" href="settings.css">
   <link rel="stylesheet" href="../../src/public/message-dialog.css">
   <script src="../../src/public/motion.js" defer></script>
@@ -19,7 +19,7 @@
     <nav aria-label="设置分组" data-settings-nav>
       <a href="#workspace">工作区</a>
       <a href="#appearance">外观</a>
-      <a href="#sync">同步</a>
+      <a href="#sync">Git 同步</a>
       <a href="#system">系统</a>
     </nav>
   </aside>
@@ -36,7 +36,7 @@
 
     <form id="settings-form" aria-busy="true">
       <section id="workspace" class="settings-section">
-        <div class="section-heading"><div><h2>工作区</h2></div></div>
+        <div class="section-heading"><div><h2 tabindex="-1">工作区</h2></div></div>
         <label class="field wide">
           <span>资料库目录</span>
           <div class="path-control"><input name="vaultDir" type="text" autocomplete="off" required><button type="button" data-choose-dir="vaultDir">选择</button></div>
@@ -49,7 +49,7 @@
       </section>
 
       <section id="appearance" class="settings-section">
-        <div class="section-heading"><div><h2>外观</h2></div></div>
+        <div class="section-heading"><div><h2 tabindex="-1">外观</h2></div></div>
         <fieldset class="theme-switch">
           <legend class="visually-hidden">主题</legend>
           <label><input type="radio" name="theme" value="system"><span>跟随系统</span></label>
@@ -59,10 +59,10 @@
       </section>
 
       <section id="sync" class="settings-section">
-        <div class="section-heading"><div><h2>Git 同步</h2><p>资料库必须是 Git 工作树的根目录。</p></div></div>
+        <div class="section-heading"><div><h2 tabindex="-1">Git 同步</h2><p>资料库必须是 Git 工作树的根目录。</p></div></div>
         <div class="field-grid">
           <label class="toggle"><input name="syncEnabled" type="checkbox"><span><strong>启用自动同步</strong><small>自动提交并同步修改；发生 Git 冲突时会停止同步，保留冲突现场。</small></span></label>
-          <label class="field"><span>同步间隔（分钟）</span><input name="syncIntervalMinutes" type="number" min="1" max="1440" step="1" required></label>
+          <label class="field" id="sync-interval-field"><span>同步间隔（分钟）</span><input name="syncIntervalMinutes" type="number" min="1" max="1440" step="1" required></label>
         </div>
         <div class="sync-status" id="sync-status" data-phase="disabled">
           <div><strong id="sync-status-title">自动同步已关闭</strong><p id="sync-status-detail">本地编辑和索引不受影响。</p></div>
@@ -80,7 +80,7 @@
       </section>
 
       <section id="system" class="settings-section">
-        <div class="section-heading"><div><h2>系统</h2><p>关闭主窗口时应用会隐藏，仍可从系统托盘或菜单栏恢复。</p></div></div>
+        <div class="section-heading"><div><h2 tabindex="-1">系统</h2><p id="system-hide-note">关闭主窗口时应用会隐藏，仍可从系统托盘或菜单栏恢复。</p></div></div>
         <div data-capability="launchAtLogin">
           <label class="toggle"><input name="launchAtLogin" type="checkbox"><span><strong>登录 Windows 后启动</strong><small>默认关闭；启用后会静默启动到托盘。</small></span></label>
         </div>
@@ -89,6 +89,7 @@
 
       <footer class="save-bar">
         <p id="message" role="status" aria-live="polite"></p>
+        <button type="button" class="secondary" id="discard-changes" hidden>放弃更改</button>
         <button type="button" class="secondary" id="reload-settings" hidden>载入外部设置</button>
         <button type="submit" class="primary" id="save" disabled>保存设置</button>
       </footer>

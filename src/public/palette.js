@@ -80,11 +80,89 @@
         run: () => navigate('/plan')
       },
       {
+        label: '今日',
+        hint: '',
+        icon: '页面',
+        keywords: ['首页', 'today'],
+        run: () => navigate('/')
+      },
+      {
+        label: '全部笔记',
+        hint: '',
+        icon: '页面',
+        keywords: ['笔记', '资料库', 'notes'],
+        run: () => navigate('/search')
+      },
+      {
+        label: '研究项目',
+        hint: '',
+        icon: '页面',
+        keywords: ['项目', '看板', 'board'],
+        run: () => navigate('/board/experiment')
+      },
+      {
+        label: '新建研究项目',
+        hint: '预填项目状态与实验字段',
+        icon: '写入',
+        writes: true,
+        keywords: ['项目', '实验'],
+        run: () => navigate('/new?folder=experiments')
+      },
+      {
+        label: '月历',
+        hint: '',
+        icon: '工具',
+        keywords: ['日历', 'calendar'],
+        run: () => navigate('/plan?view=calendar')
+      },
+      {
         label: '截止日期',
         hint: '',
         icon: '工具',
         run: () => navigate('/plan?view=list&filter=deadlines')
       },
+      {
+        label: '卡组总览',
+        hint: '',
+        icon: '复习',
+        keywords: ['复习', '卡片', 'decks'],
+        run: () => navigate('/decks')
+      },
+      {
+        label: '全部卡片',
+        hint: '',
+        icon: '复习',
+        keywords: ['卡片', 'cards'],
+        run: () => navigate('/cards')
+      },
+      {
+        label: '开始复习',
+        hint: '',
+        icon: '复习',
+        keywords: ['复习', 'review'],
+        run: () => navigate('/review')
+      },
+      {
+        label: '历史与草稿',
+        hint: '查看旧版本与未保存草稿',
+        icon: '工具',
+        keywords: ['版本', '恢复', '草稿', 'history'],
+        run: () => navigate('/history')
+      },
+      {
+        label: '资料库健康',
+        hint: '检查索引、断链与 Git 状态',
+        icon: '工具',
+        keywords: ['健康', '断链', '诊断', 'health'],
+        run: () => navigate('/health')
+      },
+      ...(window.workstationDesktop?.openSettings ? [{
+        label: '打开设置',
+        hint: '资料库、外观与 Git 同步',
+        icon: '设置',
+        keywords: ['设置', '同步', '外观', '主题', 'settings'],
+        run: () => window.workstationDesktop.openSettings()
+      }] : []),
       {
         label: '上手指南',
         hint: '上手清单、语法速查与 Git 同步',
@@ -112,13 +190,39 @@
           reindexPending = true;
           try {
             const stats = await requestJson('/api/reindex', { method: 'POST' });
-            if (stats.phase === 'degraded') {
-              notify(`扫描完成，仍有 ${stats.failureTotal} 篇笔记需要处理。`, { type: 'info' });
+            const summary = stats.phase === 'degraded'
+              ? `扫描完成，仍有 ${stats.failureTotal} 篇笔记需要处理。`
+              : `索引扫描完成：新增 ${stats.added} / 更新 ${stats.updated}`;
+            const tone = stats.phase === 'degraded' ? 'info' : 'success';
+            const shouldSkipReload = () => Boolean(
+              window.workstationUI?.hasUnsavedWork?.()
+              || document.querySelector?.('[data-editor-form], [data-card-editor], #reviewer:not([hidden])')
+              || window.workstationCalendar?.hasUnsavedChanges?.()
+              || window.workstationPlan?.hasUnsavedChanges?.()
+              || window.workstationPlan?.hasPendingUpdate?.()
+            );
+            if (shouldSkipReload()) {
+              notify(summary, {
+                ...(stats.phase === 'degraded' ? { type: 'info' } : {}),
+                action: { label: '刷新页面', onClick: () => window.location.reload() }
+              });
             } else {
-              notify(`索引扫描完成：新增 ${stats.added} / 更新 ${stats.updated}`);
+              if (stats.phase === 'degraded') notify(summary, { type: 'info' });
+              else notify(summary);
+              if (reloadTimer) clearTimeout(reloadTimer);
+              reloadTimer = setTimeout(() => {
+                reloadTimer = null;
+                reindexPending = false;
+                if (shouldSkipReload()) {
+                  notify('索引已更新，当前输入已保留。', {
+                    type: 'info',
+                    action: { label: '刷新页面', onClick: () => window.location.reload() }
+                  });
+                  return;
+                }
+                window.location.reload();
+              }, 650);
             }
-            if (reloadTimer) clearTimeout(reloadTimer);
-            reloadTimer = setTimeout(() => window.location.reload(), 650);
           } catch (error) {
             notify(`重新扫描索引失败：${error.message}`, { type: 'error' });
           } finally {
@@ -311,7 +415,13 @@
   });
 
   document.addEventListener('keydown', event => {
-    if (isExactPrimaryShortcut(event, 'k') && open()) event.preventDefault();
+    if (!isExactPrimaryShortcut(event, 'k')) return;
+    if (dialog.open) {
+      event.preventDefault();
+      dialog.close();
+    } else if (open()) {
+      event.preventDefault();
+    }
   });
 
   for (const trigger of document.querySelectorAll('[data-palette-open]')) {

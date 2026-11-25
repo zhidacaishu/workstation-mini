@@ -66,7 +66,7 @@
       persisted = true;
       await request('POST', { ...current, sequence: submitted });
       const confirmed = same(current, snapshot());
-      show(confirmed ? '草稿已保存在本机，可在“历史与草稿”恢复。' : '有新改动，等待保存草稿…');
+      show(confirmed ? '草稿已保存在本机，可在「历史与草稿」恢复。' : '有新改动，等待保存草稿…');
       return confirmed;
     }).catch(() => {
       show('本地草稿未确认保存，请保留窗口并手动保存笔记。');

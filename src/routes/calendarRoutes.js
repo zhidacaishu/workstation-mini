@@ -9,7 +9,7 @@ const { sortTasks, extractTasks, LINE_BREAK } = require('../tasks');
 const { toLocalDate } = require('../templates');
 const { readNote, writeNote, deleteNote } = require('../vault/note');
 const { enqueueNote } = require('../vault/note-queue');
-const { blockWhenReadOnly, httpError, writeHandler } = require('./http');
+const { blockWhenReadOnly, httpError, writeHandler, setFlash } = require('./http');
 
 const FILTERS = new Set(['all', 'overdue', 'today', 'undated', 'deadlines', 'done']);
 const notePathFor = date => 'calendar/' + date + '.md';
@@ -215,6 +215,7 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
       // 文字里已经手写了 @日期 的，以手写的为准，不再追加第二个。
       let line = `- [ ] ${text}`;
       if (due && !extractTasks(line)[0]?.due) line += ` @${due}`;
+      const actualDue = extractTasks(line)[0]?.due || '';
       const notePath = notePathFor(date);
       await enqueueNote(config.notesDir, notePath, async () => {
         const existing = await readDay(config.notesDir, date);
@@ -243,6 +244,11 @@ function createCalendarRoutes({ config, db, indexer, now = () => new Date(), rev
       } else {
         const returnTo = String(req.body.returnTo || '');
         const target = returnTo === '/' || returnTo.startsWith('/plan?') ? returnTo : '/plan?view=list';
+        if (target === '/' && actualDue && actualDue > date) {
+          setFlash(res, { message: `已添加到计划（${actualDue}）`, href: '/plan?view=list', actionLabel: '查看计划' });
+        } else {
+          setFlash(res, { message: '已添加待办' });
+        }
         res.redirect(target + (target.includes('?') ? '&' : '?') + 'added=1');
       }
     } catch (error) { next(error); }

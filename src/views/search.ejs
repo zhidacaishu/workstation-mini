@@ -12,12 +12,13 @@
 </header>
 
 <form class="library-filters" action="/search" method="get" role="search" aria-label="搜索与筛选笔记">
-  <label class="library-search">
+  <div class="library-search">
     <svg class="search-glyph" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-    <span class="visually-hidden">搜索笔记</span>
-    <input type="search" name="q" value="<%= query || '' %>" placeholder="搜索笔记" autocomplete="off">
+    <label class="visually-hidden" for="library-search-input">搜索笔记</label>
+    <input id="library-search-input" type="search" name="q" value="<%= query || '' %>" placeholder="搜索笔记" autocomplete="off">
     <kbd aria-hidden="true">/</kbd>
-  </label>
+    <button type="button" class="library-search-clear" data-search-clear aria-label="清空搜索词" hidden>×</button>
+  </div>
   <label class="select-field"><span class="visually-hidden">分区</span><select name="section" data-auto-submit><option value="">全部分区</option><% sections.forEach(row => { %><option value="<%= row.section %>"<% if (row.section === section) { %> selected<% } %>><%= sectionName(row.section) %></option><% }) %></select></label>
   <% if (tags.length) { %><label class="select-field"><span class="visually-hidden">标签</span><select name="tag" data-auto-submit><option value="">全部标签</option><% tags.forEach(row => { %><option value="<%= row.tag %>"<% if (row.tag === tag) { %> selected<% } %>><%= row.tag %></option><% }) %></select></label><% } %>
   <% if (filtered) { %><a class="library-clear" href="/search">清除</a><% } %>

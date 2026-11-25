@@ -97,6 +97,7 @@ function createApp(config, deps) {
     res.locals.today = toLocalDate((resolved.now || (() => new Date()))());
     res.locals.ui = viewHelpers;
     res.locals.navCounts = { overdue: 0, review: 0 };
+    res.locals.serverFlash = '';
     next();
   });
 
@@ -132,9 +133,26 @@ function createApp(config, deps) {
   const navCounts = viewHelpers.createNavCounts({ config, db: resolved.db, now: resolved.now, review: resolved.review });
 
   // 侧栏角标只在真的渲染页面时才算：图片、媒体、JSON 接口和跳转都用不上它。
+  // 同时消费写入成功后服务端写下的一次性提示 cookie（错误页不消费也不展示）。
+  const SAFE_FLASH_HREF = /^\/(?:$|search|plan|board\/experiment|decks|cards|history|health|guide)(?:[/?#]|$)/;
   app.use((req, res, next) => {
     const render = res.render.bind(res);
     res.render = (view, locals, callback) => {
+      if (view !== 'error' && req.cookies?.ws_flash) {
+        res.clearCookie('ws_flash', { path: '/' });
+        try {
+          const parsed = JSON.parse(req.cookies.ws_flash);
+          if (parsed && typeof parsed.message === 'string' && parsed.message) {
+            const href = typeof parsed.href === 'string' && SAFE_FLASH_HREF.test(parsed.href) ? parsed.href : '';
+            res.locals.serverFlash = JSON.stringify({
+              message: parsed.message,
+              type: ['success', 'info', 'error'].includes(parsed.type) ? parsed.type : 'success',
+              href,
+              actionLabel: href && typeof parsed.actionLabel === 'string' ? parsed.actionLabel : ''
+            });
+          }
+        } catch {}
+      }
       navCounts.get()
         .then(counts => { res.locals.navCounts = counts; }, () => {})
         .then(() => render(view, locals, callback));

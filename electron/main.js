@@ -103,12 +103,15 @@ let runtime;
 let mainWindow;
 let mainWindowPromise;
 let settingsWindow;
+let settingsWindowReady = false;
+let pendingSettingsSection = '';
 let recoveryWindow;
 let recoveryService;
 let recoveryServiceFingerprint = '';
 let recoveryResidueLoaded = false;
 let unsubscribeRecoveryState = () => {};
 let recoveryMode = 'restore';
+let recoveryEnteredFromFirstRun = false;
 let mainSession;
 let tray;
 let quitting = false;
@@ -165,7 +168,7 @@ function assertRecoverySender(event) {
 
 function notifyRecoveryStateChanged(state = recoveryService?.getState()) {
   if (state && recoveryWindow && !recoveryWindow.isDestroyed()) {
-    recoveryWindow.webContents.send('recovery:state-changed', state);
+    recoveryWindow.webContents.send('recovery:state-changed', publicRecoveryState(state));
   }
 }
 
@@ -187,7 +190,7 @@ function runtimeState() {
       recovery: null,
       lastResult: null
     },
-    capabilities: { ...capabilities }
+    capabilities: { ...capabilities, isMac: process.platform === 'darwin' }
   };
 }
 
@@ -569,7 +572,7 @@ async function confirmAndAbortGitOperation() {
     buttons: ['取消', '确认中止'],
     defaultId: 0,
     cancelId: 0,
-    primaryId: 1
+    dangerId: 1
   };
   const parent = dialogParent();
   const response = await showAppMessage(parent, options);
@@ -649,10 +652,19 @@ function refreshMenus() {
 }
 
 function publicRecoveryState(state = recoveryService?.getState()) {
-  if (!state) return { phase: 'idle', mode: recoveryMode };
+  if (!state) return { phase: 'idle', mode: recoveryMode, canReturnToWelcome: false };
+  const busy = Boolean(recoveryService?.isBusy?.());
   return {
     ...state,
     mode: RECOVERY_SWITCHABLE_PHASES.has(state.phase) ? recoveryMode : state.mode,
+    canReturnToWelcome: Boolean(
+      recoveryEnteredFromFirstRun
+      && !runtime
+      && !busy
+      && RECOVERY_SWITCHABLE_PHASES.has(state.phase)
+      && !state.residue
+      && !state.hasOwnedStaging
+    ),
     canOpenCurrentVault: state.phase === 'residue'
       && state.residue?.owned !== true
       && Boolean(settings?.vaultDir && fs.existsSync(settings.vaultDir))
@@ -699,6 +711,7 @@ async function showRecoveryWindow(mode = 'restore') {
     throw new Error('请先完成或取消当前恢复操作。');
   }
   recoveryMode = mode;
+  recoveryEnteredFromFirstRun = false;
   if (!recoveryResidueLoaded) {
     await service.loadResidue();
     recoveryResidueLoaded = true;
@@ -752,14 +765,27 @@ async function showRecoveryWindow(mode = 'restore') {
     });
 }
 
-function showSettingsWindow() {
+const SETTINGS_SECTIONS = new Set(['workspace', 'appearance', 'sync', 'system']);
+
+function deliverPendingSettingsSection() {
+  if (!pendingSettingsSection || !settingsWindowReady || !settingsWindow || settingsWindow.isDestroyed()) return;
+  const section = pendingSettingsSection;
+  pendingSettingsSection = '';
+  settingsWindow.webContents.send('settings:navigate', section);
+}
+
+function showSettingsWindow(section) {
   if (quitting) return;
+  const targetSection = typeof section === 'string' && SETTINGS_SECTIONS.has(section) ? section : '';
+  if (targetSection) pendingSettingsSection = targetSection;
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     if (settingsWindow.isMinimized()) settingsWindow.restore();
     settingsWindow.show();
     settingsWindow.focus();
+    deliverPendingSettingsSection();
     return;
   }
+  settingsWindowReady = false;
   const window = new BrowserWindow({
     width: 1040,
     height: 820,
@@ -782,10 +808,19 @@ function showSettingsWindow() {
   settingsWindow = window;
   secureSettingsWindow(window);
   window.on('closed', () => {
-    if (settingsWindow === window) settingsWindow = null;
+    if (settingsWindow === window) {
+      settingsWindow = null;
+      settingsWindowReady = false;
+      pendingSettingsSection = '';
+    }
   });
   window.loadURL(SETTINGS_URL)
-    .then(() => window.show())
+    .then(() => {
+      if (window.isDestroyed()) return;
+      settingsWindowReady = true;
+      window.show();
+      deliverPendingSettingsSection();
+    })
     .catch(error => {
       if (!window.isDestroyed()) window.destroy();
       showFatalError(error);
@@ -1029,13 +1064,15 @@ function registerIpc() {
     assertGuideSender(event);
     return guideStore.write(state);
   });
-  ipcMain.handle('guide:settings', async event => {
+  ipcMain.handle('guide:settings', async (event, section) => {
     assertGuideSender(event);
-    await showSettingsWindow();
+    await showSettingsWindow(section);
   });
   ipcMain.handle('settings:get', event => {
     assertSettingsSender(event);
-    return runtimeState();
+    const pendingSection = pendingSettingsSection;
+    pendingSettingsSection = '';
+    return { ...runtimeState(), ...(pendingSection ? { pendingSection } : {}) };
   });
 
   ipcMain.handle('settings:save', (event, update) => {
@@ -1139,7 +1176,19 @@ function registerIpc() {
   ipcMain.handle('recovery:begin-restore', event => {
     assertRecoverySender(event);
     if (recoveryMode !== 'first-run') throw new Error('当前不在首次启动流程。');
+    recoveryEnteredFromFirstRun = true;
     recoveryMode = 'restore';
+    return publicRecoveryState();
+  });
+  ipcMain.handle('recovery:return-to-welcome', async event => {
+    assertRecoverySender(event);
+    const current = publicRecoveryState();
+    if (!current.canReturnToWelcome || await recoveryService?.hasPendingJournal?.()) {
+      throw new Error('仍有未清理的恢复暂存或正在进行的操作，当前无法返回首次启动页。');
+    }
+    recoveryEnteredFromFirstRun = false;
+    recoveryMode = 'first-run';
+    recoveryWindow?.setTitle('开始使用科研工作台');
     return publicRecoveryState();
   });
   ipcMain.handle('recovery:choose-local-source', async event => {
@@ -1174,15 +1223,18 @@ function registerIpc() {
   ipcMain.handle('recovery:start', async (event, input) => {
     assertRecoverySender(event);
     const options = validateRecoveryStart(input, { mode: recoveryMode });
-    return recoveryService.start({ ...options, device: settings.device });
+    await recoveryService.start({ ...options, device: settings.device });
+    return publicRecoveryState();
   });
   ipcMain.handle('recovery:cancel', async event => {
     assertRecoverySender(event);
-    return recoveryService.cancel();
+    const result = await recoveryService.cancel();
+    return { ...publicRecoveryState(), cancelled: result.cancelled };
   });
   ipcMain.handle('recovery:retry-stage', async event => {
     assertRecoverySender(event);
-    return recoveryService.retryStage();
+    await recoveryService.retryStage();
+    return publicRecoveryState();
   });
   ipcMain.handle('recovery:activate', async event => {
     assertRecoverySender(event);
@@ -1221,7 +1273,8 @@ function registerIpc() {
   });
   ipcMain.handle('recovery:dismiss-residue', async event => {
     assertRecoverySender(event);
-    return recoveryService.dismissResidue();
+    await recoveryService.dismissResidue();
+    return publicRecoveryState();
   });
   ipcMain.handle('recovery:discard-owned-staging', async event => {
     assertRecoverySender(event);

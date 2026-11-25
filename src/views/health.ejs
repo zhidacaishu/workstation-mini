@@ -19,7 +19,10 @@
     : report.git.error ? '这次没有读到 Git 状态，稍后刷新再看'
     : !report.git.isRepository ? '同步已开启，但资料库还不是 Git 仓库'
     : report.git.upstream ? (report.git.ahead || report.git.behind ? `本机领先 ${report.git.ahead}，落后 ${report.git.behind}` : '和远端一致') : '还没有关联远端分支';
+  const indexPhaseLabels = { ready: '就绪', indexing: '扫描中', degraded: '部分失败', error: '异常' };
+  const indexPhaseLabel = indexPhaseLabels[report.index.phase] || '未知';
   const indexWarn = Boolean(report.index.fatal || report.index.failureTotal || report.index.statErrors.length || (report.vault.indexLag && report.vault.indexLag !== 0));
+  const canReindexNow = indexWarn && report.recovery.safeToRebuildIndex && report.index.fatal?.retryable !== false;
   const linkWarn = Boolean(report.links.brokenCount);
   const reviewWarn = Boolean(report.reviews.malformedLines || report.reviews.duplicateEventIds || report.reviews.deckScanFailed || report.reviews.deckFailures.length);
   const unreadableFolders = report.vault.unreadableFolders || [];
@@ -42,17 +45,25 @@
   <section class="health-tile<%= vaultWarn ? ' is-warn' : '' %>">
     <h2>资料源</h2>
     <p class="<%= valueClass(report.vault.noteFiles) %>"><strong><%= report.vault.noteFiles %></strong> 篇 Markdown</p>
-    <p class="health-detail">vault <strong><%= report.vault.exists ? '可用' : '不存在' %></strong> · notes/ <strong><%= report.vault.notesDirExists ? '可用' : '不存在' %></strong><% if (unreadableFolders.length) { %> · 读不了的文件夹 <strong><%= unreadableFolders.length %></strong> 个<% } %></p>
+    <p class="health-detail">资料库目录 <strong><%= report.vault.exists ? '可用' : '不存在' %></strong> · notes/ <strong><%= report.vault.notesDirExists ? '可用' : '不存在' %></strong><% if (unreadableFolders.length) { %> · 读不了的文件夹 <strong><%= unreadableFolders.length %></strong> 个<% } %></p>
   </section>
   <section class="health-tile<%= indexWarn ? ' is-warn' : '' %>">
     <h2>索引</h2>
     <p class="<%= valueClass(report.vault.indexedNotes) %>"><strong><%= count(report.vault.indexedNotes) %></strong> 篇已索引</p>
-    <p class="health-detail">状态 <strong><%= report.index.phase %></strong> · 差异 <strong><%= count(report.vault.indexLag) %></strong> · 失败 <strong><%= report.index.failureTotal %></strong> 项</p>
+    <p class="health-detail">状态 <strong><%= indexPhaseLabel %></strong> · 差异 <strong><%= count(report.vault.indexLag) %></strong> · 失败 <strong><%= report.index.failureTotal %></strong> 项</p>
+    <% if (canReindexNow) { %>
+      <div class="health-tile-actions"><button type="button" class="button small" data-health-reindex>重新扫描索引</button></div>
+    <% } else if (indexWarn && report.index.fatal?.retryable === false) { %>
+      <p class="health-detail">重启应用后会自动从 Markdown 重建索引。</p>
+    <% } %>
   </section>
   <section class="health-tile<%= gitWarn ? ' is-warn' : '' %>">
     <h2>版本控制</h2>
     <p class="health-value is-text">Git <strong><%= gitLabel %></strong></p>
-    <p class="health-detail"><% if (gitHint) { %><%= gitHint %> · <% } %>本地历史与草稿 <strong><%= report.drafts.historyCount %></strong> 条</p>
+    <p class="health-detail"><% if (gitHint) { %><%= gitHint %> · <% } %><% if (report.drafts.historyCount > 0) { %><a href="/history">本地历史与草稿 <strong><%= report.drafts.historyCount %></strong> 条</a><% } else { %>本地历史与草稿 <strong><%= report.drafts.historyCount %></strong> 条<% } %></p>
+    <% if (syncOn && !needsGitRecovery && (gitUnknown || !report.git.isRepository)) { %>
+      <div class="health-tile-actions"><a class="button small" href="/guide#git">查看配置步骤</a><button type="button" class="button small" data-guide-settings="sync">打开同步设置</button></div>
+    <% } %>
   </section>
   <section class="health-tile<%= linkWarn ? ' is-warn' : '' %>">
     <h2>双链</h2>
@@ -90,17 +101,18 @@
   <% if (report.recovery.syncRecovery) { %>
     <p>同步恢复状态：<%= report.recovery.syncRecovery.kind %>；冲突文件：<%= count(report.recovery.syncRecovery.unmergedCount) %>。</p>
   <% } %>
+  <div class="health-actions"><button type="button" class="button small" data-guide-settings="sync">打开同步设置</button></div>
 </section>
 <% } %>
-<% if (report.links.broken.length) { %>
+<% if (report.links.broken.length) { const ambiguousSet = new Set(report.links.ambiguousTargets || []); %>
   <section class="panel health-links" id="broken-links" aria-labelledby="broken-links-title">
     <h2 id="broken-links-title">断链</h2>
-    <p class="health-detail">以下 <code>[[链接]]</code> 指向尚未创建的笔记。</p>
+    <p class="health-detail">以下 <code>[[链接]]</code> 暂未解析到笔记<%= readOnly ? '' : '；不存在的目标点一下即可创建' %>。</p>
     <ul>
       <% report.links.broken.forEach(item => { %>
         <li>
           <a href="/note/<%= encodePath(item.path) %>" title="<%= item.path %>"><%= item.title || item.path %></a>
-          <span class="health-link-target"><span aria-hidden="true">→</span> <code>[[<%= item.target %>]]</code></span>
+          <span class="health-link-target"><span aria-hidden="true">→</span> <% if (ambiguousSet.has(item.target)) { %><code>[[<%= item.target %>]]</code> <small>同名多篇，需写明路径</small><% } else if (readOnly) { %><code>[[<%= item.target %>]]</code><% } else { %><a href="/new?path=<%= encodeURIComponent(item.target) %>&amp;returnTo=/health" title="创建笔记「<%= item.target %>」"><code>[[<%= item.target %>]]</code></a><% } %></span>
         </li>
       <% }) %>
     </ul>
@@ -108,6 +120,6 @@
   </section>
 <% } %>
 <% if (report.index.failures.length) { %>
-  <section class="panel health-failures"><h2>索引失败项</h2><ul><% report.index.failures.forEach(item => { %><li><code><%= item.path %></code><span><%= item.reason %></span></li><% }) %></ul></section>
+  <section class="panel health-failures"><h2>索引失败项</h2><ul><% report.index.failures.forEach(item => { %><li><% if (item.code === 'invalid-frontmatter' && /\.md$/i.test(item.path || '')) { %><a href="/note/<%= encodePath(item.path) %>"><code><%= item.path %></code></a><% } else { %><code><%= item.path %></code><% } %><span><%= item.reason %></span></li><% }) %></ul></section>
 <% } %>
 <%- include('partials/foot') %>

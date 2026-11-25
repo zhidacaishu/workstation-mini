@@ -693,6 +693,25 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 .library-search input::-webkit-search-cancel-button { display: none; }
 /* 「/」是聚焦搜索框的快捷键：已经在框里、或框里已有搜索词时就不必再提示。 */
 .library-search:focus-within kbd, .library-search input:not(:placeholder-shown) + kbd { visibility: hidden; }
+.library-search.has-value kbd { display: none; }
+.library-search-clear {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--subtle);
+  font-size: var(--fs-md);
+  line-height: 1;
+  transition: background var(--motion), color var(--motion), transform var(--motion-press);
+}
+.library-search-clear:hover { background: var(--hover); color: var(--text); }
+.library-search-clear:active { transform: scale(0.9); }
+.library-search-clear[hidden] { display: none; }
 .library-clear { margin-left: 4px; color: var(--muted); font-size: var(--fs-sm); }
 .library-list-heading {
   display: flex;
@@ -1185,21 +1204,24 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
    日期框叠在文字上面，悬停该行、键盘聚焦或改了还没保存时才露出来，日历按钮跟着它出现。 */
 .plan-task-due { position: relative; flex: none; width: 128px; height: var(--control-sm); }
 .plan-task-when { display: block; padding: 0 11px; color: var(--faint); font-size: var(--fs-sm); line-height: var(--control-sm); white-space: nowrap; transition: opacity var(--motion); }
+.plan-task-when.is-unset { color: var(--subtle); font-size: var(--fs-xs); }
 .plan-task.is-overdue .plan-task-when { color: var(--warn-text); }
 input.plan-task-date { position: absolute; inset: 0; width: 100%; height: 100%; font-size: var(--fs-sm); opacity: 0; transition: opacity var(--motion), border-color var(--motion), box-shadow var(--motion); }
 .plan-task-form:hover input.plan-task-date, input.plan-task-date:focus, .plan-task-form.is-edited input.plan-task-date { opacity: 1; }
-form.plan-task-form:hover .plan-task-when, .plan-task-due:focus-within .plan-task-when, .plan-task-form.is-edited .plan-task-when { opacity: 0; pointer-events: none; }
+form.plan-task-form:hover .plan-task-when, .plan-task-due:focus-within .plan-task-when, .plan-task-form.is-edited .plan-task-when { opacity: 0; pointer-events: none; transition: none; }
+input.plan-task-date:focus, .plan-task-form.is-edited input.plan-task-date { transition: border-color var(--motion), box-shadow var(--motion); }
 .plan-task.is-overdue input.plan-task-date { color: var(--warn-text); }
 .plan-task-form:not(.is-edited) input.plan-task-date[value=""]:not(:focus) { color: var(--subtle); }
 .plan-task-form time, .plan-project time { color: var(--faint); font-size: var(--fs-sm); }
 .plan-project time.is-overdue { color: var(--warn-text); }
-.plan-task-form.is-enhanced [data-task-save] { display: none; }
-.plan-task-form.is-enhanced.is-edited [data-task-save] { display: inline-flex; animation: bubble-in 160ms var(--ease-enter); }
+.plan-task-form.is-enhanced [data-task-save], .plan-task-form.is-enhanced [data-task-revert] { display: none; }
+.plan-task-form.is-enhanced.is-edited [data-task-save], .plan-task-form.is-enhanced.is-edited [data-task-revert] { display: inline-flex; animation: bubble-in 160ms var(--ease-enter); }
 /* 列表视图：日期排在勾选框和标题之间，成一列。标题在窗口最左、日期在最右时，
    宽窗口里两者隔着上千像素，一行很难对上。DOM 顺序不变（Tab 仍然先到标题再到日期）。 */
 .plan-list .plan-task-due { order: 1; }
 .plan-list .plan-task-content { order: 2; }
-.plan-list .plan-task-form > [data-task-save] { order: 3; }
+.plan-list .plan-task-form > [data-task-revert] { order: 3; }
+.plan-list .plan-task-form > [data-task-save] { order: 4; }
 .plan-list .plan-task-form > time.plan-task-when, .plan-list .plan-project > time.plan-task-when { order: 1; flex: none; width: 128px; }
 .plan-list .plan-project > time.plan-task-when.is-overdue { color: var(--warn-text); }
 .plan-list .plan-task-when { padding-left: 0; }
@@ -1315,17 +1337,17 @@ form.plan-task-form:hover .plan-task-when, .plan-task-due:focus-within .plan-tas
 .plan-task-reschedule > summary::-webkit-details-marker { display: none; }
 .plan-task-reschedule > summary:hover, .plan-task-reschedule[open] > summary { background: var(--hover); color: var(--text); }
 .plan-task-reschedule > summary:active { transform: scale(0.95); }
-.plan-task-date-popover { grid-column: 2 / -1; grid-row: 2; display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--inset); color: var(--muted); font-size: var(--fs-xs); animation: surface-in var(--motion-enter); }
+.plan-task-date-popover { grid-column: 2 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: flex-end; gap: 8px; margin-top: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--inset); color: var(--muted); font-size: var(--fs-xs); animation: surface-in var(--motion-enter); }
 .plan-task-date-popover input.plan-task-date { position: static; opacity: 1; width: 100%; height: var(--control-sm); color: var(--text); }
 .plan-task-reschedule:not([open]) > .plan-task-date-popover { display: none; }
-.plan-task-date-popover > label { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.plan-task-date-popover > label { flex: 1 1 130px; min-width: 0; display: grid; gap: 4px; }
 .plan-task-date-popover > button { flex: none; }
 .plan-task-form.is-edited .plan-task-reschedule > summary { color: var(--warn-text); }
 
 .plan-day-empty { color: var(--subtle); font-size: var(--fs-sm); }
 .calendar-note-form { display: flex; flex-direction: column; gap: 8px; }
 .calendar-note-form textarea { min-height: 96px; background: var(--inset); }
-.plan-note-actions { display: flex; align-items: center; gap: 12px; }
+.plan-note-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .calendar-note-status { color: var(--subtle); font-size: var(--fs-xs); transition: color var(--motion); }
 .calendar-note-status.is-error { color: var(--danger); }
 .calendar-note-readonly { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
@@ -1734,6 +1756,10 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .health-value.is-text strong { margin-right: 0; font-size: var(--fs-lg); letter-spacing: 0; }
 .health-detail { color: var(--subtle); font-size: var(--fs-xs); }
 .health-detail strong { color: var(--text-2); font-weight: 500; }
+.health-detail a { color: inherit; }
+.health-detail a:hover { color: var(--accent-text); }
+.health-tile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 6px; }
+.health-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .health-failures ul { margin: 8px 0 0; padding: 0; list-style: none; }
 .health-failures li { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
 .health-failures h2 { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
@@ -1744,6 +1770,8 @@ a.card-row-front:hover { color: var(--accent-text); text-decoration: none; }
 .health-links li > a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .health-link-target { flex: none; max-width: 55%; overflow: hidden; color: var(--subtle); text-overflow: ellipsis; white-space: nowrap; }
 .health-link-target code { color: var(--warn-text); }
+.health-link-target small { margin-left: 6px; color: var(--subtle); font-size: var(--fs-xs); }
+.health-link-target a:hover code { text-decoration: underline; text-underline-offset: 3px; }
 
 /* ---------- 错误页 ---------- */
 
@@ -1976,13 +2004,32 @@ body:has(.message-dialog[open]) .selection-form::backdrop { background: transpar
   pointer-events: auto;
   animation: toast-in var(--motion-enter);
 }
+.toast.has-action { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; }
 .toast::before { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--ok); content: ""; }
+.toast.has-action::before { margin-top: 0; }
 .toast.is-error::before { background: var(--danger); }
 .toast.is-info::before { background: var(--warn); }
 .toast p { color: var(--text-2); font-size: var(--fs-sm); }
-.toast button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--subtle); line-height: 1; transition: background var(--motion), color var(--motion), transform var(--motion-press); }
-.toast button:hover { background: var(--hover); color: var(--text); }
-.toast button:active { transform: scale(0.9); }
+.toast .toast-action {
+  width: auto;
+  height: auto;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--button);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background var(--motion), border-color var(--motion), color var(--motion), transform var(--motion-press);
+}
+.toast .toast-action:hover:not(:disabled) { background: var(--button-hover); }
+.toast .toast-action:active:not(:disabled) { transform: scale(0.96); }
+.toast .toast-close { width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--subtle); line-height: 1; transition: background var(--motion), color var(--motion), transform var(--motion-press); }
+.toast .toast-close:hover { background: var(--hover); color: var(--text); }
+.toast .toast-close:active { transform: scale(0.9); }
 
 @keyframes page-in {
   from { opacity: 0; }

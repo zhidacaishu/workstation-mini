@@ -57,7 +57,7 @@
     <p id="review-summary" role="status" aria-live="polite" aria-atomic="true"></p>
     <p id="review-failures" class="review-retry" role="alert" hidden></p>
     <div class="actions">
-      <button id="review-undo-last" class="button" type="button" hidden>撤销最后一张</button>
+      <button id="review-undo-last" class="button" type="button" aria-keyshortcuts="Z" title="撤销最后一张的评分（快捷键 Z）" hidden>撤销最后一张</button>
       <a class="button" href="/decks">卡组</a>
       <%- include('partials/card-create-button', { buttonClass: 'button', file: defaultFile }) %>
       <a class="button primary" href="<%= returnTo %>">再来一轮</a>

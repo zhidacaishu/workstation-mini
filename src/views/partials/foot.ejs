@@ -22,6 +22,6 @@
   <%- include('tour') %>
 
   <form id="palette-post" method="post" hidden></form>
-  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"<% if (typeof serverFlash === 'string' && serverFlash) { %> data-server-flash="<%= serverFlash %>"<% } %>></div>
 </body>
 </html>

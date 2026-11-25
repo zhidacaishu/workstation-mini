@@ -58,6 +58,14 @@
   // 最近一次评分，供「撤销上一张」用；只留一步。
   let lastAnswer = null;
   let undoing = false;
+  let suspending = false;
+  let roundTransitionSeq = 0;
+  let suspendToastClose = null;
+
+  function clearSuspendToast() {
+    suspendToastClose?.();
+    suspendToastClose = null;
+  }
 
   // 只保存已经落盘的进度。恢复不重发评分，服务端日志决定哪些卡仍可继续、哪一步可撤销。
   function checkpoint() {
@@ -158,7 +166,7 @@
   }
 
   function updateBusyState() {
-    if (pendingAnswers > 0 || undoing) root.setAttribute('aria-busy', 'true');
+    if (pendingAnswers > 0 || undoing || suspending) root.setAttribute('aria-busy', 'true');
     else root.removeAttribute('aria-busy');
   }
 
@@ -331,6 +339,8 @@
     const card = current();
     // 正在暂停这张卡时不评分：否则它会被记一次分，还被算成「本轮重学」。
     if (!card || !revealed || suspending || undoing) return;
+    roundTransitionSeq += 1;
+    clearSuspendToast();
 
     const payload = {
       eventId: createEventId(),
@@ -389,6 +399,8 @@
   async function undoLast() {
     const entry = lastAnswer;
     if (!entry || undoing || suspending) return;
+    roundTransitionSeq += 1;
+    clearSuspendToast();
     undoing = true;
     updateBusyState();
     updateUndo();
@@ -538,11 +550,64 @@
   });
 
   // 暂停当前这张：从本轮队列里拿掉（包括排在后面的重学），复习记录保留。
-  let suspending = false;
+  async function unsuspendCard(card, { expectedHash, seq }) {
+    if (seq !== roundTransitionSeq) return true;
+    if (suspending || undoing || restoring) {
+      window.workstationUI?.notify?.('正在更新复习队列，请稍候再试。', { type: 'info' });
+      return false;
+    }
+    suspending = true;
+    updateBusyState();
+    try {
+      const response = await fetch('/cards/suspend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ id: card.id, suspended: false, ...(expectedHash ? { expectedHash } : {}) })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(response.status === 409 ? '卡组已在别处修改，无法自动撤销。' : (body.message || `恢复失败（${response.status}）`));
+      }
+      if (seq !== roundTransitionSeq) return true;
+      // 暂停唯一一张后 finish() 可能清掉了本轮 token，或前一轮已触发同步；这里一并恢复成可继续保存与同步的正式轮次状态。
+      if (round && !token) {
+        token = createEventId();
+        returnTo = round.url(deck, token);
+        history.replaceState(history.state, '', returnTo);
+      }
+      anySynced = false;
+      syncVersion += 1;
+      syncMessage = '';
+      const insertAt = Math.min(index, queue.length);
+      queue.splice(insertAt, 0, card);
+      index = insertAt;
+      if (round && !revisions.has(card.id)) revisions.set(card.id, card.reviewCount);
+      window.workstationReviewCounts?.refresh?.();
+      doneEl.hidden = true;
+      if (emptyEl) emptyEl.hidden = true;
+      root.hidden = false;
+      render(-1);
+      root.focus({ preventScroll: true });
+      window.workstationUI?.notify?.('已恢复这张卡，继续复习。', { type: 'success' });
+      return true;
+    } catch (error) {
+      window.workstationUI?.notify?.(error.message, { type: 'error' });
+      return true;
+    } finally {
+      suspending = false;
+      updateBusyState();
+      checkpoint();
+    }
+  }
+
   async function suspendCurrent() {
     const card = current();
     if (!card || !suspendEl || suspending || undoing) return;
+    roundTransitionSeq += 1;
+    clearSuspendToast();
+    const seq = roundTransitionSeq;
     suspending = true;
+    updateBusyState();
     suspendEl.disabled = true;
     try {
       const response = await fetch('/cards/suspend', {
@@ -557,7 +622,14 @@
       lastAnswer = null;
       updateUndo();
       window.workstationReviewCounts?.refresh();
-      window.workstationUI?.notify?.('已暂停这张卡，可以在卡组的卡片列表里恢复。', { type: 'success' });
+      const suspendedHash = payload.hash || '';
+      suspendToastClose = window.workstationUI?.notify?.('已暂停这张卡。', {
+        type: 'success',
+        action: {
+          label: '撤销',
+          onClick: () => unsuspendCard(card, { expectedHash: suspendedHash, seq })
+        }
+      }) || null;
       render(1);
       // 禁用按钮可能保留焦点，也可能退回 body；用户已移到其他控件时则不抢焦点。
       if (!root.hidden && (document.activeElement === suspendEl || document.activeElement === document.body)) {
@@ -568,6 +640,7 @@
       window.workstationUI?.notify?.(error.message, { type: 'error' });
     } finally {
       suspending = false;
+      updateBusyState();
       checkpoint();
     }
   }

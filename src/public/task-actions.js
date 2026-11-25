@@ -24,6 +24,39 @@
     }
   }
 
+  function updateOverdueBadge(count) {
+    if (typeof count !== 'number') return;
+    const nav = document.querySelector?.('[data-nav="plan"]');
+    if (!nav) return;
+    let badge = nav.querySelector('.nav-badge');
+    if (count > 0) {
+      const label = `${count} 项逾期`;
+      let created = false;
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-badge is-warn';
+        nav.append(badge);
+        created = true;
+      }
+      if (badge.title !== label) {
+        const changed = !created && Boolean(badge.title);
+        badge.title = label;
+        badge.removeAttribute('aria-label');
+        const comma = document.createElement('span');
+        comma.className = 'visually-hidden';
+        comma.textContent = '，';
+        const suffix = document.createElement('span');
+        suffix.className = 'visually-hidden';
+        suffix.textContent = ' 项逾期';
+        badge.replaceChildren(comma, document.createTextNode(count > 99 ? '99+' : String(count)), suffix);
+        if (created) window.workstationMotion?.enter?.(badge, { y: 0, scale: 0.65, duration: 220, easing: window.workstationMotion.EASE_SPRING });
+        else if (changed) window.workstationMotion?.pulse?.(badge, { scale: 1.18, duration: 220 });
+      }
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
   document.addEventListener('change', async event => {
     const box = event.target;
     if (!box?.matches?.('.prose input.task-toggle')) return;
@@ -56,6 +89,7 @@
       box.classList.toggle('is-done', done);
       box.setAttribute('aria-label', String(box.getAttribute('aria-label') || '').replace(/^标记为(?:未)?完成：/, done ? '标记为未完成：' : '标记为完成：'));
       if (item) refreshDueTag(item, done);
+      updateOverdueBadge(result.overdueCount);
     } catch (error) {
       box.checked = !done;
       window.workstationUI.notify(error.status === 409 ? '这篇笔记已在别处修改，请刷新页面后再勾选。' : error.message, { type: 'error' });
@@ -67,6 +101,92 @@
   });
 
   // ---------- 今日页与计划页 ----------
+
+  let lastTaskToastClose = null;
+  let taskOpSeq = 0;
+
+  // 普通提交和撤销共用同一套并发互斥与局部刷新保护，避免撤销期间输入备注或切日被旧响应覆盖。
+  async function runTaskUndo({ undoToken, expectedHash, seq } = {}) {
+    if (!undoToken) return true;
+    if (seq !== undefined && seq !== taskOpSeq) return true;
+    const plan = window.workstationPlan;
+    if (window.workstationCalendar?.hasUnsavedChanges?.()) {
+      window.workstationUI.notify('请先保存或还原备注，再撤销待办。', { type: 'info' });
+      return false;
+    }
+    if (plan?.hasPendingUpdate?.() || plan?.hasUnsavedChanges?.()) {
+      window.workstationUI.notify(plan.hasPendingUpdate()
+        ? '正在保存其他待办，请稍候再试。'
+        : '请先保存或还原其他待办的日期，再撤销。', { type: 'info' });
+      return false;
+    }
+    const calendar = window.workstationCalendar;
+    const startDate = calendar?.currentDate?.() || '';
+    const startVersion = calendar?.currentEditVersion?.();
+    const fields = [...document.querySelectorAll('[data-task-form] input, [data-task-form] button')];
+    const disabledBefore = fields.map(field => field.disabled);
+    let updateEnded = false;
+    const finishUpdate = () => {
+      if (updateEnded) return;
+      updateEnded = true;
+      plan?.endUpdate?.();
+    };
+    plan?.beginUpdate?.();
+    fields.forEach(field => { field.disabled = true; });
+    try {
+      const result = await window.workstationUI.requestJson('/tasks/undo', {
+        method: 'POST',
+        json: { undoToken, expectedHash }
+      });
+      if (typeof result?.overdueCount === 'number') updateOverdueBadge(result.overdueCount);
+      if (calendar) {
+        try {
+          const outcome = await calendar.refreshAfterTask({
+            expectedDate: startDate,
+            expectedEditVersion: startVersion
+          });
+          if (outcome?.preservedEdits || outcome?.staleDate) {
+            window.workstationUI.notify('已撤销待办，当前编辑已保留。', {
+              type: 'info',
+              action: { label: '刷新页面', onClick: () => window.location.reload() }
+            });
+          } else {
+            window.workstationUI.notify('已撤销更改');
+          }
+        } catch {
+          window.workstationUI.notify('已撤销待办，请刷新查看最新列表。', {
+            type: 'info',
+            action: { label: '刷新页面', onClick: () => window.location.reload() }
+          });
+        }
+        return true;
+      }
+      // 撤销写入已完成：先结束本次 pendingUpdate 计数，避免 hasUnsavedWork() 和 beforeunload 误拦截刷新。
+      finishUpdate();
+      if (window.workstationUI?.hasUnsavedWork?.()) {
+        window.workstationUI.notify('已撤销待办，当前输入已保留。', {
+          type: 'info',
+          action: { label: '刷新页面', onClick: () => window.location.reload() }
+        });
+        return true;
+      }
+      window.workstationUI.flash?.({ message: '已撤销更改' });
+      window.location.reload();
+      return true;
+    } catch (error) {
+      window.workstationUI.notify(error.status === 409
+        ? '笔记已在别处修改，无法自动撤销。'
+        : `撤销失败：${error.message}`, { type: 'error' });
+      return true;
+    } finally {
+      finishUpdate();
+      fields.forEach((field, index) => {
+        if (field.isConnected) field.disabled = disabledBefore[index];
+      });
+    }
+  }
+
+  window.workstationTasks = { undo: runTaskUndo };
 
   // 今日页的待办只有一个勾选框：勾上即提交，改期留给计划页。
   document.addEventListener('change', event => {
@@ -101,21 +221,55 @@
       ? [...document.querySelectorAll('[data-task-form] input, [data-task-form] button, [data-calendar-form] textarea, [data-calendar-form] button')]
       : [...document.querySelectorAll('[data-task-form] input, [data-task-form] button')];
     const disabledBefore = fields.map(field => field.disabled);
+    const doneInput = form.querySelector('[name="done"]');
+    const dueInput = form.querySelector('[name="due"]');
+    const prevDone = Boolean(doneInput?.defaultChecked);
+    const prevDue = dueInput ? String(dueInput.defaultValue || '') : '';
+    const taskTitle = form.closest('li')?.querySelector('a')?.textContent?.trim() || '';
     const data = Object.fromEntries(new FormData(form));
-    data.done = form.querySelector('[name="done"]').checked;
+    data.done = doneInput.checked;
     data.line = Number(data.line);
+    const calendar = window.workstationCalendar;
+    const startDate = calendar?.currentDate?.() || '';
+    const startVersion = calendar?.currentEditVersion?.();
     form.dataset.busy = '1';
     form.setAttribute('aria-busy', 'true');
     fields.forEach(field => { field.disabled = true; });
     try {
-      await window.workstationUI.requestJson(form.action, { method: 'POST', json: data });
-      if (window.workstationCalendar) {
+      const result = await window.workstationUI.requestJson(form.action, { method: 'POST', json: data });
+      const seq = ++taskOpSeq;
+      lastTaskToastClose?.();
+      lastTaskToastClose = null;
+      const undoMessage = data.done !== prevDone
+        ? (data.done
+          ? (taskTitle ? `已完成「${taskTitle}」` : '已完成待办')
+          : (taskTitle ? `已重新打开「${taskTitle}」` : '已重新打开待办'))
+        : data.due !== prevDue
+          ? (data.due ? `已改期至 ${data.due}` : '已取消截止日期')
+          : '已更新待办';
+      const undoData = result?.undoToken && result?.hash
+        ? { undoToken: result.undoToken, expectedHash: result.hash }
+        : null;
+      if (calendar) {
         try {
-          await window.workstationCalendar.refreshAfterTask();
+          await calendar.refreshAfterTask({ expectedDate: startDate, expectedEditVersion: startVersion, exceptForm: form });
+          plan?.saved(form);
+          if (undoData) {
+            lastTaskToastClose = window.workstationUI.notify(undoMessage, {
+              type: 'success',
+              action: {
+                label: '撤销',
+                onClick: () => runTaskUndo({ ...undoData, seq })
+              }
+            });
+          }
           return;
         } catch {
           // 写入已经成功；局部读取失败时通过常规导航恢复最新状态。
         }
+      }
+      if (undoData) {
+        window.workstationUI.flash?.({ kind: 'task-undo', message: undoMessage, ...undoData });
       }
       plan?.saved(form);
       window.location.reload();

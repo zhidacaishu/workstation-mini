@@ -2,9 +2,12 @@ const api = window.workstationSettings;
 const form = document.getElementById('settings-form');
 const message = document.getElementById('message');
 const saveButton = document.getElementById('save');
+const discardButton = document.getElementById('discard-changes');
 const reloadButton = document.getElementById('reload-settings');
 const runtimeStatus = document.getElementById('runtime-status');
 const syncButton = document.getElementById('sync-now');
+const syncIntervalField = document.getElementById('sync-interval-field');
+const systemHideNote = document.getElementById('system-hide-note');
 const syncStatusPanel = document.getElementById('sync-status');
 const syncStatusTitle = document.getElementById('sync-status-title');
 const syncStatusDetail = document.getElementById('sync-status-detail');
@@ -39,7 +42,7 @@ let loadToken = 0;
 let revision = 0;
 let disabledBeforeBusy = new Map();
 let syncStatus = { phase: 'disabled', operation: '', recovery: null, lastResult: null };
-let capabilities = { launchAtLogin: true };
+let capabilities = { launchAtLogin: true, isMac: false };
 // 冲突文件和已经做的选择。状态每变一次就重新问一遍主进程，选过的按路径留着。
 let conflictFiles = [];
 let conflictChoices = new Map();
@@ -64,7 +67,17 @@ function readPlainSettings() {
     // theme 是一组单选：namedItem 返回 RadioNodeList，直接读写 value 即可。
     settings[name] = input.type === 'checkbox' ? input.checked : input.value;
   }
-  settings.syncIntervalMinutes = Number(settings.syncIntervalMinutes);
+  const parsedInterval = Number(settings.syncIntervalMinutes);
+  if (!settings.syncEnabled) {
+    // 隐藏的同步间隔不阻止保存其他设置：无效值时回退到最近一次有效的已保存/外部间隔。
+    const fallback = Number(externalData?.settings?.syncIntervalMinutes ?? baselineSettings.syncIntervalMinutes ?? 15);
+    const validFallback = Number.isInteger(fallback) && fallback >= 1 && fallback <= 1440 ? fallback : 15;
+    settings.syncIntervalMinutes = Number.isInteger(parsedInterval) && parsedInterval >= 1 && parsedInterval <= 1440
+      ? parsedInterval
+      : validFallback;
+  } else {
+    settings.syncIntervalMinutes = parsedInterval;
+  }
   return settings;
 }
 
@@ -84,11 +97,24 @@ function isDirty() {
 
 function updateActions() {
   const locked = phase === 'loading' || phase === 'busy';
-  saveButton.disabled = locked || !isDirty();
+  const dirty = isDirty();
+  saveButton.disabled = locked || !dirty;
+  if (discardButton) {
+    discardButton.hidden = !dirty || phase === 'conflict' || phase === 'loading';
+    discardButton.disabled = locked;
+  }
   reloadButton.hidden = phase !== 'conflict' || !externalData;
-  syncButton.disabled = locked || !runtimeRunning
-    || ['disabled', 'running'].includes(syncStatus.phase)
-    || Boolean(syncStatus.recovery);
+  const syncUnavailable = ['disabled', 'running'].includes(syncStatus.phase) || Boolean(syncStatus.recovery);
+  syncButton.disabled = locked || !runtimeRunning || syncUnavailable;
+  syncButton.hidden = syncStatus.phase === 'disabled' || Boolean(syncStatus.recovery);
+  const syncEnabled = Boolean(field('syncEnabled')?.checked);
+  if (syncIntervalField) {
+    syncIntervalField.hidden = !syncEnabled;
+  }
+  const intervalInput = field('syncIntervalMinutes');
+  if (intervalInput) {
+    intervalInput.disabled = locked || !syncEnabled;
+  }
   const readOnly = Boolean((externalData?.settings || baselineSettings).readOnly);
   abortGitButton.disabled = locked || readOnly || syncStatus.phase === 'running';
   if (resolveButton) resolveButton.disabled = locked || readOnly || syncStatus.phase === 'running' || !conflictsReady();
@@ -97,10 +123,10 @@ function updateActions() {
   document.getElementById('open-recovery').disabled = locked;
 }
 
-function renderSyncStatus(status = {}) {
-  syncStatus = { phase: 'idle', operation: '', recovery: null, lastResult: null, ...status };
-  syncStatusPanel.dataset.phase = syncStatus.phase;
+function renderSyncStatusCopy() {
   const recovery = syncStatus.recovery;
+  const enabledInForm = loaded && Boolean(field('syncEnabled')?.checked);
+  const syncToggleDirty = loaded && enabledInForm !== Boolean(baselineSettings.syncEnabled);
   if (recovery) {
     const labels = { rebase: 'rebase', merge: 'merge', 'cherry-pick': 'cherry-pick', revert: 'revert', unmerged: '未合并文件' };
     syncStatusTitle.textContent = recovery.unmergedCount > 0 && recovery.abortable
@@ -110,10 +136,6 @@ function renderSyncStatus(status = {}) {
       ? `有 ${recovery.unmergedCount} 个文件两边都改过，同步已暂停。浏览和复习可以继续。可以在下面逐个选保留哪一边；也可以中止，回到同步前的状态（这期间保存的笔记修改会从正文撤掉并存进「历史与草稿」）。`
       : `有 ${recovery.unmergedCount} 个未合并文件，同步已暂停。这种状态应用里无法中止，请用 Git 工具处理后重启应用。`;
     abortGitButton.hidden = !recovery.abortable;
-  } else if (syncStatus.phase === 'disabled') {
-    syncStatusTitle.textContent = '自动同步已关闭';
-    syncStatusDetail.textContent = '本地编辑和索引不受影响。';
-    abortGitButton.hidden = true;
   } else if (syncStatus.phase === 'running') {
     syncStatusTitle.textContent = 'Git 同步正在进行';
     syncStatusDetail.textContent = syncStatus.operation === 'abort' ? '正在中止当前 Git 操作…' : syncStatus.operation === 'resolve' ? '正在按选择解决冲突…' : '请稍候，本地内容仍可继续使用。';
@@ -124,11 +146,29 @@ function renderSyncStatus(status = {}) {
       ? '当前设备的复习日志已在 Git 暂存区；请先提交或取消暂存。'
       : syncStatus.lastResult?.error || '可检查网络和远端后重试。';
     abortGitButton.hidden = true;
+  } else if (syncToggleDirty && enabledInForm && syncStatus.phase === 'disabled') {
+    syncStatusTitle.textContent = '自动同步尚未保存';
+    syncStatusDetail.textContent = '点击右下角「保存设置」并确认后生效。';
+    abortGitButton.hidden = true;
+  } else if (syncToggleDirty && !enabledInForm && syncStatus.phase !== 'disabled') {
+    syncStatusTitle.textContent = '自动同步将在保存后关闭';
+    syncStatusDetail.textContent = '点击右下角「保存设置」生效；本地编辑和索引不受影响。';
+    abortGitButton.hidden = true;
+  } else if (syncStatus.phase === 'disabled') {
+    syncStatusTitle.textContent = '自动同步已关闭';
+    syncStatusDetail.textContent = '本地编辑和索引不受影响。';
+    abortGitButton.hidden = true;
   } else {
     syncStatusTitle.textContent = 'Git 同步就绪';
     syncStatusDetail.textContent = syncStatus.lastResult?.ok === true ? '上次操作已完成。' : '本地编辑和索引不受影响。';
     abortGitButton.hidden = true;
   }
+}
+
+function renderSyncStatus(status = {}) {
+  syncStatus = { phase: 'idle', operation: '', recovery: null, lastResult: null, ...status };
+  syncStatusPanel.dataset.phase = syncStatus.phase;
+  renderSyncStatusCopy();
   refreshConflicts();
   updateActions();
 }
@@ -255,8 +295,16 @@ function chooseAllConflicts(side) {
 
 function applyCapabilities(next = {}) {
   capabilities = {
-    launchAtLogin: next.launchAtLogin !== false
+    launchAtLogin: next.launchAtLogin !== false,
+    isMac: next.isMac !== undefined
+      ? Boolean(next.isMac)
+      : Boolean(document.documentElement?.classList?.contains?.('chrome-inset'))
   };
+  if (systemHideNote) {
+    systemHideNote.textContent = capabilities.isMac
+      ? '关闭主窗口时应用会隐藏，仍可从菜单栏或程序坞恢复。'
+      : '关闭主窗口时应用会隐藏，仍可从系统托盘恢复。';
+  }
   for (const element of capabilityElements) {
     const supported = Boolean(capabilities[element.dataset.capability]);
     element.hidden = !supported;
@@ -336,14 +384,14 @@ function fill(data) {
   }
 
   runtimeRunning = Boolean(data.runtimeRunning);
+  loaded = true;
+  baselineSettings = readPlainSettings();
+  baseline = snapshot();
   renderSyncStatus(data.syncStatus);
   savedVaultDir = String(data.settings.vaultDir || '');
   runtimeStatus.textContent = runtimeRunning ? '工作台运行中' : '等待选择资料库';
   // 正常运行时不必说；只有还没选资料库、工作台没跑起来时才挂出来。
   runtimeStatus.hidden = runtimeRunning;
-  loaded = true;
-  baselineSettings = readPlainSettings();
-  baseline = snapshot();
   lastServerSignature = serverSignature(data);
   externalData = null;
   syncThemeIndicator?.({ immediate: true });
@@ -367,6 +415,7 @@ function collect() {
 
 function updateDirtyState() {
   if (!loaded || phase === 'loading' || phase === 'busy') return;
+  renderSyncStatusCopy();
   if (!isDirty() && externalData) {
     const latest = externalData;
     fill(latest);
@@ -400,6 +449,7 @@ async function load() {
     unlockControls();
     setPhase('clean');
     setMessage('');
+    if (data.pendingSection) navigateToSection(data.pendingSection);
     if (pendingExternalChange) {
       pendingExternalChange = false;
       handleExternalChange();
@@ -576,9 +626,22 @@ document.getElementById('open-vault').addEventListener('click', () => openLocati
 document.getElementById('open-config').addEventListener('click', () => openLocation('已打开配置目录。', api.openConfigDirectory));
 document.getElementById('open-recovery').addEventListener('click', () => openLocation('已打开资料库恢复。', () => api.openRecovery('restore')));
 
+discardButton?.addEventListener('click', () => {
+  if (activeOperation || !isDirty()) return;
+  for (const name of PLAIN_FIELDS) {
+    const input = field(name);
+    if (!input) continue;
+    if (input.type === 'checkbox') input.checked = Boolean(baselineSettings[name]);
+    else input.value = baselineSettings[name] ?? '';
+  }
+  syncThemeIndicator?.();
+  updateDirtyState();
+  setMessage('已放弃未保存的更改。');
+});
+
 reloadButton.addEventListener('click', async () => {
   if (!externalData) return;
-  const confirmed = await window.workstationDialog.confirm('载入外部设置？', '本页未保存的更改会被放弃。', '载入设置');
+  const confirmed = await window.workstationDialog.confirm('载入外部设置？', '本页未保存的更改会被放弃。', '载入设置', { danger: true });
   if (!confirmed || !externalData) return;
   const latest = externalData;
   fill(latest);
@@ -606,9 +669,10 @@ function activateSection(id) {
 }
 
 let navigatingSection = null;
+let pinnedSection = null;
 
 function activateVisibleSection() {
-  if (navigatingSection) return;
+  if (navigatingSection || pinnedSection) return;
   const marker = Math.min(window.innerHeight * .24, 180);
   let visible = sections[0];
   for (const section of sections) {
@@ -619,12 +683,14 @@ function activateVisibleSection() {
 }
 
 function activateHashSection() {
+  pinnedSection = null;
   navigatingSection = window.location.hash.slice(1) || sections[0]?.id;
   activateSection(navigatingSection);
 }
 
 for (const link of navLinks) {
   link.addEventListener('click', () => {
+    pinnedSection = null;
     navigatingSection = link.hash.slice(1);
     activateSection(navigatingSection);
   });
@@ -634,16 +700,36 @@ activateHashSection();
 window.addEventListener('hashchange', activateHashSection);
 window.addEventListener('scrollend', () => { navigatingSection = null; });
 for (const type of ['wheel', 'touchstart']) {
-  window.addEventListener(type, () => { navigatingSection = null; }, { passive: true });
+  window.addEventListener(type, () => { navigatingSection = null; pinnedSection = null; }, { passive: true });
 }
 window.addEventListener('keydown', event => {
   if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
     navigatingSection = null;
+    pinnedSection = null;
+  }
+  if (event.key?.toLowerCase() === 's' && !event.altKey && !event.shiftKey && !document.querySelector?.('dialog[open]')) {
+    const primary = capabilities.isMac ? Boolean(event.metaKey) && !event.ctrlKey : Boolean(event.ctrlKey) && !event.metaKey;
+    if (primary) {
+      event.preventDefault();
+      if (isDirty() && !activeOperation && form.reportValidity?.() !== false) saveSettings();
+    }
   }
 });
 window.addEventListener('scroll', activateVisibleSection, { passive: true });
-window.addEventListener('resize', () => { navigatingSection = null; activateVisibleSection(); });
+window.addEventListener('resize', () => { navigatingSection = null; pinnedSection = null; activateVisibleSection(); });
+
+function navigateToSection(section) {
+  const target = document.getElementById(section);
+  if (!target) return;
+  navigatingSection = section;
+  pinnedSection = section;
+  activateSection(section);
+  const reduced = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches);
+  target.scrollIntoView?.({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+  target.querySelector?.('h2')?.focus?.({ preventScroll: true });
+}
 
 api.onChanged(handleExternalChange);
 api.onSyncStatusChanged(renderSyncStatus);
+api.onNavigateSection?.(navigateToSection);
 load();

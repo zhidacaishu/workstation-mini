@@ -5,12 +5,15 @@
   // 内部服务每次启动换端口，localStorage 按端口隔离，重启后就读不到了。
 
   let tasks = [];
+  let pendingUpdates = 0;
   const dates = new Map();
   window.workstationPlan = {
     refreshTasks,
+    beginUpdate: () => { pendingUpdates += 1; },
+    endUpdate: () => { pendingUpdates = Math.max(0, pendingUpdates - 1); },
     hasUnsavedChanges: exceptForm => tasks.some(form => form !== exceptForm
       && form.querySelector('[name="due"]').value !== dates.get(form)),
-    hasPendingUpdate: () => tasks.some(form => form.dataset.busy === '1'),
+    hasPendingUpdate: () => pendingUpdates > 0 || tasks.some(form => form.dataset.busy === '1'),
     saved(form) {
       if (!dates.has(form)) return;
       dates.set(form, form.querySelector('[name="due"]').value);
@@ -49,6 +52,7 @@
     const baseline = date.defaultValue;
     const reschedule = form.querySelector('.plan-task-reschedule');
     const summary = reschedule?.querySelector('summary');
+    const revertButton = form.querySelector('[data-task-revert]');
     dates.set(form, baseline);
     const refreshDate = () => {
       const edited = date.value !== dates.get(form);
@@ -60,6 +64,21 @@
         else reschedule.setAttribute('name', 'task-reschedule');
       }
     };
+    const revertDate = () => {
+      date.value = dates.get(form);
+      refreshDate();
+    };
+    if (revertButton) {
+      revertButton.addEventListener('click', () => {
+        revertDate();
+        if (reschedule?.open) {
+          reschedule.open = false;
+          summary?.focus();
+        } else {
+          date.focus();
+        }
+      });
+    }
     if (reschedule && summary) {
       reschedule.addEventListener('keydown', event => {
         if (event.key !== 'Escape' || !reschedule.open) return;
@@ -67,6 +86,12 @@
         event.stopPropagation();
         reschedule.open = false;
         summary.focus();
+      });
+    } else {
+      date.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || date.value === dates.get(form)) return;
+        event.preventDefault();
+        revertDate();
       });
     }
     date.addEventListener('input', refreshDate);

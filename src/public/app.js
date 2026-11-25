@@ -38,7 +38,27 @@
     return payload;
   }
 
-  function notify(message, { type = 'success', timeout } = {}) {
+  const FLASH_KEY = 'workstation-flash';
+
+  function flash(payload) {
+    if (!payload) return;
+    try {
+      window.sessionStorage?.setItem?.(FLASH_KEY, JSON.stringify(payload));
+    } catch {}
+  }
+
+  function consumeFlash() {
+    try {
+      const raw = window.sessionStorage?.getItem?.(FLASH_KEY);
+      if (!raw) return null;
+      window.sessionStorage.removeItem(FLASH_KEY);
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function notify(message, { type = 'success', timeout, action } = {}) {
     const region = document.getElementById('toast-region');
     if (!region || !message) return () => {};
 
@@ -50,12 +70,25 @@
     text.textContent = message;
     const closeButton = document.createElement('button');
     closeButton.type = 'button';
+    closeButton.className = 'toast-close';
     closeButton.setAttribute('aria-label', '关闭通知');
     closeButton.textContent = '×';
-    toast.append(text, closeButton);
+
+    const hasAction = Boolean(action && action.label && typeof action.onClick === 'function');
+    let actionButton = null;
+    if (hasAction) {
+      toast.classList.add('has-action');
+      actionButton = document.createElement('button');
+      actionButton.type = 'button';
+      actionButton.className = 'toast-action';
+      actionButton.textContent = action.label;
+      toast.append(text, actionButton, closeButton);
+    } else {
+      toast.append(text, closeButton);
+    }
     region.append(toast);
 
-    const delay = timeout === undefined ? (type === 'error' ? 8000 : 4200) : timeout;
+    const delay = timeout === undefined ? (type === 'error' ? 8000 : hasAction ? 6500 : 4200) : timeout;
     let timer = 0;
     let remaining = delay;
     let startedAt = 0;
@@ -100,6 +133,27 @@
       remaining = Math.max(400, remaining - (Date.now() - startedAt));
     };
 
+    if (actionButton) {
+      let acting = false;
+      actionButton.addEventListener('click', async () => {
+        if (acting || closed) return;
+        acting = true;
+        actionButton.disabled = true;
+        pauseTimer();
+        let keepOpen = false;
+        try {
+          keepOpen = (await action.onClick()) === false;
+        } finally {
+          if (keepOpen && !closed) {
+            acting = false;
+            actionButton.disabled = false;
+            startTimer();
+          } else {
+            close();
+          }
+        }
+      });
+    }
     closeButton.addEventListener('click', close);
     toast.addEventListener?.('mouseenter', () => { hovered = true; pauseTimer(); });
     toast.addEventListener?.('mouseleave', () => { hovered = false; startTimer(); });
@@ -152,15 +206,30 @@
       : Boolean(event.ctrlKey) && !event.metaKey;
   }
 
+  function hasUnsavedWork() {
+    if (document.querySelector?.('[data-editor-form], [data-card-editor], #reviewer:not([hidden])')) return true;
+    if (window.workstationCalendar?.hasUnsavedChanges?.()) return true;
+    if (window.workstationPlan?.hasUnsavedChanges?.() || window.workstationPlan?.hasPendingUpdate?.()) return true;
+    for (const input of document.querySelectorAll?.('[data-quick-add] input[name="text"]') || []) {
+      if (String(input.value || '').trim()) return true;
+    }
+    return false;
+  }
+
   window.workstationUI = {
     requestJson,
     notify,
+    flash,
+    hasUnsavedWork,
     hasOpenDialog,
     isInteractiveTarget,
     isExactPrimaryShortcut
   };
 
-  async function updateBoardStatus(select, { restoreFocus = true } = {}) {
+  const boardOpSeq = new Map();
+  const boardToastClose = new Map();
+
+  async function updateBoardStatus(select, { targetStatus, expectedHash: explicitHash, restoreFocus = true, isUndo = false, expectedSeq } = {}) {
     const form = select.form;
     const card = form?.closest('[data-board-card]');
     const board = form?.closest('[data-board]');
@@ -170,8 +239,15 @@
     }
 
     const oldStatus = card.dataset.status;
-    const newStatus = select.value;
+    const newStatus = targetStatus !== undefined ? targetStatus : select.value;
+    const data = Object.fromEntries(new FormData(form));
+    const entityKey = card.dataset.path || data.path || '';
+    if (expectedSeq !== undefined && boardOpSeq.get(entityKey) !== expectedSeq) return;
+    if (explicitHash && card.dataset.hash && card.dataset.hash !== explicitHash) return;
     if (!oldStatus || oldStatus === newStatus) return;
+    select.value = newStatus;
+    data.status = newStatus;
+    if (explicitHash) data.expectedHash = explicitHash;
 
     const sourceColumn = card.closest('[data-board-column]');
     const targetColumn = [...board.querySelectorAll('[data-board-column]')]
@@ -193,7 +269,6 @@
       }
     };
 
-    const data = Object.fromEntries(new FormData(form));
     card.classList.add('is-pending');
     card.setAttribute('aria-busy', 'true');
     select.disabled = true;
@@ -206,6 +281,10 @@
       });
       const targetItems = targetColumn.querySelector('[data-board-items]');
       if (!targetItems || result.status !== newStatus) throw new Error('服务器没有确认新的状态。');
+      const seq = (boardOpSeq.get(entityKey) || 0) + 1;
+      boardOpSeq.set(entityKey, seq);
+      boardToastClose.get(entityKey)?.();
+      boardToastClose.delete(entityKey);
       card.dataset.status = newStatus;
       if (result.hash) {
         card.dataset.hash = result.hash;
@@ -238,11 +317,32 @@
       } else {
         moveCard();
       }
-      notify(`已移到“${select.selectedOptions[0]?.textContent || newStatus}”`);
+      const label = select.selectedOptions[0]?.textContent || newStatus;
+      if (isUndo) {
+        notify(`已移回「${label}」`);
+      } else {
+        const undoHash = result.hash || '';
+        const closeToast = notify(`已移到「${label}」`, {
+          action: {
+            label: '撤销',
+            onClick: async () => {
+              if (!card.isConnected || select.disabled || boardOpSeq.get(entityKey) !== seq) return;
+              await updateBoardStatus(select, {
+                targetStatus: oldStatus,
+                expectedHash: undoHash,
+                restoreFocus: false,
+                isUndo: true,
+                expectedSeq: seq
+              });
+            }
+          }
+        });
+        boardToastClose.set(entityKey, closeToast);
+      }
     } catch (error) {
       select.value = oldStatus;
       notify(error.status === 409
-        ? '条目已在别处修改，请刷新页面后重试。卡片没有移动。'
+        ? (isUndo ? '条目已在别处修改，无法自动撤销。' : '条目已在别处修改，请刷新页面后重试。卡片没有移动。')
         : `状态更新失败：${error.message}`, { type: 'error' });
     } finally {
       card.classList.remove('is-pending');
@@ -336,32 +436,63 @@
     const snapshot = () => new URLSearchParams(new FormData(cardEditor));
     const initial = snapshot().toString();
     const errorMessage = cardEditor.querySelector('[data-card-error]');
+    const cardStatus = document.querySelector('[data-card-status]');
+    const cardSaveButton = document.querySelector('button[type="submit"][form="card-edit-form"]');
     let saving = false;
     let saved = false;
+    const renderCardState = (state, text) => {
+      if (!cardStatus) return;
+      cardStatus.className = `editor-status${state === 'dirty' ? ' is-dirty' : ''}${state === 'error' ? ' is-error' : ''}`;
+      cardStatus.textContent = text;
+    };
+    const refreshCardState = () => {
+      if (saving) return;
+      const dirty = snapshot().toString() !== initial;
+      renderCardState(dirty ? 'dirty' : 'clean', dirty ? '有未保存的更改' : '所有更改均已保存');
+    };
+    cardEditor.addEventListener('input', refreshCardState);
+    cardEditor.addEventListener('change', refreshCardState);
+    refreshCardState();
     bindEditorSave(cardEditor, async event => {
       event.preventDefault();
       if (saving) return;
       const body = snapshot();
+      const submitter = event.submitter || cardSaveButton;
       saving = true;
       cardEditor.inert = true;
-      if (event.submitter) event.submitter.disabled = true;
+      if (submitter) {
+        submitter.disabled = true;
+        submitter.setAttribute('aria-busy', 'true');
+      }
       errorMessage.hidden = true;
+      renderCardState('saving', '正在保存…');
       try {
         const result = await requestJson(cardEditor.action, { method: 'POST', body });
         saved = true;
+        renderCardState('clean', '已保存，正在返回…');
         window.location.assign(result.redirect);
         return true;
       } catch (error) {
         saved = false;
         errorMessage.textContent = '保存失败：' + error.message;
         errorMessage.hidden = false;
+        renderCardState('error', '保存失败');
+        window.workstationMotion?.nudge?.(errorMessage);
       } finally {
         if (!saved) {
           saving = false;
           cardEditor.inert = false;
-          if (event.submitter) event.submitter.disabled = false;
+          if (submitter) {
+            submitter.disabled = false;
+            submitter.removeAttribute('aria-busy');
+          }
         }
       }
+    });
+    document.addEventListener('keydown', event => {
+      if (!isExactPrimaryShortcut(event, 's') || hasOpenDialog()) return;
+      event.preventDefault();
+      if (!saving) cardEditor.requestSubmit();
     });
     window.addEventListener('beforeunload', event => {
       if (saved || (!saving && snapshot().toString() === initial)) return;
@@ -378,7 +509,8 @@
     event.preventDefault();
     const action = event.submitter?.textContent.trim() || '确认';
     const detail = form.dataset.confirm || '删除前会保存本地版本，可在「历史与草稿」恢复。';
-    if (!await window.workstationDialog.confirm(action + '？', detail, action) || !form.isConnected) return;
+    const danger = form.matches('[data-confirm-delete], [data-confirm-danger]');
+    if (!await window.workstationDialog.confirm(action + '？', detail, action, { danger }) || !form.isConnected) return;
     approvedForms.add(form);
     try { form.requestSubmit(event.submitter || undefined); }
     finally { approvedForms.delete(form); }
@@ -414,15 +546,23 @@
       renderEditorState(dirty ? 'dirty' : 'clean', dirty ? '有未保存的更改' : cleanMessage);
     };
 
+    editorForm.noValidate = true;
     editorForm.addEventListener('input', refreshEditorState);
     editorForm.addEventListener('change', refreshEditorState);
     bindEditorSave(editorForm, async event => {
       event.preventDefault();
       if (saving) return;
+      const pathInput = editorForm.querySelector('[name="path"]');
+      if (pathInput && !String(pathInput.value || '').trim()) {
+        const titleInput = editorForm.querySelector('[data-note-title]');
+        renderEditorState('error', titleInput ? '请先填写标题或保存路径' : '请先填写保存路径');
+        window.workstationMotion?.nudge?.(status);
+        (titleInput || pathInput).focus();
+        return false;
+      }
       saving = true;
       saveButton.disabled = true;
       saveButton.setAttribute('aria-busy', 'true');
-      const pathInput = editorForm.querySelector('[name="path"]');
       const pathWasReadOnly = Boolean(pathInput?.readOnly);
       let lockPath = false;
       if (pathInput) pathInput.readOnly = true;
@@ -483,7 +623,7 @@
             renderEditorState('error', '草稿未确认保存，请保留此页面并复制内容备份后再处理冲突。');
             return;
           }
-          if (await window.workstationDialog.confirm('载入最新版本？', '这篇笔记已在别处修改。你写的内容已存为本机草稿，可在「历史与草稿」找回。', '载入最新版本')) {
+          if (await window.workstationDialog.confirm('载入最新版本？', '这篇笔记已在别处修改。你写的内容已存为本机草稿，可在「历史与草稿」找回。', '载入最新版本', { danger: true })) {
             navigating = true;
             window.location.reload();
             return;
@@ -525,6 +665,7 @@
     const failures = document.getElementById('index-banner-failures');
     const summary = document.getElementById('index-banner-summary');
     const retry = document.getElementById('index-banner-retry');
+    const refresh = document.getElementById('index-banner-refresh');
 
     let timer = null;
     let generation = 0;
@@ -590,6 +731,7 @@
         wasIncomplete = true;
         renderFailures({ failures: [] });
         if (retry) retry.hidden = true;
+        if (refresh) refresh.hidden = true;
         return 1000;
       }
 
@@ -599,6 +741,7 @@
         wasIncomplete = true;
         renderFailures(status);
         if (retry) retry.hidden = false;
+        if (refresh) refresh.hidden = true;
         return 9000;
       }
 
@@ -609,6 +752,7 @@
         renderFailures(status);
         // 库已损坏时重试没有用，只能重启重建。
         if (retry) retry.hidden = status.fatal?.retryable === false;
+        if (refresh) refresh.hidden = true;
         return 9000;
       }
 
@@ -617,8 +761,10 @@
       if (wasIncomplete) {
         message.textContent = `索引已恢复，共 ${status.notes} 篇笔记。刷新页面查看完整结果。`;
         banner.hidden = false;
+        if (refresh) refresh.hidden = false;
       } else {
         banner.hidden = true;
+        if (refresh) refresh.hidden = true;
       }
       return 15000;
     }
@@ -656,10 +802,190 @@
       }
     });
 
+    refresh?.addEventListener('click', () => window.location.reload());
+
     poll(generation);
   }
 
   watchIndexStatus();
+
+  // 卡片列表页就地暂停 / 恢复复习：按卡片序号与卡组 hash 绑定撤销，防止旧通知执行相反动作。
+  const cardOpSeq = new Map();
+  const cardToastClose = new Map();
+
+  async function toggleCardSuspend(form, { targetSuspended, expectedHash = '', isUndo = false, expectedSeq } = {}) {
+    if (form.dataset.busy === '1') return;
+    const id = form.querySelector('[name="id"]')?.value;
+    const suspendedInput = form.querySelector('[name="suspended"]');
+    const button = form.querySelector('button[type="submit"]');
+    const row = form.closest('.card-row');
+    if (!id || !suspendedInput || !button || !row) {
+      form.submit();
+      return;
+    }
+    if (expectedSeq !== undefined && cardOpSeq.get(id) !== expectedSeq) return;
+    const nextSuspended = targetSuspended !== undefined ? Boolean(targetSuspended) : suspendedInput.value === '1';
+    form.dataset.busy = '1';
+    button.disabled = true;
+    try {
+      const result = await requestJson(form.action, {
+        method: 'POST',
+        json: { id, suspended: nextSuspended, ...(expectedHash ? { expectedHash } : {}) },
+        fallbackMessage: nextSuspended ? '暂停失败' : '恢复失败'
+      });
+      const seq = (cardOpSeq.get(id) || 0) + 1;
+      cardOpSeq.set(id, seq);
+      cardToastClose.get(id)?.();
+      cardToastClose.delete(id);
+      const suspended = Boolean(result.suspended);
+      row.classList.toggle('is-suspended', suspended);
+      const stateEl = row.querySelector('.card-state');
+      if (stateEl) {
+        if (result.status) {
+          stateEl.textContent = result.status.label;
+          stateEl.className = `card-state${result.status.tone ? ` ${result.status.tone}` : ''}`;
+        } else if (!suspended) {
+          stateEl.textContent = '状态待刷新';
+          stateEl.className = 'card-state';
+        }
+      }
+      suspendedInput.value = suspended ? '0' : '1';
+      button.textContent = suspended ? '恢复' : '暂停';
+      const label = button.getAttribute('aria-label') || '';
+      if (label) {
+        button.setAttribute('aria-label', label.replace(/^(?:暂停|恢复)复习：/, suspended ? '恢复复习：' : '暂停复习：'));
+      }
+      const meta = document.querySelector('[data-cards-meta]');
+      if (meta) {
+        const total = document.querySelectorAll?.('.card-row')?.length || 0;
+        const paused = document.querySelectorAll?.('.card-row.is-suspended')?.length || 0;
+        meta.textContent = paused ? `${total} 张 · 已暂停 ${paused} 张` : `${total} 张`;
+      }
+      const deckReview = document.querySelector('[data-deck-review]');
+      if (deckReview && typeof result.deckCanReview === 'boolean') {
+        deckReview.hidden = !result.deckCanReview;
+      }
+      window.workstationReviewCounts?.refresh?.();
+      if (isUndo) {
+        notify(suspended ? '已撤销，恢复为暂停状态' : '已撤销，恢复正常复习');
+      } else {
+        const undoHash = result.hash || '';
+        const closeToast = notify(suspended ? '已暂停复习' : '已恢复复习', {
+          action: {
+            label: '撤销',
+            onClick: async () => {
+              if (!form.isConnected || form.dataset.busy === '1' || cardOpSeq.get(id) !== seq) return;
+              await toggleCardSuspend(form, {
+                targetSuspended: !suspended,
+                expectedHash: undoHash,
+                isUndo: true,
+                expectedSeq: seq
+              });
+            }
+          }
+        });
+        cardToastClose.set(id, closeToast);
+      }
+    } catch (error) {
+      notify(error.status === 409 && isUndo ? '卡组已在别处修改，无法自动撤销。' : error.message, { type: 'error' });
+    } finally {
+      form.dataset.busy = '0';
+      button.disabled = false;
+    }
+  }
+  document.addEventListener('submit', event => {
+    const form = event.target;
+    if (!form?.matches?.('.card-row-action') || event.defaultPrevented) return;
+    event.preventDefault();
+    toggleCardSuspend(form);
+  });
+
+  // 资料库健康页一键重建索引。
+  document.addEventListener('click', async event => {
+    const button = event.target?.closest?.('[data-health-reindex]');
+    if (!button || button.disabled) return;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = '正在扫描…';
+    try {
+      const stats = await requestJson('/api/reindex', { method: 'POST', fallbackMessage: '重新扫描索引失败' });
+      flash({
+        message: stats.phase === 'degraded'
+          ? `扫描完成，仍有 ${stats.failureTotal} 篇笔记需要处理。`
+          : `索引扫描完成：新增 ${stats.added} / 更新 ${stats.updated}`,
+        type: stats.phase === 'degraded' ? 'info' : 'success'
+      });
+      window.location.reload();
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = original;
+      notify(`重新扫描索引失败：${error.message}`, { type: 'error' });
+    }
+  });
+
+  // 资料库搜索框清空按钮与 Esc 共用清空逻辑（IME 组合输入期间不截获 Esc）。
+  const librarySearch = document.querySelector('.library-search');
+  if (librarySearch) {
+    const searchInput = librarySearch.querySelector('input[type="search"]');
+    const clearButton = librarySearch.querySelector('[data-search-clear]');
+    if (searchInput && clearButton) {
+      const syncClear = () => {
+        const hasValue = Boolean(searchInput.value);
+        librarySearch.classList.toggle('has-value', hasValue);
+        clearButton.hidden = !hasValue;
+      };
+      const clearSearch = () => {
+        const hadSubmitted = Boolean(searchInput.defaultValue);
+        searchInput.value = '';
+        syncClear();
+        if (hadSubmitted && searchInput.form) searchInput.form.requestSubmit();
+        else searchInput.focus();
+      };
+      searchInput.addEventListener('input', syncClear);
+      searchInput.addEventListener('keydown', event => {
+        if (event.isComposing || event.keyCode === 229 || event.key !== 'Escape' || !searchInput.value) return;
+        event.preventDefault();
+        clearSearch();
+      });
+      clearButton.addEventListener('click', clearSearch);
+      syncClear();
+    }
+  }
+
+  // 展示确认后的跨页提示：服务端确认的 ws_flash（原生重定向）与已成功 AJAX 的撤销提示。
+  function showFlash(item) {
+    if (!item) return;
+    if (item.kind === 'task-undo' && item.undoToken) {
+      notify(item.message || '已更新待办', {
+        type: 'success',
+        action: {
+          label: '撤销',
+          onClick: () => window.workstationTasks?.undo?.({
+            undoToken: item.undoToken,
+            expectedHash: item.expectedHash || ''
+          })
+        }
+      });
+    } else if (item.message) {
+      notify(item.message, {
+        type: item.type || 'success',
+        action: item.href && item.actionLabel
+          ? { label: item.actionLabel, onClick: () => { window.location.href = item.href; } }
+          : undefined
+      });
+    }
+  }
+
+  const toastRegion = document.getElementById('toast-region');
+  const rawServerFlash = toastRegion?.dataset?.serverFlash || '';
+  if (rawServerFlash && toastRegion?.dataset) delete toastRegion.dataset.serverFlash;
+  const pendingFlash = consumeFlash();
+  if (!document.querySelector('.error-state')) {
+    if (rawServerFlash) {
+      try { showFlash(JSON.parse(rawServerFlash)); } catch {}
+    }
+    showFlash(pendingFlash);
+  }
 
   // 代码块右上角的「复制」。
   for (const pre of document.querySelectorAll?.('.prose pre') || []) {

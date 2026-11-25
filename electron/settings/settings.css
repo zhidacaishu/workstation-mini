@@ -112,7 +112,9 @@ h1 { margin: 0; font-size: var(--fs-3xl); font-weight: 600; letter-spacing: -.01
 h2 { margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.01em; line-height: 1.35; }
 .section-heading p { color: var(--subtle); font-size: var(--fs-sm); line-height: 1.6; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.field-grid:has(> [hidden]) { grid-template-columns: minmax(0, 1fr); }
 .field { display: grid; align-content: start; gap: 6px; margin-bottom: 16px; }
+.field[hidden] { display: none; }
 .field > span { color: var(--text-2); font-size: var(--fs-sm); font-weight: 600; }
 .field small, .toggle small { color: var(--subtle); font-size: var(--fs-xs); line-height: 1.6; }
 .field em { margin-left: 4px; color: var(--accent-text); font-size: var(--fs-2xs); font-style: normal; font-weight: 600; }

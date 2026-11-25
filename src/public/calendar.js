@@ -7,6 +7,18 @@
     const text = noteForm()?.elements.text;
     return Boolean(text && text.value !== text.defaultValue);
   };
+  function syncNoteControls() {
+    const form = noteForm();
+    if (!form) return;
+    const dirty = noteDirty();
+    const save = form.querySelector('button[type="submit"]');
+    const revert = form.querySelector('[data-calendar-revert]');
+    if (save) save.disabled = saving || !dirty;
+    if (revert) {
+      revert.hidden = !dirty || saving;
+      revert.disabled = saving;
+    }
+  }
   let saving = false;
   let editVersion = 0;
   let pending;
@@ -31,7 +43,7 @@
     return parts;
   }
 
-  function render(parts, { keepNote = false } = {}) {
+  function render(parts, { keepNote = false, keepTasks = false } = {}) {
     const calendar = workspace.querySelector('.plan-calendar');
     const active = document.activeElement;
     const monthButtons = [...document.querySelectorAll('.plan-month-nav a')];
@@ -62,12 +74,16 @@
     if (!header.isEqualNode(parts.header)) header.replaceWith(parts.header);
     const badge = document.querySelector('[data-nav="plan"]');
     if (!badge.isEqualNode(parts.badge)) badge.replaceChildren(...parts.badge.childNodes);
-    if (keepNote) workspace.querySelector('[aria-labelledby="plan-day-tasks-title"]').replaceWith(parts.tasks);
-    else {
+    if (keepNote || keepTasks) {
+      if (!keepTasks) {
+        workspace.querySelector('[aria-labelledby="plan-day-tasks-title"]')?.replaceWith(parts.tasks);
+      }
+    } else {
       workspace.querySelector('.plan-day-detail').replaceWith(parts.detail);
       window.workstationMotion?.enter?.(parts.detail, { y: 5, duration: 170 });
     }
-    plan.refreshTasks();
+    if (!keepTasks) plan.refreshTasks();
+    syncNoteControls();
     if (!active?.isConnected) {
       const target = monthButtonIndex >= 0 ? document.querySelectorAll('.plan-month-nav a')[monthButtonIndex]
         : wasInDay ? workspace.querySelector('[aria-current="date"]') : null;
@@ -122,7 +138,7 @@
       }
       if (editVersion !== revision || saving || plan.hasPendingUpdate()) throw new Error('当天内容有新修改，已保留在当前日期。');
       if (noteDirty() || plan.hasUnsavedChanges()) {
-        const leave = await window.workstationDialog.confirm('放弃未保存的修改？', '切换日期将放弃当天未保存的备注或待办改期。', '切换日期');
+        const leave = await window.workstationDialog.confirm('放弃未保存的修改？', '切换日期将放弃当天未保存的备注或待办改期。', '切换日期', { danger: true });
         if (request.signal.aborted) return;
         if (!leave) { returnToRenderedEntry(); return; }
       }
@@ -153,12 +169,45 @@
     editVersion++;
     if (event.target.matches('#calendar-note')) {
       noteForm().querySelector('[data-calendar-status]').textContent = noteDirty() ? '有未保存的更改' : '';
+      syncNoteControls();
     }
   });
+  workspace.addEventListener('click', event => {
+    const revert = event.target?.closest?.('[data-calendar-revert]');
+    if (!revert || saving) return;
+    const form = noteForm();
+    if (!form) return;
+    form.elements.text.value = form.elements.text.defaultValue;
+    form.querySelector('[data-calendar-status]').textContent = '';
+    editVersion++;
+    syncNoteControls();
+    form.elements.text.focus();
+  });
+  document.addEventListener('keydown', event => {
+    if (!window.workstationUI?.isExactPrimaryShortcut?.(event, 's') || window.workstationUI?.hasOpenDialog?.()) return;
+    const form = noteForm();
+    if (!form || (!noteDirty() && document.activeElement !== form.elements.text)) return;
+    event.preventDefault();
+    if (!saving && noteDirty()) form.requestSubmit();
+  });
   workspace.addEventListener('submit', () => { editVersion++; }, true);
+  const currentDay = () => workspace.querySelector('[aria-current="date"]')?.dataset.calendarDay || '';
   window.workstationCalendar = {
     hasUnsavedChanges: () => saving || noteDirty(),
-    refreshAfterTask: async () => render(await readCalendar(currentDateUrl()))
+    currentDate: currentDay,
+    currentEditVersion: () => editVersion,
+    refreshAfterTask: async ({ expectedDate, expectedEditVersion, exceptForm } = {}) => {
+      const beforeDate = expectedDate || currentDay();
+      const beforeVersion = expectedEditVersion ?? editVersion;
+      const parts = await readCalendar(currentDateUrl());
+      if (beforeDate && currentDay() !== beforeDate) {
+        return { staleDate: true, preservedEdits: true };
+      }
+      const keepNote = saving || noteDirty() || editVersion !== beforeVersion;
+      const keepTasks = plan.hasUnsavedChanges(exceptForm);
+      render(parts, { keepNote, keepTasks });
+      return { staleDate: false, preservedEdits: keepNote || keepTasks };
+    }
   };
 
   workspace.addEventListener('submit', async event => {
@@ -177,7 +226,7 @@
     const save = form.querySelector('button[type="submit"]');
     taskSection.inert = true;
     saving = true;
-    save.disabled = true;
+    syncNoteControls();
     status.textContent = '正在保存…';
     try {
       const result = await window.workstationUI.requestJson(form.action, {
@@ -198,9 +247,10 @@
     } finally {
       taskSection.inert = false;
       saving = false;
-      save.disabled = false;
+      syncNoteControls();
     }
   });
+  syncNoteControls();
   window.addEventListener('beforeunload', event => {
     if (!saving && !noteDirty()) return;
     if (window.workstationDialog?.mayLeave(event)) return;

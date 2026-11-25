@@ -4,9 +4,9 @@
 
   // ---------- 设置入口：侧栏按钮与上手指南里的「打开设置」 ----------
 
-  async function openSettings() {
+  async function openSettings(section) {
     try {
-      if (api) await api.openSettings();
+      if (api) await api.openSettings(section || undefined);
       else notify('请从应用菜单或系统托盘打开「设置」。');
     } catch (error) {
       notify(error.message, 'error');
@@ -15,7 +15,7 @@
   const settingsEntry = document.querySelector('[data-desktop-settings]');
   if (api && settingsEntry) {
     settingsEntry.hidden = false;
-    settingsEntry.addEventListener('click', openSettings);
+    settingsEntry.addEventListener('click', () => openSettings());
   }
 
   // ---------- 复制命令 ----------
@@ -65,7 +65,25 @@
         card.hidden = true;
       }
       document.getElementById('main-content')?.focus();
-      notify('已隐藏上手清单。需要时可以在「上手指南」里重新显示。', 'success');
+      window.workstationUI?.notify?.('已隐藏上手清单。需要时可以在「上手指南」里重新显示。', {
+        type: 'success',
+        action: {
+          label: '撤销',
+          onClick: async () => {
+            try {
+              await setChecklist('shown');
+              if (card) {
+                card.hidden = false;
+                button.disabled = false;
+                window.workstationMotion?.enter?.(card, { y: 6, duration: 180 });
+              }
+              notify('已重新显示上手清单。', 'success');
+            } catch (error) {
+              notify('无法恢复上手清单：' + error.message, 'error');
+            }
+          }
+        }
+      });
     } catch (error) {
       button.disabled = false;
       notify('无法隐藏上手清单：' + error.message, 'error');
@@ -90,7 +108,7 @@
     if (!target) return;
     const action = target.closest('[data-guide-settings], [data-copy], [data-onboarding-hide], [data-onboarding-show], [data-guide-start]');
     if (!action) return;
-    if (action.matches('[data-guide-settings]')) openSettings();
+    if (action.matches('[data-guide-settings]')) openSettings(action.dataset.guideSettings || '');
     else if (action.matches('[data-copy]')) copyFrom(action);
     else if (action.matches('[data-onboarding-hide]')) hideChecklist(action);
     else if (action.matches('[data-onboarding-show]')) showChecklist(action);
@@ -318,9 +336,9 @@
     document.fonts?.ready.then(placeSmooth);
 
     loaded.then(() => {
-      // 自动导览只在首次打开时出现，而且不打断编辑和进行中的复习。
+      // 自动导览只在首次打开时出现，而且不打断编辑、恢复和进行中的复习。
       const route = document.body.dataset.pagePath || location.pathname;
-      if (api && !loadFailed && state.status === 'active' && !/^\/(edit|new|review)(\/|$)/.test(route)) open();
+      if (api && !loadFailed && state.status === 'active' && !/^\/(edit|new|review|recover|cards\/edit)(\/|$)/.test(route)) open();
     });
 
     return { open };

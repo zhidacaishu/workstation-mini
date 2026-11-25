@@ -39,4 +39,15 @@ function writeHandler(handler) {
   };
 }
 
-module.exports = { httpError, blockWhenReadOnly, writeHandler };
+// 写入成功后再由服务端记下一次性提示，避免原生表单提交未落盘就提前报「已完成」。
+function setFlash(res, payload) {
+  if (!payload?.message) return;
+  res.cookie('ws_flash', JSON.stringify(payload), {
+    maxAge: 30_000,
+    httpOnly: true,
+    sameSite: 'strict',
+    path: '/'
+  });
+}
+
+module.exports = { httpError, blockWhenReadOnly, writeHandler, setFlash };

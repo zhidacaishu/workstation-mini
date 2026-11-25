@@ -7,12 +7,12 @@
 <header class="page-head">
   <div>
     <h1><%= deck || '全部卡片' %></h1>
-    <p class="page-meta"><%= cards.length %> 张<% const paused = cards.filter(card => card.suspended).length; if (paused) { %> · 已暂停 <%= paused %> 张<% } %></p>
+    <p class="page-meta" data-cards-meta><%= cards.length %> 张<% const paused = cards.filter(card => card.suspended).length; if (paused) { %> · 已暂停 <%= paused %> 张<% } %></p>
   </div>
   <div class="actions">
     <a class="button quiet" href="/decks">返回卡组</a>
     <%- include('partials/card-create-button', { buttonClass: 'button', file: defaultFile }) %>
-    <% if (deck && canReview) { %><a class="button primary" href="/review?deck=<%= encodeURIComponent(deck) %>">复习</a><% } %>
+    <% if (deck) { %><a class="button primary" data-deck-review href="/review?deck=<%= encodeURIComponent(deck) %>"<% if (!canReview) { %> hidden<% } %>>复习</a><% } %>
     <a class="button" <% if (deck) { %>data-resume-deck="<%= deck %>"<% } else { %>data-resume-any<% } %> hidden>继续上轮</a>
   </div>
 </header>

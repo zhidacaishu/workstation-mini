@@ -64,6 +64,8 @@
 .message-actions button:active { transform: scale(0.975); }
 .message-actions button.is-primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
 .message-actions button.is-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+.message-actions button.is-danger { background: var(--danger-fill); color: var(--on-danger); border-color: var(--danger-fill); }
+.message-actions button.is-danger:hover { background: var(--danger-fill-hover); border-color: var(--danger-fill-hover); }
 .message-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .message-window { margin: 0; background: var(--raised); }
 .message-window .message-dialog {

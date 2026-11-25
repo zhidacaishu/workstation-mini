@@ -37,13 +37,13 @@
       <input type="hidden" name="returnTo" value="/plan?view=list&filter=<%= filter %>">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <input type="text" name="text" maxlength="500" placeholder="添加待办，回车保存" aria-label="添加待办" autocomplete="off" required<% if (typeof added !== 'undefined' && added) { %> autofocus<% } %>>
-      <input class="plan-quick-date" type="date" name="due" value="<%= today %>" aria-label="到期日期" title="到期日期，清空则不安排">
+      <input class="plan-quick-date" type="date" name="due" value="<%= filter === 'undated' ? '' : today %>" aria-label="到期日期" title="到期日期，清空则不安排">
       <button class="button small" type="submit">添加</button>
     </form>
   <% } %>
   <div class="plan-list">
     <% if (!groups.some(group => group.tasks.length || group.projects.length)) { %>
-      <section class="plan-empty empty empty-state"><h2><%= filter === 'done' ? '还没有已完成的待办' : filter === 'all' ? '没有未完成的待办' : '暂无事项' %></h2><% if (filter === 'all') { %><p>在任意笔记里写 <code>- [ ] 待办 @<%= today %></code> 就会出现在这里。</p><% } %></section>
+      <section class="plan-empty empty empty-state"><h2><%= filter === 'done' ? '还没有已完成的待办' : filter === 'all' ? '没有未完成的待办' : '暂无事项' %></h2><% if (filter === 'all') { %><p><%= readOnly ? '' : '直接在上方输入框添加，或' %>在任意笔记里写 <code>- [ ] 待办 @<%= today %></code> 就会出现在这里。</p><% } %></section>
     <% } %>
     <% groups.forEach(group => { if (!group.tasks.length && !group.projects.length) return; %>
       <section class="plan-group" aria-labelledby="plan-group-<%= group.key %>">
@@ -97,7 +97,7 @@
             <input type="hidden" name="date" value="<%= selected %>"><input type="hidden" name="month" value="<%= month %>"><input type="hidden" name="expectedHash" value="<%= selectedNote?.hash || '' %>">
             <label id="plan-note-label" for="calendar-note">备注</label>
             <textarea id="calendar-note" name="text" rows="4"><%= /^[\r\n]/.test(selectedNote?.body || '') ? '\n' : '' %><%= selectedNote?.body || '' %></textarea>
-            <div class="plan-note-actions"><button class="button primary small" type="submit" aria-label="保存备注">保存</button><p class="calendar-note-status" data-calendar-status role="status" aria-live="polite"></p></div>
+            <div class="plan-note-actions"><button class="button primary small" type="submit" aria-label="保存备注" title="保存备注（<%= typeof isMac !== 'undefined' && isMac ? '⌘S' : 'Ctrl+S' %>）">保存</button><button class="button quiet small" type="button" data-calendar-revert hidden>还原</button><p class="calendar-note-status" data-calendar-status role="status" aria-live="polite"></p></div>
           </form>
         <% } %>
         <a class="calendar-note-open" data-calendar-note-link href="/note/<%= encodePath(selectedPath) %>"<% if (!selectedNote || selectedNote.parseError) { %> hidden<% } %>>打开笔记</a>

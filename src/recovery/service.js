@@ -208,7 +208,15 @@ function createRecoveryService({
   }
 
   function getState() {
-    return clone(state);
+    return { ...clone(state), hasOwnedStaging: Boolean(session?.stagingRoot) };
+  }
+
+  function isBusy() {
+    return operations.size > 0;
+  }
+
+  async function hasPendingJournal() {
+    return Boolean(await journal.inspect());
   }
 
   function onState(listener) {
@@ -741,6 +749,8 @@ function createRecoveryService({
 
   return {
     getState,
+    isBusy,
+    hasPendingJournal,
     onState,
     selectLocalSource,
     selectDestinationParent,

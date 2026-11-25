@@ -48,6 +48,9 @@
   --ok-ring: rgba(15, 122, 82, 0.14);
   --danger: #b42318;
   --danger-soft: #fdecea;
+  --danger-fill: #c0281c;
+  --danger-fill-hover: #a62015;
+  --on-danger: #ffffff;
   --diff-add: #e6f4ec;
   --diff-add-text: #0b5c3e;
   --diff-del: #fdecea;
@@ -178,6 +181,9 @@
     --ok-ring: rgba(107, 212, 166, 0.15);
     --danger: #ff8a80;
     --danger-soft: rgba(255, 138, 128, 0.12);
+    --danger-fill: #c2352c;
+    --danger-fill-hover: #d13f36;
+    --on-danger: #ffffff;
     --diff-add: rgba(107, 212, 166, 0.13);
     --diff-add-text: #9be3c2;
     --diff-del: rgba(255, 138, 128, 0.13);

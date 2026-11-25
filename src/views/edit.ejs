@@ -28,11 +28,8 @@
     </div>
     <div class="editor-head-actions">
       <p class="editor-status" data-editor-status role="status" aria-live="polite"><%= recovered ? '恢复内容尚未保存' : isNew ? '新笔记尚未保存' : '所有更改均已保存' %></p>
-      <% if (!isNew) { %>
-        <a class="button quiet" href="/note/<%= encodePath(notePath) %>">取消</a>
-      <% } else { %>
-        <a class="button quiet" href="/">取消</a>
-      <% } %>
+      <% const backHref = typeof cancelHref === 'string' && cancelHref ? cancelHref : (!isNew ? '/note/' + encodePath(notePath) : '/'); %>
+      <a class="button quiet" href="<%= backHref %>">取消</a>
       <button class="button quiet editor-preview-toggle" type="button" data-preview-toggle aria-pressed="false" title="显示或隐藏右侧的实时预览" hidden>预览</button>
       <button class="button primary" type="submit" data-editor-save>保存 <kbd><%= typeof isMac !== 'undefined' && isMac ? '⌘S' : 'Ctrl+S' %></kbd></button>
     </div>

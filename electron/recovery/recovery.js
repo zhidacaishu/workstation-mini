@@ -19,6 +19,7 @@ const currentPath = document.getElementById('current-path');
 const progress = document.getElementById('progress');
 const progressBar = progress.querySelector('span');
 const startButton = document.getElementById('start');
+const backToWelcomeButton = document.getElementById('back-to-welcome');
 const cancelButton = document.getElementById('cancel');
 const retryButton = document.getElementById('retry');
 const activateButton = document.getElementById('activate');
@@ -129,13 +130,18 @@ function renderControls() {
   startButton.hidden = !setup || isWelcome();
   startButton.disabled = operationPending || !canStart;
   startButton.textContent = '开始复制与索引验证';
+  if (backToWelcomeButton) {
+    backToWelcomeButton.hidden = !setup || isWelcome() || !state.canReturnToWelcome;
+    backToWelcomeButton.disabled = operationPending;
+  }
   cancelButton.hidden = !state.canCancel;
   cancelButton.disabled = false;
   retryButton.hidden = !state.canRetry;
   retryButton.disabled = operationPending;
   activateButton.hidden = !state.canActivate;
   activateButton.disabled = operationPending;
-  discardButton.hidden = phase !== 'residue' || state.residue?.owned !== true;
+  discardButton.hidden = !(phase === 'residue' && state.residue?.owned === true)
+    && !(phase === 'failed' && state.hasOwnedStaging);
   discardButton.disabled = operationPending;
   openCurrentVaultButton.hidden = phase !== 'residue' || state.residue?.owned === true || !state.canOpenCurrentVault;
   openCurrentVaultButton.disabled = operationPending;
@@ -145,12 +151,27 @@ function renderControls() {
   }
 
   for (const control of form.querySelectorAll('input, button')) {
-    if ([cancelButton, retryButton, activateButton, discardButton, openCurrentVaultButton, dismissResidueButton].includes(control)) continue;
+    if ([backToWelcomeButton, cancelButton, retryButton, activateButton, discardButton, openCurrentVaultButton, dismissResidueButton].includes(control)) continue;
     if (!setup || operationPending) control.disabled = true;
   }
   if (setup && !operationPending) {
     for (const control of form.querySelectorAll('input, button')) control.disabled = false;
     startButton.disabled = !canStart;
+  }
+  if (setup && !isWelcome()) {
+    if (canStart) {
+      actionNote.textContent = '来源不会被修改；恢复期间不会写入 Git 远端。';
+    } else if (sourceKind() === 'git' && !remote) {
+      actionNote.textContent = '请先填写 Git 远端地址并点击「检查远端」。';
+    } else if (sourceKind() === 'git' && remote !== inspectedRemote) {
+      actionNote.textContent = '请点击「检查远端」确认仓库可以读取。';
+    } else if (sourceKind() === 'local' && !localSourceSelected) {
+      actionNote.textContent = '请先选择本地备份目录。';
+    } else if (!destinationSelected) {
+      actionNote.textContent = '请选择新资料库的上级目录。';
+    } else {
+      actionNote.textContent = '请填写新目录名称。';
+    }
   }
 }
 
@@ -274,6 +295,15 @@ form.addEventListener('input', event => {
   renderControls();
 });
 
+remoteInput.addEventListener?.('keydown', event => {
+  if (event.key !== 'Enter' || operationPending) return;
+  const remote = remoteInput.value.trim();
+  if (remote && remote !== inspectedRemote) {
+    event.preventDefault();
+    document.getElementById('inspect-remote')?.click();
+  }
+});
+
 document.getElementById('inspect-remote').addEventListener('click', () => run(async () => {
   const remote = remoteInput.value.trim();
   inspectedRemote = '';
@@ -327,9 +357,10 @@ activateButton.addEventListener('click', () => run(api.activate));
 discardButton.addEventListener('click', () => run(api.discardOwnedStaging));
 openCurrentVaultButton.addEventListener('click', () => run(api.openCurrentVault));
 dismissResidueButton?.addEventListener('click', async () => {
-  if (!await window.workstationDialog.confirm('清除恢复记录？', '请先检查恢复目录。清除记录会保留所有目录。', '清除记录')) return;
+  if (!await window.workstationDialog.confirm('清除恢复记录？', '请先检查恢复目录。清除记录会保留所有目录。', '清除记录', { danger: true })) return;
   run(api.dismissResidue);
 });
+backToWelcomeButton?.addEventListener('click', () => run(api.returnToWelcome));
 document.getElementById('create-vault').addEventListener('click', () => run(api.createVault));
 document.getElementById('open-existing-vault').addEventListener('click', () => run(api.openExistingVault));
 document.getElementById('begin-restore').addEventListener('click', () => run(api.beginRestore));

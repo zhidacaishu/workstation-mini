@@ -1,8 +1,8 @@
 (() => {
-  function ask({ message, detail, buttons, defaultId = 0, cancelId = 0, primaryId }) {
+  function ask({ message, detail, buttons, defaultId = 0, cancelId = 0, primaryId, dangerId }) {
     if (document.querySelector('.message-dialog[open]')) return Promise.resolve(cancelId);
     const previousFocus = document.activeElement;
-    const highlightedId = primaryId ?? defaultId;
+    const highlightedId = primaryId ?? (dangerId === undefined ? defaultId : -1);
     const dialog = document.createElement('dialog');
     dialog.className = 'message-dialog';
     dialog.setAttribute('role', 'alertdialog');
@@ -27,7 +27,8 @@
       button.type = 'button';
       button.textContent = label;
       button.autofocus = index === defaultId;
-      button.classList.toggle('is-primary', index === highlightedId);
+      button.classList.toggle('is-danger', index === dangerId);
+      button.classList.toggle('is-primary', index === highlightedId && index !== dangerId);
       button.addEventListener('click', () => dialog.close(String(index)));
       actions.append(button);
     });
@@ -59,7 +60,13 @@
   window.workstationDialog = {
     ask,
     mayLeave,
-    confirm: async (message, detail, action) =>
-      await ask({ message, detail, buttons: ['取消', action], primaryId: 1 }) === 1
+    confirm: async (message, detail, action, options = {}) =>
+      await ask({
+        message,
+        detail,
+        buttons: ['取消', action],
+        primaryId: options.danger ? undefined : 1,
+        dangerId: options.danger ? 1 : undefined
+      }) === 1
   };
 })();

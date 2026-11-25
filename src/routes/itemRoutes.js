@@ -2,7 +2,7 @@ const express = require('express');
 
 const { createItems } = require('../items');
 const { WORKFLOWS, workflowOf } = require('../workflows');
-const { updateTask } = require('../taskActions');
+const { updateTask, undoTask } = require('../taskActions');
 const { isSafeRelativePath } = require('../vault/paths');
 const { toLocalDate } = require('../templates');
 const { httpError, blockWhenReadOnly, writeHandler } = require('./http');
@@ -22,11 +22,34 @@ function createItemRoutes({ config, db, indexer, now = () => new Date() }) {
         done: json ? req.body.done : req.body.done === 'on', due: req.body.due
       });
       await indexer.scan({ paths: [notePath] });
-      if ((req.get('accept') || '').includes('application/json')) res.json({ ok: true, ...result });
+      if ((req.get('accept') || '').includes('application/json')) {
+        let overdueCount;
+        try {
+          const today = toLocalDate(now());
+          overdueCount = db.listTasks({ includeDone: false }).filter(task => task.due && task.due < today).length;
+        } catch {}
+        res.json({ ok: true, ...result, ...(overdueCount !== undefined ? { overdueCount } : {}) });
+      }
       else {
         const returnTo = String(req.body.returnTo || '');
         res.redirect(returnTo.startsWith('/plan?') ? returnTo : '/plan');
       }
+    } catch (error) { next(error); }
+  }));
+
+  router.post('/tasks/undo', guard, writeHandler(async (req, res, next) => {
+    try {
+      const result = await undoTask(config.notesDir, {
+        undoToken: String(req.body.undoToken || ''),
+        expectedHash: String(req.body.expectedHash || '')
+      });
+      await indexer.scan({ paths: [result.path] });
+      let overdueCount;
+      try {
+        const today = toLocalDate(now());
+        overdueCount = db.listTasks({ includeDone: false }).filter(task => task.due && task.due < today).length;
+      } catch {}
+      res.json({ ok: true, hash: result.hash, ...(overdueCount !== undefined ? { overdueCount } : {}) });
     } catch (error) { next(error); }
   }));
 
