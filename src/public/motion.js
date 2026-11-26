@@ -66,6 +66,17 @@
 
   function animate(element, keyframes, options = {}, key = 'default') {
     if (!element || reduced() || typeof element.animate !== 'function') return null;
+    // 连续点击时，新效果从屏幕上的当前帧开始。FLIP 已经自行测过位移。
+    if (key !== 'flip' && running.get(element)?.has(key) && Array.isArray(keyframes)) {
+      const style = window.getComputedStyle?.(element);
+      if (style && keyframes.length) {
+        const first = { ...keyframes[0] };
+        for (const property of ['opacity', 'transform']) {
+          if (property in first) first[property] = style[property];
+        }
+        keyframes = [first, ...keyframes.slice(1)];
+      }
+    }
     cancel(element, key);
     let animation;
     try {
@@ -102,7 +113,7 @@
     return animate(element, [
       { opacity: 0, transform: fromTransform },
       { opacity: 1, transform: 'none' }
-    ], { duration, easing }, 'enter');
+    ], { duration, easing }, 'visibility');
   }
 
   function exit(element, { x = 0, y = 6, scale = 0.98, duration = DUR.exit, easing = EASE_EXIT } = {}) {
@@ -114,7 +125,7 @@
     return animate(element, [
       { opacity: 1, transform: 'none' },
       { opacity: 0, transform: toTransform }
-    ], { duration, easing, fill: 'forwards' }, 'exit');
+    ], { duration, easing }, 'visibility');
   }
 
   function pulse(element, { scale = 1.12, duration = DUR.base } = {}) {

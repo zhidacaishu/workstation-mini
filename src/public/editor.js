@@ -184,7 +184,7 @@
     list.style.left = `${left}px`;
     list.style.top = `${top}px`;
     if (wasHidden) {
-      window.workstationMotion?.enter?.(list, { y: above ? 5 : -5, scale: 0.98, duration: 150 });
+      window.workstationMotion?.enter?.(list, { y: above ? 5 : -5, scale: 0.98, duration: window.workstationMotion.DUR?.fast });
     }
     if (suggest.items.length) suggest.area.setAttribute('aria-activedescendant', `link-suggest-${suggest.active}`);
   }
@@ -461,7 +461,7 @@
         toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
       }
       if (on) {
-        if (animate && !wasOn) window.workstationMotion?.enter?.(pane, { x: 10, y: 0, duration: 200 });
+        if (animate && !wasOn) window.workstationMotion?.enter?.(pane, { x: 8, y: 0 });
         lastSent = null;
         refresh();
       }

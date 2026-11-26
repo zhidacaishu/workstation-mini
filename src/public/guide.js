@@ -29,7 +29,7 @@
       button.dataset.copyLabel ||= button.textContent;
       button.textContent = '已复制';
       button.classList?.add('is-done');
-      window.workstationMotion?.pulse?.(button, { scale: 1.05, duration: 200 });
+      window.workstationMotion?.pulse?.(button, { scale: 1.05 });
       clearTimeout(Number(button.dataset.copyTimer));
       button.dataset.copyTimer = String(setTimeout(() => {
         button.textContent = button.dataset.copyLabel;
@@ -58,7 +58,7 @@
     try {
       await setChecklist('hidden');
       if (card) {
-        const anim = window.workstationMotion?.exit?.(card, { y: -6, scale: 0.985, duration: 160 });
+        const anim = window.workstationMotion?.exit?.(card, { y: -6, scale: 0.985 });
         if (anim?.finished) {
           await anim.finished.catch(() => {});
         }
@@ -75,7 +75,7 @@
               if (card) {
                 card.hidden = false;
                 button.disabled = false;
-                window.workstationMotion?.enter?.(card, { y: 6, duration: 180 });
+                window.workstationMotion?.enter?.(card, { y: 6 });
               }
               notify('已重新显示上手清单。', 'success');
             } catch (error) {
@@ -171,8 +171,7 @@
     }
 
     function setBox(element, box) {
-      element.style.left = box.left + 'px';
-      element.style.top = box.top + 'px';
+      element.style.translate = box.left + 'px ' + box.top + 'px';
       element.style.width = box.width + 'px';
       element.style.height = box.height + 'px';
     }
@@ -188,8 +187,7 @@
       if (!rect) {
         // 没有目标（欢迎页，或目标不在当前页面上）：遮罩收成屏幕中心的一个点，卡片居中。
         setBox(spot, { left: width / 2, top: height / 2, width: 0, height: 0 });
-        card.style.removeProperty('left');
-        card.style.removeProperty('top');
+        card.style.translate = (width - card.offsetWidth) / 2 + 'px ' + (height - card.offsetHeight) / 2 + 'px';
         card.classList.remove('is-flipped');
         return;
       }
@@ -202,15 +200,23 @@
       let left = rect.right + pad + gap;
       if (left + box.width > width - margin) left = Math.max(margin, rect.left - pad - gap - box.width);
       const center = rect.top + rect.height / 2;
-      const top = clamp(center - box.height / 2, margin, Math.max(margin, height - box.height - margin));
-      card.style.left = left + 'px';
-      card.style.top = top + 'px';
+      let top = clamp(center - box.height / 2, margin, Math.max(margin, height - box.height - margin));
+      // 两侧均放不下时，放在目标上方或下方，让高亮的入口露出来。
+      const stacked = left < rect.right && left + box.width > rect.left;
+      card.classList.toggle('is-stacked', stacked);
+      if (stacked) {
+        left = clamp(rect.left + (rect.width - box.width) / 2, margin, width - margin - box.width);
+        top = rect.top > height - rect.bottom ? rect.top - pad - gap - box.height : rect.bottom + pad + gap;
+        top = clamp(top, margin, height - margin - box.height);
+      }
+      card.style.translate = left + 'px ' + top + 'px';
       card.classList.toggle('is-flipped', left < rect.left);
       card.style.setProperty('--tour-arrow', clamp(center - top, 20, box.height - 20) + 'px');
     }
 
     function schedulePlace(immediate = false) {
-      if (immediate && dialog.open) {
+      if (!dialog.open) return;
+      if (immediate) {
         dialog.classList.add('is-repositioning');
         clearTimeout(repositionReset);
         repositionReset = setTimeout(() => dialog.classList.remove('is-repositioning'), 180);
@@ -224,7 +230,7 @@
       lastRenderedStep = index;
       const template = steps[index];
       const isWelcome = index === 0;
-      dialog.classList.remove('is-repositioning');
+      dialog.classList.toggle('is-repositioning', prevStep === -1);
       title.textContent = template.dataset.title;
       body.replaceChildren(template.content.cloneNode(true));
       progress.textContent = isWelcome ? '一分钟导览' : index + ' / ' + stops;
@@ -237,8 +243,8 @@
       place();
       if (prevStep !== -1 && prevStep !== index) {
         const dir = index > prevStep ? 1 : -1;
-        window.workstationMotion?.enter?.(title, { x: dir * 6, y: 0, duration: 170 });
-        window.workstationMotion?.enter?.(body, { x: dir * 8, y: 0, duration: 190 });
+        window.workstationMotion?.enter?.(title, { x: dir * 6, y: 0, duration: window.workstationMotion.DUR?.fast });
+        window.workstationMotion?.enter?.(body, { x: dir * 8, y: 0, duration: window.workstationMotion.DUR?.fast });
       }
     }
 

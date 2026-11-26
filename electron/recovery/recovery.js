@@ -280,7 +280,7 @@ function toggleSource() {
   const localEl = document.getElementById('local-source');
   gitEl.hidden = !git;
   localEl.hidden = git;
-  window.workstationMotion?.enter?.(git ? gitEl : localEl, { y: 4, duration: 170 });
+  window.workstationMotion?.enter?.(git ? gitEl : localEl, { y: 4, duration: window.workstationMotion.DUR?.fast });
   renderControls();
 }
 

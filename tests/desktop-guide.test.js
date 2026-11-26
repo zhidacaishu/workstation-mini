@@ -121,11 +121,20 @@ test('界面导览、上手清单与上手指南：首次显示、进度、跳�
     await page.waitForSelector('[data-onboarding-card]');
     assert.equal(await page.locator('#onboarding').isVisible(), false);
 
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
     // 今日页的上手清单：新资料库从第一步开始，可以隐藏。
     assert.match(await page.locator('[data-onboarding-card]').textContent(), /下一步：写下第一篇笔记/);
     await page.locator('[data-onboarding-hide]').click();
     await page.waitForSelector('[data-onboarding-card]', { state: 'hidden' });
     assert.equal((await page.evaluate(() => window.workstationDesktop.getGuide())).checklist, 'hidden');
+    // 隐藏的退场不能留下 opacity:0 的填充效果，撤销入场结束后仍可见。
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    const checklist = page.locator('[data-onboarding-card]');
+    await checklist.waitFor({ state: 'visible' });
+    await checklist.evaluate(el => Promise.allSettled(el.getAnimations().map(animation => animation.finished)));
+    assert.equal(await checklist.evaluate(el => getComputedStyle(el).opacity), '1');
+    await page.locator('[data-onboarding-hide]').click();
+    await checklist.waitFor({ state: 'hidden' });
     await page.reload();
     await page.waitForSelector('.desk-header');
     assert.equal(await page.locator('[data-onboarding-card]').count(), 0);

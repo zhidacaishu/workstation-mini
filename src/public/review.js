@@ -223,7 +223,7 @@
       const motion = window.workstationMotion;
       const fast = motion?.DUR?.fast || 150;
       const base = motion?.DUR?.base || 210;
-      motion?.enter?.(frontEl, { x: direction * 16, y: 0, duration: fast });
+      motion?.enter?.(frontEl, { x: direction * 10, y: 0, duration: fast });
       motion?.enter?.(revealBtn, { y: 4, duration: fast });
       if (remainingChanged) motion?.pulse?.(remainingEl, { scale: 1.12, duration: base });
       if (relearnEl && card.relearn) motion?.pulse?.(relearnEl, { scale: 1.06, duration: base });
@@ -492,7 +492,7 @@
     }
     root.hidden = true;
     doneEl.hidden = false;
-    window.workstationMotion?.enter?.(doneEl, { y: 10, scale: 0.988, duration: 240 });
+    window.workstationMotion?.enter?.(doneEl, { y: 6, scale: 0.99 });
     summaryEl.textContent = relearnedCards.size
       ? `复习了 ${reviewedCards.size} 张，其中 ${relearnedCards.size} 张本轮重学过。`
       : `复习了 ${reviewedCards.size} 张。`;

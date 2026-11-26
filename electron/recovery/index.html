@@ -53,13 +53,13 @@
       <section class="sheet" id="source-panel" aria-labelledby="source-title">
         <p class="folio">01 / 来源</p>
         <h2 id="source-title">选择可信的文本来源</h2>
-        <p class="lede">Git 凭据由系统 Git、SSH agent 或 Credential Manager 处理。应用不会询问或保存密码、PAT 和私钥。</p>
         <fieldset class="source-switch">
           <legend>来源类型</legend>
-          <label><input type="radio" name="sourceKind" value="git" checked><span><strong>Git 远端</strong><small>完整 clone，不调用普通同步</small></span></label>
+          <label><input type="radio" name="sourceKind" value="git" checked><span><strong>Git 远端</strong><small>从远端克隆一份完整资料库</small></span></label>
           <label><input type="radio" name="sourceKind" value="local"><span><strong>本地备份</strong><small>复制到新位置，原目录不动</small></span></label>
         </fieldset>
         <div id="git-source" class="source-detail">
+          <p class="lede">身份验证沿用系统 Git 的配置。密码、令牌和私钥由系统凭据管理器或 SSH agent 处理。</p>
           <label class="field"><span>远端地址</span><input id="remote" type="text" autocomplete="off" spellcheck="false" placeholder="git@host:owner/vault.git 或 https://host/owner/vault.git"><small id="remote-result">不会把地址中的秘密写入恢复日志。</small></label>
           <button type="button" id="inspect-remote">检查远端</button>
         </div>

@@ -28,7 +28,7 @@ Workstation Mini does not include automatic updates; install newer versions manu
 3. **Track tasks:** Add a Markdown task to any note, then open **计划** to view it in the task list or monthly calendar. Checking off a task or changing its due date updates the original Markdown line directly.
 4. **Create and review flashcards:** Open **复习** to create your first flashcard, or select text on a note's reading page to convert the selection into a card.
 
-Click the question mark in the sidebar to open the built-in guide (**上手指南**), which provides an interactive interface tour, a first-use checklist, and a Git setup check tailored to your vault.
+Click the question mark to open the built-in guide (**上手指南**) for an interface tour, a first-use checklist, and a Git setup check tailored to your vault. At window widths of 640 px or less, the guide and other tools move to the top, and the five main destinations move to the bottom. The main, Settings, and recovery windows can each be narrowed to 360 px.
 
 ---
 
@@ -36,7 +36,7 @@ Click the question mark in the sidebar to open the built-in guide (**上手指�
 
 | Workflow | How It Works |
 | --- | --- |
-| **Search & Linking** | Toggle search and the command palette with `Ctrl+K` (Windows/Linux) or `⌘K` (macOS), including quick commands for workspace pages. Type `[[` in the editor to autocomplete links to other notes. The reading view displays the document outline and backlinks. |
+| **Search & Linking** | Toggle search and the command palette with `Ctrl+K` (Windows/Linux) or `⌘K` (macOS), including quick commands for workspace pages. Type `[[` in the editor to autocomplete links to other notes. In a narrow reading window, select **目录与反向链接** near the note title to reach the outline and backlinks. The outline keeps your current section highlighted. |
 | **Experiment Tracking** | Create a research project note and record the dataset, parameters, seed, commit, result, and next step. The project board and Today page surface the next action, with one-click undo when moving cards across columns. |
 | **Deadlines & Daily Notes** | Write Markdown tasks such as `- [ ] Run the ablation @2026-12-01`. Undated tasks appear under **计划 → 未安排**. Checking off or rescheduling a task updates the original Markdown line directly, refreshes the overdue badge live, and supports inline revert and exact one-click undo. Daily calendar notes are stored in `notes/calendar/YYYY-MM-DD.md`. |
 | **Images & Equations** | Paste or drop PNG, JPEG, GIF, or WebP images (up to 15 MB each). The editor saves them to `attachments/` and inserts an embed link. Inline and display math render offline using bundled KaTeX. |

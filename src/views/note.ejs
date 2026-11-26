@@ -34,6 +34,7 @@
         <% } %>
       </div>
       <div class="note-meta">
+        <% if (hasSidebar) { %><a class="note-navigation-jump" href="#note-navigation">目录与反向链接</a><% } %>
         <% if (note.section) { %><a class="note-section" href="/search?section=<%= encodeURIComponent(note.section) %>"><%= ui.sectionName(note.section) %></a><% } %>
         <% note.tags.forEach(tag => { %><a class="note-tag" href="/search?tag=<%= encodeURIComponent(tag) %>">#<%= tag %></a><% }) %>
         <% if (note.mtimeMs) { %><span><%= ui.modifiedLabel(note.mtimeMs, today) %>修改</span><% } %>
@@ -69,7 +70,7 @@
   </article>
 
   <% if (hasSidebar) { %>
-    <aside class="note-links" data-note-sidebar aria-label="笔记导航">
+    <aside id="note-navigation" tabindex="-1" class="note-links" data-note-sidebar aria-label="笔记导航">
       <div class="note-sidebar-tabs" role="tablist" aria-label="笔记侧栏">
         <button id="note-tab-outline" type="button" role="tab" data-note-tab="outline" aria-controls="note-panel-outline" aria-selected="<%= sidebarView === 'outline' %>" tabindex="<%= sidebarView === 'outline' ? '0' : '-1' %>">目录</button>
         <button id="note-tab-backlinks" type="button" role="tab" data-note-tab="backlinks" aria-controls="note-panel-backlinks" aria-selected="<%= sidebarView === 'backlinks' %>" tabindex="<%= sidebarView === 'backlinks' ? '0' : '-1' %>">反向链接<% if (backlinks.length) { %><span class="note-sidebar-count"><%= backlinks.length %></span><% } %></button>

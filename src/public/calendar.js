@@ -67,7 +67,7 @@
       if (sameMonth) grid.scrollTop = top;
       else if (grid && prevMonth && nextMonth) {
         const dir = nextMonth > prevMonth ? 1 : -1;
-        window.workstationMotion?.enter?.(grid, { x: dir * 14, y: 0, duration: 210 });
+        window.workstationMotion?.enter?.(grid, { x: dir * 10, y: 0 });
       }
     }
     const header = document.querySelector('.plan-header');
@@ -80,7 +80,7 @@
       }
     } else {
       workspace.querySelector('.plan-day-detail').replaceWith(parts.detail);
-      window.workstationMotion?.enter?.(parts.detail, { y: 5, duration: 170 });
+      window.workstationMotion?.enter?.(parts.detail, { y: 5, duration: window.workstationMotion.DUR?.fast });
     }
     if (!keepTasks) plan.refreshTasks();
     syncNoteControls();

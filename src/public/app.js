@@ -112,7 +112,7 @@
       if (timer) window.clearTimeout(timer);
       timer = 0;
       const motion = window.workstationMotion;
-      const anim = motion?.exit?.(toast, { y: 6, scale: 0.97, duration: motion.DUR?.exit || 150 });
+      const anim = motion?.exit?.(toast, { y: 6, scale: 0.97 });
       if (anim?.finished) {
         toast.style.pointerEvents = 'none';
         anim.finished.then(removeWithFlip, removeWithFlip);
@@ -265,7 +265,7 @@
       const counter = column.querySelector('[data-column-count]');
       if (counter && counter.textContent !== String(count)) {
         counter.textContent = String(count);
-        window.workstationMotion?.pulse?.(counter, { scale: 1.18 });
+        window.workstationMotion?.pulse?.(counter, { scale: 1.08 });
       }
     };
 
@@ -313,7 +313,7 @@
         updateColumn(targetColumn);
       };
       if (window.workstationMotion?.flip) {
-        window.workstationMotion.flip(affectedCards, moveCard, { duration: 300, liftElement: card });
+        window.workstationMotion.flip(affectedCards, moveCard, { liftElement: card });
       } else {
         moveCard();
       }
@@ -1006,7 +1006,7 @@
         await navigator.clipboard.writeText(code.textContent.replace(/\n$/, ''));
         button.textContent = '已复制';
         button.classList.add('is-done');
-        window.workstationMotion?.pulse?.(button, { scale: 1.06, duration: 200 });
+        window.workstationMotion?.pulse?.(button, { scale: 1.06 });
       } catch {
         button.textContent = '复制失败';
       }

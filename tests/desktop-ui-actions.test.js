@@ -117,11 +117,18 @@ test('菜单、搜索、项目状态、计划、建卡与复习的真实桌面�
       const box = await page.locator('#palette').boundingBox();
       await page.mouse.click(box.x + box.width - 4, box.y + box.height / 2);
       assert.equal(await visible('#palette'), true, '面板内边距不应关闭');
+      const panel = page.locator('#palette');
+      const height = await panel.evaluate(el => el.offsetHeight);
       await page.mouse.click(820, 620);
-      assert.equal(await visible('#palette'), false);
+      assert.equal(await panel.evaluate(el => el.open), false);
+      // 关闭立即解除模态；仍在退场的首帧应保留内容高度。
+      const closingHeight = await panel.evaluate(el => el.offsetHeight);
+      assert.ok(closingHeight === 0 || closingHeight === height);
       await page.locator('[data-palette-open]').click();
+      assert.equal(await panel.evaluate(el => el.open), true);
       await page.keyboard.press('Escape');
-      assert.equal(await visible('#palette'), false);
+      assert.equal(await panel.evaluate(el => el.open), false);
+      await panel.waitFor({ state: 'hidden' });
       await page.locator('[data-palette-open]').click();
       await page.locator('.palette-input').fill('交互测试');
       await page.locator('.palette-item').filter({ hasText: '交互测试' }).first().click();

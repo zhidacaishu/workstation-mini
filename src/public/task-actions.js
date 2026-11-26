@@ -49,8 +49,8 @@
         suffix.className = 'visually-hidden';
         suffix.textContent = ' 项逾期';
         badge.replaceChildren(comma, document.createTextNode(count > 99 ? '99+' : String(count)), suffix);
-        if (created) window.workstationMotion?.enter?.(badge, { y: 0, scale: 0.65, duration: 220, easing: window.workstationMotion.EASE_SPRING });
-        else if (changed) window.workstationMotion?.pulse?.(badge, { scale: 1.18, duration: 220 });
+        if (created) window.workstationMotion?.enter?.(badge, { y: 0, scale: 0.84, easing: window.workstationMotion.EASE_SPRING });
+        else if (changed) window.workstationMotion?.pulse?.(badge, { scale: 1.08 });
       }
     } else if (badge) {
       badge.remove();

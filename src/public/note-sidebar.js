@@ -33,7 +33,7 @@
       if (show) shownPanel = panel;
     }
     if (shownPanel && prevIndex !== -1 && prevIndex !== nextIndex) {
-      window.workstationMotion?.enter?.(shownPanel, { x: nextIndex > prevIndex ? 8 : -8, y: 0, duration: 170 });
+      window.workstationMotion?.enter?.(shownPanel, { x: nextIndex > prevIndex ? 8 : -8, y: 0, duration: window.workstationMotion.DUR?.fast });
     }
     if (tab.dataset.noteTab === 'outline') revealCurrent();
     if (focus) tab.focus();
@@ -70,11 +70,16 @@
   function updateCurrent() {
     // 短尾部不能把所选标题滚到顶端；保留明确选择，直到用户主动滚动正文。
     if (navigationTarget) { activate(navigationTarget); return; }
-    let active = entries[0];
-    for (const entry of entries) {
-      if (entry.heading.getBoundingClientRect().top > 64) break;
-      active = entry;
+    // 标题按正文顺序排列。直接查找越过阅读线的最后一个标题，
+    // 图片、字体和窗口改变布局后也无需维护一份容易过期的坐标表。
+    let low = 0;
+    let high = entries.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (entries[mid].heading.getBoundingClientRect().top <= 64) low = mid + 1;
+      else high = mid;
     }
+    let active = entries[Math.max(0, low - 1)];
     if (window.scrollY > 0 && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) active = entries.at(-1);
     activate(active);
   }
@@ -84,9 +89,15 @@
     scheduled = true;
     window.requestAnimationFrame(() => { scheduled = false; updateCurrent(); });
   }
+  function keepReadingPosition() {
+    navigationTarget = current || entries[0];
+    activate(navigationTarget);
+  }
+  document.querySelector('.note-navigation-jump')?.addEventListener('click', keepReadingPosition);
   function selectFragment() {
     let target;
     try { target = document.getElementById(decodeURIComponent(window.location.hash.slice(1))); } catch {}
+    if (target === sidebar) { keepReadingPosition(); return; }
     // 兼容已有双链的 H 标题别名和 L 行号锚点。
     if (target?.classList.contains('heading-anchor')) target = target.nextElementSibling;
     const entry = entries.find(item => item.heading === target);

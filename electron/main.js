@@ -408,9 +408,9 @@ async function createMainWindow({ hidden = false } = {}) {
     const window = new BrowserWindow({
       width: 1280,
       height: 840,
-      minWidth: 900,
+      minWidth: 360,
       minHeight: 620,
-      // 最小尺寸按内容区算：Windows 的外框和标题栏要另算，否则内容区比 900 窄。
+      // 最小尺寸按内容区算，Windows 的外框和标题栏另计。
       useContentSize: true,
       show: false,
       title: '科研工作台',
@@ -727,7 +727,7 @@ async function showRecoveryWindow(mode = 'restore') {
   const window = new BrowserWindow({
     width: 980,
     height: 720,
-    minWidth: 900,
+    minWidth: 360,
     minHeight: 620,
     useContentSize: true,
     show: false,
@@ -789,7 +789,7 @@ function showSettingsWindow(section) {
   const window = new BrowserWindow({
     width: 1040,
     height: 820,
-    minWidth: 760,
+    minWidth: 360,
     minHeight: 620,
     useContentSize: true,
     show: false,

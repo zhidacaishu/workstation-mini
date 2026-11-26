@@ -313,6 +313,22 @@ test('长项目字段及复习代码在桌面窗口内换行或内部滚动', { 
         }
       }
     }
+    const nativeMain = await app.browserWindow(page);
+    await nativeMain.evaluate(win => win.setContentSize(360, 620));
+    await page.waitForFunction(() => innerWidth === 360);
+    for (const route of ['/', '/board/experiment', '/plan?view=calendar', '/decks', '/review?deck=' + token + '-empty']) {
+      await page.goto(origin + route);
+      await page.evaluate(() => document.fonts.ready);
+      const fits = await page.evaluate(() => {
+        const viewport = document.documentElement;
+        const links = [...document.querySelectorAll('.workspace-nav a')];
+        return viewport.scrollWidth <= viewport.clientWidth + 1 && links.every(link => {
+          const box = link.getBoundingClientRect();
+          return box.width > 0 && box.left >= 0 && box.right <= viewport.clientWidth + 1 && box.bottom <= innerHeight;
+        });
+      });
+      assert.ok(fits, '360px 窄窗内可以阅读并切换页面：' + route);
+    }
     // Native title-bar layout uses the same rail without macOS inset padding.
     await page.goto(origin + '/new');
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL().startsWith('http')).setContentSize(900, 620));

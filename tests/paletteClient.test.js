@@ -448,3 +448,23 @@ test('重新扫描索引失败时提示错误且不刷新', async () => {
     assert.equal(ui.location.reloadCalls, 0);
   }
 });
+
+test('搜索切换时点击旧笔记不会误打开，当前结果可直接点击', async () => {
+  const pending = deferred();
+  const ui = await loadPalette({
+    fetch: async url => ({ json: async () => url.endsWith('q=') ? { results: [{ path: 'old.md' }] } : await pending.promise })
+  });
+  ui.keydown(shortcut('ctrl').event);
+  await flush();
+  ui.input.value = '文献';
+  ui.input.dispatch('input');
+  ui.list.children[0].dispatch('click');
+  assert.equal(ui.dialog.open, true);
+  ui.runTimers();
+  ui.list.children[0].dispatch('click');
+  assert.equal(ui.dialog.open, true);
+  pending.resolve({ results: [{ path: 'new.md' }] });
+  await flush();
+  ui.list.children[0].dispatch('click');
+  assert.equal(ui.location.href, '/note/new.md');
+});

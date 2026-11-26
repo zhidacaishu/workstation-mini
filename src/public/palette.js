@@ -313,7 +313,11 @@
         activeIndex = index;
         updateActiveItem();
       });
-      option.addEventListener('click', () => choose(index));
+      const pendingNote = !fresh && item.icon === '笔记';
+      if (pendingNote) option.setAttribute('aria-disabled', 'true');
+      option.addEventListener('click', () => {
+        if (!list.inert && !pendingNote) choose(index);
+      });
       list.append(option);
     });
     updateActiveItem();
@@ -332,6 +336,8 @@
     // 命令是本地的，立刻按新输入排出来；笔记搜索结果到了再补上。
     // 旧结果先留着，列表不会每按一个键就清空再填回、上下跳动。
     const { matched, fallback } = commands(query);
+    list.inert = false;
+    list.setAttribute('aria-busy', 'true');
     items = [...matched, ...items.filter(item => item.icon === '笔记'), ...fallback];
     activeIndex = 0;
     render();
@@ -360,6 +366,7 @@
     items = [...matched, ...notes, ...fallback];
     activeIndex = 0;
     fresh = true;
+    list.removeAttribute('aria-busy');
     render();
 
     if (searchError) {
@@ -395,6 +402,7 @@
   }
 
   dialog.addEventListener('close', () => {
+    if (dialog.open) return; // 关闭事件送达前，快捷键可能已重新打开面板。
     requestToken += 1;
     requestController?.abort();
     requestController = null;
@@ -402,12 +410,11 @@
     debounce = 0;
     input.removeAttribute?.('aria-activedescendant');
     input.setAttribute('aria-expanded', 'false');
-    setStatus('');
     const target = opener && opener !== document.body && opener.isConnected !== false
       ? opener
       : document.getElementById('main-content');
     opener = null;
-    target?.focus?.();
+    if (!hasOpenDialog(dialog)) target?.focus?.({ preventScroll: true });
   });
 
   dialog.addEventListener('click', event => {
@@ -444,6 +451,8 @@
 
   input.addEventListener('input', event => {
     fresh = false;
+    list.inert = true;
+    list.setAttribute('aria-busy', 'true');
     // 旧查询的请求立刻作废：它的结果到了也不再显示。
     requestToken += 1;
     requestController?.abort();
