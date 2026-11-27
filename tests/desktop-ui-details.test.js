@@ -30,11 +30,25 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
   }
   async function resize(target, width) {
     await app.evaluate(({ BrowserWindow }, options) => BrowserWindow.getAllWindows().find(w => w.webContents.getURL() === options.url).setContentSize(options.width, 620), { url: target.url(), width });
-    await target.evaluate(() => document.fonts.ready);
+    await target.waitForFunction(width => innerWidth === width, width);
+    await target.evaluate(async () => {
+      await document.fonts.ready;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
   }
   async function assertPage(target) {
     const size = await target.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(size.scroll <= size.width + 1, '页面不能产生横向滚动：' + JSON.stringify(size));
+  }
+  async function assertPanelTitlebar(target, selector) {
+    if (process.platform !== 'darwin') return;
+    await resize(target, 360);
+    const item = target.locator(selector);
+    await item.evaluate(el => window.scrollBy({ top: el.getBoundingClientRect().top - 19, behavior: 'instant' }));
+    const hit = await target.evaluate(() => document.elementFromPoint(50, 25)?.tagName);
+    assert.equal(hit, 'BODY', '窗口按钮区域与可滚动内容隔开');
+    await item.evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    assert.ok((await item.boundingBox()).y >= 36, '定位到的控件或标题完整露在窗口按钮下方');
   }
   async function assertButtons(target, selector) {
     const controls = await target.locator(selector).evaluateAll(elements => elements.filter(e => e.getClientRects().length).map(element => {
@@ -356,11 +370,42 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
       await page.waitForFunction(() => document.querySelectorAll('[data-plan-task]').length === 1);
       assert.ok((await fs.readFile(path.join(vault, 'notes', notePath), 'utf8')).includes('@' + changed));
     });
+    await check('窄窗的笔记原文保留空白且长行可读', async () => {
+      const raw = '---\nmodel: *' + 'W'.repeat(90) + '\n---\n\n  ' + token.repeat(3) + '\n';
+      await fs.writeFile(path.join(vault, 'notes', 'broken.md'), raw);
+      await page.goto(origin + '/note/broken.md');
+      for (const width of [360, 641]) {
+        await resize(page, width);
+        assert.equal(await page.locator('.note-raw').textContent(), raw);
+        await assertPage(page);
+      }
+    });
+    await check('窄窗横滚长代码时复制按钮始终在首行上方', async () => {
+      await fs.writeFile(path.join(vault, 'notes', 'code.md'), ['# 示例', '', '~~~js', token.repeat(3), '~~~'].join('\n'));
+      await resize(page, 360);
+      for (const [route, selector] of [['/note/code.md', '.code-block'], ['/guide#git', '.guide-command']]) {
+        await page.goto(origin + route);
+        const block = page.locator(selector);
+        await block.hover();
+        const gaps = await block.evaluate(el => {
+          const pre = el.querySelector('pre');
+          const range = document.createRange();
+          range.selectNodeContents(pre.querySelector('code'));
+          return [0, pre.scrollWidth].map(left => {
+            pre.scrollLeft = left;
+            return range.getBoundingClientRect().top - el.querySelector('button').getBoundingClientRect().bottom;
+          });
+        });
+        assert.ok(gaps.every(gap => gap >= 0), route + ' 的复制按钮与代码文字之间留有空间');
+        await assertPage(page);
+      }
+    });
     const opened = app.waitForEvent('window');
     await app.evaluate(({ Menu }) => Menu.getApplicationMenu().getMenuItemById('show-settings').click());
     const settings = await opened;
     await settings.waitForSelector('body[data-settings-state="clean"]');
     page = settings;
+    await check('窄窗滚动设置时窗口按钮有独立空间', () => assertPanelTitlebar(settings, '.theme-switch'));
     await check('设置底栏在最小和加宽窗口中与正文对齐', async () => {
       for (const colorScheme of ['light', 'dark']) {
         await settings.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
@@ -400,6 +445,7 @@ test('长卡组、历史路径、独立窗口底栏和错误信息的真实布�
     const recovery = await recoveryOpened;
     await recovery.waitForSelector('#source-panel', { state: 'visible' });
     page = recovery;
+    await check('窄窗滚动恢复页时窗口按钮有独立空间', () => assertPanelTitlebar(recovery, '#source-title'));
     await check('恢复底栏与正文对齐且不遮挡最后的目录输入框', async () => {
       for (const colorScheme of ['light', 'dark']) {
         await recovery.emulateMedia({ colorScheme, reducedMotion: 'reduce' });

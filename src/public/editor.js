@@ -120,6 +120,7 @@
     document.body.append(mirror);
     const box = area.getBoundingClientRect();
     const point = {
+      box,
       left: box.left + marker.offsetLeft - area.scrollLeft,
       top: box.top + marker.offsetTop - area.scrollTop,
       height: marker.offsetHeight || parseFloat(style.lineHeight) || 20
@@ -162,7 +163,6 @@
       row.id = `link-suggest-${index}`;
       row.dataset.index = String(index);
       row.setAttribute('role', 'option');
-      row.setAttribute('aria-selected', index === suggest.active ? 'true' : 'false');
       const title = document.createElement('span');
       title.className = 'link-suggest-title';
       title.textContent = item.title;
@@ -172,21 +172,55 @@
       row.append(title, path);
       list.append(row);
     });
-    const point = caretPoint(suggest.area, suggest.from);
+    markActiveSuggestion();
     list.hidden = false;
+    if (!positionSuggest()) return;
+    if (wasHidden) {
+      window.workstationMotion?.enter?.(list, { y: list.dataset.placement === 'above' ? 5 : -5, scale: 0.98, duration: window.workstationMotion.DUR?.fast });
+    }
+  }
+
+  function markActiveSuggestion() {
+    for (let i = 0; i < suggest.items.length; i++) {
+      popup.children[i].setAttribute('aria-selected', String(i === suggest.active));
+    }
+    if (suggest.items.length) suggest.area.setAttribute('aria-activedescendant', `link-suggest-${suggest.active}`);
+    else suggest.area.removeAttribute('aria-activedescendant');
+  }
+
+  function positionSuggest() {
+    const list = popup;
+    if (!suggest || !list || list.hidden) return false;
+    const point = caretPoint(suggest.area, suggest.area.selectionStart);
+    const viewport = getComputedStyle(document.documentElement);
+    const topInset = parseFloat(viewport.scrollPaddingTop) || 0;
+    const bottomEdge = window.innerHeight - (parseFloat(viewport.scrollPaddingBottom) || 0);
+    if (point.top + point.height <= Math.max(topInset, point.box.top) ||
+        point.top >= Math.min(bottomEdge, point.box.bottom)) {
+      closeSuggest();
+      return false;
+    }
+    list.style.maxHeight = '';
     const width = list.offsetWidth;
     const height = list.offsetHeight;
     const left = Math.max(8, Math.min(point.left, window.innerWidth - width - 8));
     const below = point.top + point.height + 6;
-    const above = below + height > window.innerHeight - 8;
-    const top = above ? Math.max(8, point.top - height - 6) : below;
+    const roomBelow = bottomEdge - 8 - below;
+    const roomAbove = point.top - 6 - topInset - 8;
+    const above = roomBelow < height && roomAbove > roomBelow;
+    const room = above ? roomAbove : roomBelow;
+    if (room < height) list.style.maxHeight = `${Math.max(0, room)}px`;
+    const top = above ? Math.max(topInset + 8, point.top - height - 6) : below;
     list.dataset.placement = above ? 'above' : 'below';
     list.style.left = `${left}px`;
     list.style.top = `${top}px`;
-    if (wasHidden) {
-      window.workstationMotion?.enter?.(list, { y: above ? 5 : -5, scale: 0.98, duration: window.workstationMotion.DUR?.fast });
+    if (suggest.items.length) {
+      const active = list.children[suggest.active];
+      const bottom = active.offsetTop + active.offsetHeight;
+      if (active.offsetTop < list.scrollTop) list.scrollTop = active.offsetTop;
+      else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
     }
-    if (suggest.items.length) suggest.area.setAttribute('aria-activedescendant', `link-suggest-${suggest.active}`);
+    return true;
   }
 
   function acceptSuggest(index) {
@@ -248,7 +282,8 @@
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       suggest.active = (suggest.active + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
-      renderSuggest();
+      markActiveSuggestion();
+      positionSuggest();
       return true;
     }
     if (event.key === 'Enter' || event.key === 'Tab') {
@@ -508,7 +543,6 @@
       if (suggestQueryAt(area) !== suggest.query) closeSuggest();
     });
     area.addEventListener('blur', closeSuggest);
-    area.addEventListener('scroll', () => { if (suggest) renderSuggest(); }, { passive: true });
 
     if (area.dataset.upload === '1') {
       let dragDepth = 0;
@@ -547,5 +581,8 @@
     if (area.dataset.preview) setupPreview(area);
   }
 
-  window.addEventListener('resize', () => { if (suggest) renderSuggest(); });
+  window.addEventListener('scroll', event => {
+    if (event.target !== popup) positionSuggest();
+  }, { capture: true, passive: true });
+  window.addEventListener('resize', positionSuggest);
 })();

@@ -902,6 +902,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 /* 行内代码只留一层底色，不加描边：中文段落里一圈细框太重。底色是半透明的正文色
    （--code-inline），放在引用、表格里也一样看得出。 */
 .prose code { padding: 1px 6px; border-radius: var(--radius-xs); background: var(--code-inline); color: var(--text); font-size: .86em; }
+.note-parse-error, .note-raw { overflow-wrap: anywhere; }
+.note-raw { white-space: pre-wrap; }
 .prose pre {
   padding: 14px 16px;
   overflow-x: auto;
@@ -923,6 +925,7 @@ input[type="date"]::-webkit-calendar-picker-indicator { opacity: .6; cursor: poi
 .hljs-strong { font-weight: 600; }
 /* 复制按钮：悬停或键盘聚焦到代码块时出现。 */
 .code-block { position: relative; }
+.code-block > pre { padding-top: 42px; }
 .code-copy {
   position: absolute;
   top: 8px;
@@ -2398,7 +2401,7 @@ inline-math.is-wide { overflow-x: auto; overflow-y: hidden; vertical-align: midd
 .guide-steps p { margin-top: 4px; }
 .guide-steps .button { margin-top: 10px; }
 .guide-command { position: relative; }
-.guide-command pre { padding-right: 84px; }
+.guide-command pre { padding-top: calc(var(--control-sm) + 17px); }
 .guide-command .button { position: absolute; top: 9px; right: 9px; margin: 0; }
 .guide-warn { margin: 0 0 14px; }
 .guide-more { color: var(--text-2); font-size: var(--fs-md); }

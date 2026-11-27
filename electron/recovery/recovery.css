@@ -234,7 +234,11 @@ body[data-phase="activating"] .actions { border-top-color: var(--accent); }
   :root { --content-gutter: 18px; --rail-width: 0px; }
   body { display: block; }
   .stage-rail { position: static; width: auto; padding: 14px; border: 0; border-bottom: 1px solid var(--rail-line); }
-  .chrome-inset .stage-rail { padding-top: 38px; }
+  html.chrome-inset { --titlebar-height: 40px; scroll-padding-top: var(--titlebar-height); }
+  .chrome-inset .stage-rail { padding-top: var(--titlebar-height); }
+  .chrome-inset body::before { height: var(--titlebar-height); z-index: 21; background: var(--rail); }
+  .chrome-inset:has(dialog[open]) body::before,
+  .chrome-inset:has(dialog[open]) .stage-rail { -webkit-app-region: no-drag; }
   .stage-rail .identity, .stage-rail ol::before, .stage-rail li small { display: none; }
   .stage-rail ol { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
   .stage-rail li { grid-template-columns: 1fr; justify-items: center; gap: 4px; min-height: 0; text-align: center; }

@@ -129,29 +129,32 @@ async function loadSelectionCard(requestJson) {
   };
 
   const prose = createElement(document, 'article');
-  const textNode = { parentNode: prose };
+  const textNode = { nodeType: 3, parentElement: prose };
   prose.contains = target => target === textNode || target === prose;
   const main = createElement(document, 'main');
   const original = createElement(document, 'button');
   original.isConnected = true;
   document.activeElement = original;
   let selectedText = '工具变量';
+  const rect = { top: 100, bottom: 120, left: 40, right: 120, width: 80, height: 20 };
   const selection = {
     isCollapsed: false,
     anchorNode: textNode,
     focusNode: textNode,
     toString() { return selectedText; },
     getRangeAt() {
-      return { getBoundingClientRect: () => ({ top: 100, bottom: 120, left: 40, width: 80, height: 20 }) };
+      return { commonAncestorContainer: textNode, getBoundingClientRect: () => rect };
     }
   };
 
   const notifications = [];
+  const windowListeners = new Map();
   const window = {
-    addEventListener() {},
+    addEventListener(type, handler) { windowListeners.set(type, handler); },
     scrollX: 0,
     scrollY: 0,
-    innerWidth: 1200,
+    innerWidth: 1200, innerHeight: 800,
+    getComputedStyle: el => el?.style || { scrollPaddingTop: '56px', scrollPaddingBottom: '58px' },
     workstationUI: {
       requestJson,
       notify(message, options = {}) { notifications.push({ message, options }); }
@@ -162,7 +165,8 @@ async function loadSelectionCard(requestJson) {
   vm.runInNewContext(script, { document, window, JSON, String, Math });
 
   return {
-    document, body, prose, main, original, selection, notifications,
+    document, body, prose, main, original, selection, notifications, rect,
+    windowEvent(type) { windowListeners.get(type)(); },
     setText(value) { selectedText = value; },
     async selectionChange() {
       for (const handler of documentListeners.get('selectionchange') || []) await handler();
@@ -317,4 +321,44 @@ test('多行选区保留在背面，要求填写具体问题', async () => {
   assert.equal(back.value, '第一段\n第二段');
   await form.dispatch('submit');
   assert.equal(status.textContent, '正面不能为空。');
+});
+
+test('笔记重新排版后建卡按钮紧邻原选区，打开表单后滚动不会重建按钮', async () => {
+  const ui = await loadSelectionCard();
+  await ui.selectionChange();
+  const bubble = ui.bubble();
+  Object.assign(ui.rect, { top: 260, bottom: 280 });
+  ui.windowEvent('resize');
+  assert.equal(parseFloat(bubble.style.top) + bubble.offsetHeight, 252);
+  Object.assign(ui.rect, { top: -40, bottom: -20 });
+  ui.windowEvent('scroll');
+  assert.equal(bubble.hidden, true);
+  Object.assign(ui.rect, { top: -70, bottom: 1845 });
+  ui.windowEvent('scroll');
+  const visibleTop = parseFloat(bubble.style.top);
+  assert.ok(!bubble.hidden && visibleTop >= 56 && visibleTop + bubble.offsetHeight <= 742);
+  Object.assign(ui.rect, { top: 110, bottom: 130 });
+  ui.windowEvent('scroll');
+  assert.equal(bubble.hidden, false);
+  await bubble.children[0].dispatch('click');
+  assert.ok(ui.dialog()?.open);
+  ui.windowEvent('resize');
+  assert.equal(ui.bubble(), undefined);
+});
+
+test('选中的代码滚出代码块后隐藏建卡按钮，滚回时重新定位', async () => {
+  const ui = await loadSelectionCard();
+  ui.selection.anchorNode.parentElement = {
+    parentElement: ui.prose, style: { overflowX: 'auto', overflowY: 'auto' },
+    getBoundingClientRect: () => ({ left: 30, right: 320, top: 90, bottom: 150 })
+  };
+  await ui.selectionChange();
+  const bubble = ui.bubble();
+  Object.assign(ui.rect, { left: 340, right: 380 });
+  ui.windowEvent('scroll');
+  assert.equal(bubble.hidden, true);
+  Object.assign(ui.rect, { left: 160, right: 200 });
+  ui.windowEvent('scroll');
+  assert.equal(bubble.hidden, false);
+  assert.equal(parseFloat(bubble.style.left), 160);
 });

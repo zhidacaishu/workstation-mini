@@ -19,6 +19,7 @@
 
   let bubble = null;
   let bubbleText = '';
+  let bubbleRange = null;
   let activeDialog = null;
   let restoreFocus = null;
   let saving = false;
@@ -52,6 +53,7 @@
     bubble?.remove();
     bubble = null;
     bubbleText = '';
+    bubbleRange = null;
   }
 
   function cleanupDialog(dialog) {
@@ -76,7 +78,7 @@
     cleanupDialog(dialog);
   }
 
-  function showBubble(text, rect) {
+  function showBubble(text, range) {
     if (saving || activeDialog) return;
     if (!bubble) {
       bubble = document.createElement('div');
@@ -93,11 +95,37 @@
       document.body.append(bubble);
     }
     bubbleText = text;
+    bubbleRange = range;
+    positionBubble();
+  }
 
-    const top = window.scrollY + rect.top - bubble.offsetHeight - 8;
-    const maxLeft = window.scrollX + window.innerWidth - bubble.offsetWidth - 8;
-    bubble.style.top = `${top < window.scrollY + 60 ? window.scrollY + rect.bottom + 8 : top}px`;
-    bubble.style.left = `${Math.max(8, Math.min(maxLeft, window.scrollX + rect.left))}px`;
+  function positionBubble() {
+    if (!bubble) return;
+    const rect = bubbleRange.getBoundingClientRect();
+    const viewport = window.getComputedStyle(document.documentElement);
+    const visibleTop = parseFloat(viewport.scrollPaddingTop) || 0;
+    const visibleBottom = window.innerHeight - (parseFloat(viewport.scrollPaddingBottom) || 0);
+    let left = Math.max(0, rect.left), right = Math.min(window.innerWidth, rect.right);
+    let top = Math.max(visibleTop, rect.top), bottom = Math.min(visibleBottom, rect.bottom);
+    // 代码、表格等有自己的滚动区域，Range 返回的矩形包含已经被裁掉的文字。
+    const node = bubbleRange.commonAncestorContainer;
+    for (let el = node.nodeType === 1 ? node : node.parentElement; el && el !== prose; el = el.parentElement) {
+      const style = window.getComputedStyle(el);
+      if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+      const box = el.getBoundingClientRect();
+      if (style.overflowX !== 'visible') { left = Math.max(left, box.left); right = Math.min(right, box.right); }
+      if (style.overflowY !== 'visible') { top = Math.max(top, box.top); bottom = Math.min(bottom, box.bottom); }
+    }
+    bubble.hidden = right <= left || bottom <= top;
+    if (bubble.hidden) return;
+    const above = top - bubble.offsetHeight - 8;
+    const below = bottom + 8;
+    let buttonTop = visibleTop + 8;
+    if (above >= visibleTop) buttonTop = above;
+    else if (below + bubble.offsetHeight <= visibleBottom) buttonTop = below;
+    const maxLeft = window.innerWidth - bubble.offsetWidth - 8;
+    bubble.style.top = `${window.scrollY + buttonTop}px`;
+    bubble.style.left = `${window.scrollX + Math.max(8, Math.min(maxLeft, left))}px`;
   }
 
   function openForm(selected, trigger) {
@@ -297,12 +325,13 @@
     const text = selectedMarkdown(selection).trim();
     if (!text || text.length > 2000) return removeBubble();
 
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) return removeBubble();
-    showBubble(text, rect);
+    showBubble(text, selection.getRangeAt(0));
   }
 
   if (!prose) return;
+  window.addEventListener('resize', positionBubble);
+  window.addEventListener('scroll', positionBubble, { capture: true, passive: true });
+  if (window.ResizeObserver) new window.ResizeObserver(positionBubble).observe(prose);
   document.addEventListener('selectionchange', () => {
     if (selectionFrame || saving || activeDialog) return;
     selectionFrame = scheduleFrame(refreshSelection);

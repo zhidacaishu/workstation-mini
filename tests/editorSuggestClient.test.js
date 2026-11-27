@@ -21,7 +21,7 @@ function element(tag = 'div') {
     append(...nodes) { this.children.push(...nodes); },
     remove() {},
     closest() { return null; },
-    getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 20 }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, bottom: 20, width: 100, height: 20 }),
     listeners
   };
   return node;
@@ -53,7 +53,7 @@ function setup(results) {
     preventDefault() { this.defaultPrevented = true; }
     stopPropagation() {}
   }
-  const window = { innerWidth: 1280, innerHeight: 800, addEventListener() {}, matchMedia: () => ({ matches: false, addEventListener() {} }) };
+  const window = Object.assign(element(), { innerWidth: 1280, innerHeight: 800, matchMedia: () => ({ matches: false, addEventListener() {} }) });
   const context = {
     window, document, Event, getComputedStyle: () => ({}),
     fetch: async () => ({ ok: true, json: async () => ({ results }) }),
@@ -76,13 +76,51 @@ function setup(results) {
     area.dispatchEvent(new Event('keyup', { key: name }));
     return down;
   }
-  return { area, type, key, tick, popup };
+  return { area, type, key, tick, popup, window };
 }
 
 const RESULTS = [
   { target: '排队论', title: '排队论读书笔记', path: 'inbox/排队论.md' },
   { target: '排序算法', title: '排序算法', path: 'inbox/排序算法.md' }
 ];
+
+test('滚动时补全框跟随输入行，光标离开可见范围后回车照常换行', async () => {
+  const c = setup(RESULTS);
+  let top = 240;
+  c.area.getBoundingClientRect = () => ({ left: 8, top, bottom: top + 80 });
+  await c.type('参考 [[排');
+  const firstTop = parseFloat(c.popup().style.top);
+  const option = c.popup().children[0];
+  top -= 100;
+  c.window.dispatchEvent({ type: 'scroll', target: c.area });
+  assert.equal(parseFloat(c.popup().style.top), firstTop - 100);
+  assert.equal(c.popup().children[0], option);
+  top = -40;
+  c.window.dispatchEvent({ type: 'scroll', target: c.area });
+  assert.equal(c.popup().hidden, true);
+  assert.equal(c.area.getAttribute('aria-activedescendant'), null);
+  assert.equal(c.key('Enter').defaultPrevented, false);
+});
+
+test('补全列表在输入行上方缩短时，顶边和键盘选中的末项都可见', async () => {
+  const c = setup(RESULTS);
+  c.window.innerHeight = 400;
+  let top = 320;
+  c.area.getBoundingClientRect = () => ({ left: 8, top, bottom: top + 80 });
+  await c.type('参考 [[排');
+  const list = c.popup();
+  Object.assign(list, { offsetHeight: 310, clientHeight: 224, scrollTop: 0 });
+  Object.assign(list.children[1], { offsetTop: 260, offsetHeight: 36 });
+  top = 240;
+  c.window.dispatchEvent({ type: 'scroll', target: c.area });
+  assert.equal(list.dataset.placement, 'above');
+  assert.equal(list.style.top, '8px');
+  assert.equal(list.style.maxHeight, '226px');
+  c.key('ArrowDown');
+  assert.equal(list.scrollTop + list.clientHeight, 296);
+  assert.equal(c.key('Enter').defaultPrevented, true);
+  assert.equal(c.area.value, '参考 [[排序算法]]');
+});
 
 test('补全弹出后按 End 移到后面的文字之后，回车不替换文字', async () => {
   const c = setup(RESULTS);
